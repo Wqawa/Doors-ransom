@@ -1,5 +1,7 @@
 # Ransom_dev
 
+**中文** | [English](README.en.md)
+
 把《DOORS》里的 **Ransom（A-90）遭遇战**做成一个真的会动你桌面的 Windows 整蛊程序。
 
 脸在你的屏幕上随机浮现 → 你必须停下不动 → 红色停牌闪现的那一瞬判定：
