@@ -1,0 +1,47 @@
+# ============================================================================
+#  .gitattributes —— 统一换行符，并且告诉 Git 哪些是二进制
+#
+#  为什么必须显式写：Windows 上 Git 默认开着 core.autocrlf=true，会把仓库里的
+#  LF 在工作区换成 CRLF、提交时再换回去。对源码无所谓，但对 assets\ 里的
+#  png / mp3 / 字体来说是**内容被改写**，每次 checkout 都可能变成「改动」，
+#  严重时还会损坏文件。这里一次性钉死：文本走 LF（仓库内统一），二进制不动。
+#
+#  写成 `text=auto eol=lf` 而不是只写 `text`：显式指定仓库内换行符，
+#  这样任何人（无论 core.autocrlf 是什么）clone 下来都是一致的。
+# ============================================================================
+
+# ---- 默认：文本按 LF 存 ----
+* text=auto eol=lf
+
+# ---- 明确是文本的（防止被误判）----
+*.cpp   text
+*.h     text
+*.c     text
+*.rc    text
+*.ini   text
+*.ps1   text
+*.sln   text
+*.vcxproj        text
+*.vcxproj.filters text
+*.md    text
+*.txt   text
+
+# ---- 二进制：禁止任何换行符转换和文本差异 ----
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.webp  binary
+*.ico   binary
+*.ttf   binary
+*.otf   binary
+*.mp3   binary
+*.ogg   binary
+*.wav   binary
+*.exe   binary
+*.dll   binary
+*.pdb   binary
+*.lnk   binary
+
+# ---- 让 GitHub 别把这些算进语言统计 ----
+assets/**  linguist-vendored
+Ransom_dev/src/third_party/**  linguist-vendored

@@ -1,0 +1,26 @@
+# ---- 构建产物（都在仓库根的 build\ 下，按 vcxproj 的 OutputLayout 约定）----
+build/
+
+# ---- Visual Studio 的本地缓存（能到几百 MB，绝对不要提交）----
+.vs/
+*.VC.db
+*.VC.opendb
+*.suo
+*.user
+*.aps
+*.sdf
+*.ipch
+*.opendb
+*.db
+
+# ---- 调试/测试留下的东西 ----
+# live\ 是开发过程中的截图和诊断日志（几十 MB），仓库里不留。
+live/
+*.log
+Gold_*.lnk
+
+# ---- 其它 ----
+Thumbs.db
+desktop.ini
+*.tmp
+*.bak
