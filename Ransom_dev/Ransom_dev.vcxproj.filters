@@ -32,7 +32,6 @@
       <UniqueIdentifier>{A1B2C3D4-0006-4E5F-9A0B-1C2D3E4F5A6B}</UniqueIdentifier>
     </Filter>
   </ItemGroup>
-
   <ItemGroup>
     <ClCompile Include="src\entity_main.cpp">
       <Filter>源文件</Filter>
@@ -82,8 +81,13 @@
     <ClCompile Include="src\ui_layout.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
+    <ClCompile Include="src\lockdown.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="src\guardian.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
   </ItemGroup>
-
   <ItemGroup>
     <ClInclude Include="src\aero_window.h">
       <Filter>头文件</Filter>
@@ -139,34 +143,125 @@
     <ClInclude Include="src\third_party\minimp3_ex.h">
       <Filter>third_party</Filter>
     </ClInclude>
+    <ClInclude Include="src\lockdown.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="src\guardian.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
   </ItemGroup>
-
   <ItemGroup>
     <ResourceCompile Include="Ransom_dev.rc">
       <Filter>资源文件</Filter>
     </ResourceCompile>
   </ItemGroup>
-
   <ItemGroup>
-    <None Include="..\assets\main_window.ini">
-      <Filter>assets</Filter>
-    </None>
-    <None Include="..\assets\payup.ini">
-      <Filter>assets</Filter>
-    </None>
-    <None Include="..\assets\ransom.ico">
-      <Filter>assets</Filter>
-    </None>
-    <None Include="..\assets\RobotoMono-VariableFont_wght.ttf">
-      <Filter>assets</Filter>
-    </None>
-    <None Include="..\assets\audio\**">
+    <None Include="..\assets\audio\Glitchyhitfaster.ogg">
       <Filter>assets\audio</Filter>
     </None>
-    <None Include="..\assets\image\**">
+    <None Include="..\assets\audio\jumpscare2.mp3">
+      <Filter>assets\audio</Filter>
+    </None>
+    <None Include="..\assets\audio\Ransomgold_increase_%2897004792231127%29.ogg">
+      <Filter>assets\audio</Filter>
+    </None>
+    <None Include="..\assets\audio\Ransom_encounter.wav">
+      <Filter>assets\audio</Filter>
+    </None>
+    <None Include="..\assets\audio\Ransom_full_theme.mp3">
+      <Filter>assets\audio</Filter>
+    </None>
+    <None Include="..\assets\audio\Ransom_start_%28132683318015866%29.ogg">
+      <Filter>assets\audio</Filter>
+    </None>
+    <None Include="..\assets\audio\ransom_success.ogg">
+      <Filter>assets\audio</Filter>
+    </None>
+    <None Include="..\assets\audio\Ransom_UI_-_Error_%2880099403859001%29.ogg">
+      <Filter>assets\audio</Filter>
+    </None>
+    <None Include="..\assets\image\A-90_JUMPSCARE.png">
       <Filter>assets\image</Filter>
     </None>
-    <None Include="..\assets\dump\**">
+    <None Include="..\assets\image\A90Crucifixion.png">
+      <Filter>assets\image</Filter>
+    </None>
+    <None Include="..\assets\image\Accepta90.png">
+      <Filter>assets\image</Filter>
+    </None>
+    <None Include="..\assets\image\Blocka90.png">
+      <Filter>assets\image</Filter>
+    </None>
+    <None Include="..\assets\image\Gold_icon.png">
+      <Filter>assets\image</Filter>
+    </None>
+    <None Include="..\assets\image\Gold_icon.webp">
+      <Filter>assets\image</Filter>
+    </None>
+    <None Include="..\assets\image\loadingBG.png">
+      <Filter>assets\image</Filter>
+    </None>
+    <None Include="..\assets\image\loading_1.png">
+      <Filter>assets\image</Filter>
+    </None>
+    <None Include="..\assets\image\loading_10.png">
+      <Filter>assets\image</Filter>
+    </None>
+    <None Include="..\assets\image\loading_2.png">
+      <Filter>assets\image</Filter>
+    </None>
+    <None Include="..\assets\image\loading_3.png">
+      <Filter>assets\image</Filter>
+    </None>
+    <None Include="..\assets\image\loading_4.png">
+      <Filter>assets\image</Filter>
+    </None>
+    <None Include="..\assets\image\loading_5.png">
+      <Filter>assets\image</Filter>
+    </None>
+    <None Include="..\assets\image\loading_6.png">
+      <Filter>assets\image</Filter>
+    </None>
+    <None Include="..\assets\image\loading_7.png">
+      <Filter>assets\image</Filter>
+    </None>
+    <None Include="..\assets\image\loading_8.png">
+      <Filter>assets\image</Filter>
+    </None>
+    <None Include="..\assets\image\loading_9.png">
+      <Filter>assets\image</Filter>
+    </None>
+    <None Include="..\assets\image\payup_bg.png">
+      <Filter>assets\image</Filter>
+    </None>
+    <None Include="..\assets\image\RansomPopup1.png">
+      <Filter>assets\image</Filter>
+    </None>
+    <None Include="..\assets\image\RansomPopup2.png">
+      <Filter>assets\image</Filter>
+    </None>
+    <None Include="..\assets\image\RansomPopup3.png">
+      <Filter>assets\image</Filter>
+    </None>
+    <None Include="..\assets\image\RansomPopup4.png">
+      <Filter>assets\image</Filter>
+    </None>
+    <None Include="..\assets\image\RansomPopup5.png">
+      <Filter>assets\image</Filter>
+    </None>
+    <None Include="..\assets\image\Thankyou_sign.png">
+      <Filter>assets\image</Filter>
+    </None>
+    <None Include="..\assets\dump\face_gape.png">
+      <Filter>assets\dump</Filter>
+    </None>
+    <None Include="..\assets\dump\face_idle.png">
+      <Filter>assets\dump</Filter>
+    </None>
+    <None Include="..\assets\dump\face_warped.png">
+      <Filter>assets\dump</Filter>
+    </None>
+    <None Include="..\assets\dump\stop_sign.png">
       <Filter>assets\dump</Filter>
     </None>
     <None Include="assets_gen.rc">
@@ -178,5 +273,50 @@
     <None Include="..\tools\gen_assets.ps1">
       <Filter>打包</Filter>
     </None>
+    <None Include="..\assets\**\*.*" />
+    <None Include="..\assets\**\*.*" />
+    <None Include="..\assets\**\*.*" />
+    <None Include="..\assets\**\*.*" />
+    <None Include="..\assets\**\*.*" />
+    <None Include="..\assets\**\*.*" />
+    <None Include="..\assets\**\*.*" />
+    <None Include="..\assets\**\*.*" />
+    <None Include="..\assets\**\*.*" />
+    <None Include="..\assets\**\*.*" />
+    <None Include="..\assets\**\*.*" />
+    <None Include="..\assets\**\*.*" />
+    <None Include="..\assets\**\*.*" />
+    <None Include="..\assets\**\*.*" />
+    <None Include="..\assets\**\*.*" />
+    <None Include="..\assets\**\*.*" />
+    <None Include="..\assets\**\*.*" />
+    <None Include="..\assets\**\*.*" />
+    <None Include="..\assets\**\*.*" />
+    <None Include="..\assets\**\*.*" />
+    <None Include="..\assets\**\*.*" />
+    <None Include="..\assets\**\*.*" />
+    <None Include="..\assets\**\*.*" />
+    <None Include="..\assets\**\*.*" />
+    <None Include="..\assets\**\*.*" />
+    <None Include="..\assets\**\*.*" />
+    <None Include="..\assets\**\*.*" />
+    <None Include="..\assets\**\*.*" />
+    <None Include="..\assets\**\*.*" />
+    <None Include="..\assets\**\*.*" />
+    <None Include="..\assets\**\*.*" />
+    <None Include="..\assets\**\*.*" />
+    <None Include="..\assets\**\*.*" />
+    <None Include="..\assets\**\*.*" />
+    <None Include="..\assets\**\*.*" />
+    <None Include="..\assets\**\*.*" />
+    <None Include="..\assets\**\*.*" />
+    <None Include="..\assets\**\*.*" />
+    <None Include="..\assets\**\*.*" />
+    <None Include="..\assets\**\*.*" />
+    <None Include="..\assets\**\*.*" />
+    <None Include="..\assets\**\*.*">
+      <Filter>资源文件</Filter>
+    </None>
+    <None Include="..\assets\**\*.*" />
   </ItemGroup>
 </Project>
