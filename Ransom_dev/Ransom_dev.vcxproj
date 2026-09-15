@@ -193,6 +193,8 @@
     <ClCompile Include="src\assets.cpp" />
     <ClCompile Include="src\image_blob.cpp" />
     <ClCompile Include="src\ui_layout.cpp" />
+    <ClCompile Include="src\settings.cpp" />
+    <ClCompile Include="src\setup_ui.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\aero_window.h" />
@@ -212,6 +214,8 @@
     <ClInclude Include="src\popup.h" />
     <ClInclude Include="src\recycle.h" />
     <ClInclude Include="src\ui_layout.h" />
+    <ClInclude Include="src\settings.h" />
+    <ClInclude Include="src\setup_ui.h" />
   </ItemGroup>
   <!-- 第三方解码器是**源码内联**的：audio_clip.cpp 直接 #include 进来，
        所以只能当普通文件看，绝不能加成 ClCompile（会重复定义符号）。 -->

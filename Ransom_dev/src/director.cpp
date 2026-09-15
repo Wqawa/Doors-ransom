@@ -13,6 +13,7 @@
 #include "motion.h"
 #include "popup.h"
 #include "recycle.h"
+#include "settings.h"
 
 #include <cstdlib>
 #include <cwchar>
@@ -24,7 +25,10 @@ namespace {
     const UINT     kTickMs = 16;
 
     // 各阶段时长。0 = 停住不自动推进。
-    const DWORD kIdleMs = 4000;
+    //
+    // 潜伏时长**不在这里**：它由启动设置里的「每次跳杀间隔」随机区间决定，
+    // 见 settings::PickIdleMs() 和下面的 g_idleMs。
+    const DWORD kIdleMs = 4000;   // 默认值（设置里的默认区间正好是这个数）
     const DWORD kFaceMs = 900;    // 头在任意位置浮现
     // 瞬移到中央 + 停牌出现 + jumpscare2 起播 + 检测启动，都在 CENTER 这一瞬。
     // 停牌显示到 CENTER + STOP 结束（= kStopShowMs），判定也在这时做。
@@ -154,7 +158,16 @@ namespace {
             overlay::SetLook(overlay::LOOK_FRAME);
             overlay::SetVisible(false);
             audio::Silence();
-            audio::SetMaster(60);
+
+            // 音量和光敏安全每次回潜伏态都重新对齐一遍。
+            //
+            // 这里以前是硬写的 `audio::SetMaster(60)` —— 那个值会把用户
+            // 在启动设置里调的音量整个盖掉（而且每轮都盖一次）。
+            // 现在改成读设置，顺便让「设置改了之后下一轮生效」这条路也通。
+            settings::Apply();
+
+            elog::Write(L"[director] 本轮潜伏 %lu ms（按设置区间随机抽）",
+                (unsigned long)g_idleMs);
             break;
 
         case director::PHASE_FACE:
@@ -210,7 +223,6 @@ namespace {
             audio::SetGlitchBed(0);
             audio::SetTheme(false);
             break;
-
         case director::PHASE_CAUGHT:
             // 动了：开始两段开场（jumpscare -> 加载条）。
             // face 那边已经在 CENTER 进入时撤掉了停牌（如果停牌已经到点），
@@ -407,7 +419,7 @@ namespace {
             next = g_caught ? director::PHASE_CAUGHT
                 : director::PHASE_ESCAPED;
             break;
-        case director::PHASE_ESCAPED: g_pendingIdleMs = kIdleMs;           next = director::PHASE_IDLE; break;
+        case director::PHASE_ESCAPED: g_pendingIdleMs = (DWORD)settings::PickIdleMs(); next = director::PHASE_IDLE; break;
         case director::PHASE_PAID:    g_pendingIdleMs = kCooldownPaidMs;   next = director::PHASE_IDLE; break;
         case director::PHASE_PUNISH:  g_pendingIdleMs = kCooldownPunishMs; next = director::PHASE_IDLE; break;
         default: break;
@@ -458,6 +470,12 @@ namespace director {
 
         popup::Start(hInst);
         recycle::Start(hInst);
+
+        // 第一轮潜伏用**启动时抽好的那一个**数（settings::Load 里抽的），
+        // 不是在这儿重抽：这样日志里「本轮潜伏」和设置窗口上显示的
+        // 区间对得上，也避免同一个随机数在两处各抽一次。
+        g_idleMs = (DWORD)settings::StartupIdleMs();
+        g_pendingIdleMs = g_idleMs;
 
         EnterPhase(PHASE_IDLE);
         return true;

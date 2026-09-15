@@ -30,6 +30,12 @@ using namespace Gdiplus;
 
 #pragma comment(lib, "gdiplus.lib")
 
+// WndProc 里调 aero::ClientToContent 时**必须**写全限定名。
+// 为什么：它下面的匿名 namespace 里还嵌着一个 `namespace aero`（内容绘制
+// 那一层就在里面），不加限定的话，非限定查找先命中那个内层 aero，
+// 从此不再往外找，于是永远看不见真正的 aero::ClientToContent。
+// （实测：不写 aero:: 就是 C3861「找不到标识符」。）
+
 namespace {
 
     const wchar_t* kClassName = L"RansomAeroWnd";
@@ -1110,10 +1116,63 @@ namespace {
         }
 
         // ------------------------------------------------------- 鼠标 ----
+        //
+        // 内容区鼠标转发：自绘控件（滑条 / 复选框 / 按钮）挂在
+        // Options::onContentMouse 上。坐标先换算成内容区坐标再给出去，
+        // 回调那边就不用再关心阴影和标题栏各占多高。
+        //
+        // 只转发落在内容区里的消息：
+        //   * 标题栏（y < kTitleH + 1）是拖动 / 双击最大化 / 系统菜单的地盘
+        //   * 阴影带（外面那 14px）本来就是透明区，点它等于点桌面
+        //
+        // 落在内容区之外的消息**不在这里吞掉**，继续往下走原有分支。
+        case WM_LBUTTONDOWN:
+        case WM_LBUTTONUP:
+        case WM_LBUTTONDBLCLK:
         case WM_MOUSEMOVE:
         {
-            if (!a) break;
             const POINT pt = { GET_X_LPARAM(lp), GET_Y_LPARAM(lp) };
+            POINT cp = {};
+            const bool onContent = a && aero::ClientToContent(hwnd, pt, cp);
+
+            if (a && a->opt.onContentMouse && onContent)
+            {
+                a->opt.onContentMouse(hwnd, msg, cp, wp, a->opt.onContentMouseUser);
+                return 0;
+            }
+
+            // ---- 以下只在「消息没被内容区接走」时才有意义 ----
+            if (!a) break;
+
+            // 左键：标题栏按钮（关闭 / 最大化 / 最小化）
+            if (msg == WM_LBUTTONDOWN)
+            {
+                if (!a->opt.buttons) return 0;
+                const POINT pt = { GET_X_LPARAM(lp), GET_Y_LPARAM(lp) };
+
+                if (PtInRect(&a->rcClose, pt))
+                {
+                    elog::Write(L"[aero] 关闭按钮被点击: '%s'", a->opt.title.c_str());
+                    // 先通知上层「这是玩家主动关的」，再发 WM_CLOSE。
+                    // 顺序不能反：WM_CLOSE 会一路走到 StartClose，中间可能
+                    // 触发别的处理，先把标志立起来才最可靠。
+                    if (a->opt.onUserClose)
+                        a->opt.onUserClose(hwnd, a->opt.onUserCloseUser);
+                    SendMessageW(hwnd, WM_CLOSE, 0, 0);
+                }
+                else if (PtInRect(&a->rcMax, pt))
+                {
+                    ToggleMaximize(a);
+                }
+                else if (PtInRect(&a->rcMin, pt))
+                {
+                    StartMinimize(a);
+                }
+                return 0;
+            }
+
+            if (msg != WM_MOUSEMOVE) break;
+
             int nh = BTN_NONE;
             if (a->opt.buttons)
             {
@@ -1132,30 +1191,24 @@ namespace {
             if (a && a->hot != BTN_NONE) { a->hot = BTN_NONE; PaintWindow(a); }
             return 0;
 
-        case WM_LBUTTONDOWN:
+        // 滚轮：和内容区鼠标一样先换算坐标，再转成正负号给回调。
+        // 注意 WM_MOUSEWHEEL 的 lParam 是**屏幕坐标**（和别的鼠标消息不同），
+        // 所以这里要先 ScreenToClient。
+        case WM_MOUSEWHEEL:
         {
-            if (!a || !a->opt.buttons) return 0;
-            const POINT pt = { GET_X_LPARAM(lp), GET_Y_LPARAM(lp) };
+            if (!a || !a->opt.onContentWheel) break;
 
-            if (PtInRect(&a->rcClose, pt))
+            POINT pt = { GET_X_LPARAM(lp), GET_Y_LPARAM(lp) };
+            ScreenToClient(hwnd, &pt);
+
+            POINT cp = {};
+            if (aero::ClientToContent(hwnd, pt, cp))
             {
-                elog::Write(L"[aero] 关闭按钮被点击: '%s'", a->opt.title.c_str());
-                // 先通知上层「这是玩家主动关的」，再发 WM_CLOSE。
-                // 顺序不能反：WM_CLOSE 会一路走到 StartClose，中间可能
-                // 触发别的处理，先把标志立起来才最可靠。
-                if (a->opt.onUserClose)
-                    a->opt.onUserClose(hwnd, a->opt.onUserCloseUser);
-                SendMessageW(hwnd, WM_CLOSE, 0, 0);
+                const int delta = (GET_WHEEL_DELTA_WPARAM(wp) > 0) ? 1 : -1;
+                a->opt.onContentWheel(hwnd, cp, delta, a->opt.onContentWheelUser);
+                return 0;
             }
-            else if (PtInRect(&a->rcMax, pt))
-            {
-                ToggleMaximize(a);
-            }
-            else if (PtInRect(&a->rcMin, pt))
-            {
-                StartMinimize(a);
-            }
-            return 0;
+            break;
         }
 
         case WM_NCLBUTTONDBLCLK:
@@ -1675,6 +1728,50 @@ namespace aero {
     {
         RECT r = { 0, 0, 0, 0 };
         if (hwnd && IsWindow(hwnd)) GetWindowRect(hwnd, &r);
+        return r;
+    }
+
+    // 内容区相对**客户区**的左上角 = (kShadow + 1, kShadow + kTitleH + 1)。
+    // 这两个常量必须和 PaintWindow 里算 content 的那段保持一致：
+    //   那里是 rcMain.X + 1, rcMain.Y + kTitleH + 1，而 rcMain 从 kShadow 起。
+    bool ClientToContent(HWND hwnd, POINT clientPt, POINT& out)
+    {
+        AeroWnd* a = hwnd ? From(hwnd) : nullptr;
+        if (!a) return false;
+
+        RECT cr = {};
+        GetClientRect(hwnd, &cr);
+        const int cw = cr.right - cr.left;
+        const int ch = cr.bottom - cr.top;
+
+        const int left   = kShadow + 1;
+        const int top    = kShadow + kTitleH + 1;
+        const int right  = cw - kShadow - 1;
+        const int bottom = ch - kShadow - 1;
+
+        if (clientPt.x < left || clientPt.x >= right ||
+            clientPt.y < top  || clientPt.y >= bottom)
+            return false;
+
+        out.x = clientPt.x - left;
+        out.y = clientPt.y - top;
+        return true;
+    }
+
+    RECT ContentRectOf(HWND hwnd)
+    {
+        RECT r = {};
+        if (!hwnd || !IsWindow(hwnd)) return r;
+
+        RECT wr = {};
+        GetWindowRect(hwnd, &wr);
+
+        r.left   = wr.left + kShadow + 1;
+        r.top    = wr.top + kShadow + kTitleH + 1;
+        r.right  = wr.right - kShadow - 1;
+        r.bottom = wr.bottom - kShadow - 1;
+        if (r.right  < r.left) r.right  = r.left;
+        if (r.bottom < r.top)  r.bottom = r.top;
         return r;
     }
 

@@ -87,6 +87,12 @@
     <ClCompile Include="src\guardian.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
+    <ClCompile Include="src\settings.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="src\setup_ui.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\aero_window.h">
@@ -147,6 +153,12 @@
       <Filter>头文件</Filter>
     </ClInclude>
     <ClInclude Include="src\guardian.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="src\settings.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="src\setup_ui.h">
       <Filter>头文件</Filter>
     </ClInclude>
   </ItemGroup>

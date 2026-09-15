@@ -7,6 +7,7 @@
 
 #include <cstdlib>
 #include <cstring>
+#include <atomic>
 #include <vector>
 
 #include <magnification.h>
@@ -60,6 +61,29 @@ DWORD               g_glowFrame = 0; // 呼吸相位
 bool      g_invert     = false;
 bool      g_magReady   = false;
 DWORD     g_invertOffAt = 0;
+
+// ---- 光敏安全模式 ----
+// 主线程（设置界面 / director）写，别的都在同一线程读，但还是用原子：
+// 那几个 Set* 有可能从别的线程被调到，读端拿一个撕裂的值不值得省这点开销。
+std::atomic<bool> g_safe{ false };
+
+// 安全模式下的缩放系数。
+//   kSafeNoise   ：噪点密度的上限（原版 80 -> 24）
+//   kSafeSolid   ：纯色底各通道的**乘数**（0.55 = 明显压暗，但不是全黑）
+//   kSafeGlow    ：四角红光强度的乘数
+//   kSafeFlash   ：闪屏次数与亮度的乘数（次数按 0.5 四舍五入）
+const int    kSafeNoise = 24;
+const double kSafeSolid = 0.55;
+const double kSafeGlow  = 0.45;
+
+// 把颜色按系数压暗（保持色相，各通道同比例）。
+COLORREF DimColor(COLORREF c, double f)
+{
+    const int r = (int)(GetRValue(c) * f + 0.5);
+    const int g = (int)(GetGValue(c) * f + 0.5);
+    const int b = (int)(GetBValue(c) * f + 0.5);
+    return RGB(r > 255 ? 255 : r, g > 255 ? 255 : g, b > 255 ? 255 : b);
+}
 
 // ---------------------------------------------------------------- 尺寸 ----
 void VirtualRect(RECT& r)
@@ -610,15 +634,29 @@ void Flash(COLORREF color, int times, DWORD onMs, DWORD offMs)
 {
     if (!g_driver) return;
 
+    // 光敏安全模式：次数砍半（至少 1 次），颜色压暗、单次也更短。
+    // 改的是**进来的参数**，所以调用点一行都不用动。
+    BYTE alpha = 210;
+    if (g_safe.load())
+    {
+        times = (times + 1) / 2;
+        onMs  = (onMs > 40) ? 40 : onMs;
+        offMs = (offMs < 80) ? 80 : offMs;      // 灭的时间拉长，给眼睛留余地
+        color = DimColor(color, 0.55);
+        alpha = 120;
+    }
+
     g_flashColor   = color;
     g_flashTimes   = (times < 1) ? 1 : times;
-    g_flashOnMs    = (onMs  < 16) ? 16 : onMs;
+    g_flashOnMs    = (onMs < 16) ? 16 : onMs;
     g_flashOffMs   = (offMs < 16) ? 16 : offMs;
+    g_flashAlpha   = alpha;
     g_flashPhaseOn = true;
     g_flashNext    = GetTickCount() + g_flashOnMs;
 
-    elog::Write(L"[fx] 闪屏 x%d color=%06lX on=%lums off=%lums",
-                g_flashTimes, (unsigned long)color, g_flashOnMs, g_flashOffMs);
+    elog::Write(L"[fx] 闪屏 x%d color=%06lX on=%lums off=%lums%s",
+                g_flashTimes, (unsigned long)color, g_flashOnMs, g_flashOffMs,
+                g_safe.load() ? L"（光敏安全模式已削弱）" : L"");
 }
 
 void StopFlash()
@@ -629,10 +667,31 @@ void StopFlash()
 
 bool Flashing() { return g_flashTimes > 0; }
 
+void SetPhotosensitiveSafe(bool on)
+{
+    const bool prev = g_safe.exchange(on);
+    if (prev == on) return;
+
+    // 已经铺上去的那一层也要立刻跟着改，而不是等下一次 Set*：
+    // 设置界面就开着的时候用户勾上它，当前特效应当马上变柔。
+    if (on)
+    {
+        if (g_noise > kSafeNoise) { g_noise = kSafeNoise; }
+        if (g_solid)              { g_solidColor = DimColor(g_solidColor, kSafeSolid); }
+        if (g_glowStrength > 0)   { g_glowStrength = (int)(g_glowStrength * kSafeGlow + 0.5); }
+    }
+
+    elog::Write(L"[fx] 光敏安全模式 %s", on ? L"开启" : L"关闭");
+}
+
+bool PhotosensitiveSafe() { return g_safe.load(); }
+
 void SetNoise(int level)
 {
     if (level < 0)   level = 0;
     if (level > 255) level = 255;
+    if (g_safe.load() && level > kSafeNoise) level = kSafeNoise;
+
     if (level == g_noise) return;
 
     g_noise = level;
@@ -665,6 +724,14 @@ bool Invert() { return g_invert; }
 
 void InvertPulse(DWORD ms)
 {
+    // 整屏反色是**最**刺眼的一种闪：光敏安全模式下直接不执行，
+    // 而不是把它变短——「闪得短」对光敏人群并不更安全。
+    if (g_safe.load())
+    {
+        elog::Write(L"[fx] 反色脉冲被光敏安全模式拦下（%lums）", (unsigned long)ms);
+        return;
+    }
+
     if (ms < 16) ms = 16;
     if (!SetInvert(true)) return;          // 不支持就什么都不做
     g_invertOffAt = GetTickCount() + ms;
@@ -673,6 +740,10 @@ void InvertPulse(DWORD ms)
 
 void SetSolid(bool on, COLORREF color)
 {
+    // 纯色底是全屏铺满的，它的亮度就是「整屏亮度跳变」本身——
+    // 安全模式按比例压暗（亮红 170,0,0 -> 约 94,0,0），色相不变。
+    if (on && g_safe.load()) color = DimColor(color, kSafeSolid);
+
     if (g_solid == on && g_solidColor == color) return;
     g_solid      = on;
     g_solidColor = color;
@@ -686,6 +757,7 @@ void SetEdgeGlow(bool on, COLORREF color, int strength)
 {
     if (strength < 0)   strength = 0;
     if (strength > 255) strength = 255;
+    if (on && g_safe.load()) strength = (int)(strength * kSafeGlow + 0.5);
 
     if (g_glow == on && g_glowColor == color && g_glowStrength == strength) return;
 

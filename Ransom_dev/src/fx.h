@@ -24,8 +24,24 @@ bool Start(HINSTANCE hInst);
 // 停止：关掉所有特效并把反色还原。
 void Stop();
 
+// ---- 光敏安全模式（启动设置里的「癫痫模式」）----
+//
+// true = 压低**整屏亮度跳变**：噪点密度、四角红光强度、纯色底亮度都会缩水，
+//        闪屏次数减半、反色脉冲不执行。
+// false（默认）= 原版演出，全强度。
+//
+// 为什么缩放做在 fx 内部而不是在每个调用点判断：这四项的强度是**所有**
+// 演出路径（director / guardian / 弹窗）共用的，逐个改调用点一定会漏。
+// 在写入端统一缩放之后，谁调 SetNoise / SetEdgeGlow / SetSolid 都自动受影响。
+//
+// 注意：这**不是**「把演出变成全黑」——脸、停牌、弹窗都照旧，
+// 只是不再有刺眼的整屏明暗闪烁。
+void SetPhotosensitiveSafe(bool on);
+bool PhotosensitiveSafe();
+
 // ---- 闪屏 ----
 // color 闪什么颜色；times 闪几次；onMs/offMs 每次亮/灭持续多久。
+// 光敏安全模式下次数减半、每次更暗。
 void Flash(COLORREF color, int times, DWORD onMs, DWORD offMs);
 void StopFlash();
 bool Flashing();
