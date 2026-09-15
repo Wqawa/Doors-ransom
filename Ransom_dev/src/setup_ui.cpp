@@ -987,6 +987,12 @@ namespace {
                 {
                     g_confirm = true;
                     g_done = true;
+
+                    // 这里以前**只**置了标志，没请求关闭动画 ——
+                    // 于是窗口被模态循环后面那句 aero::Destroy() 直接销毁，
+                    // 玩家点「我知道了」看到的是一下子消失。补上这一句，
+                    // 让窗口走和其它路径一致的 180ms 淡出。
+                    aero::AnimateClose(hwnd);
                 }
                 g_armed = false;
                 return;
@@ -1102,17 +1108,21 @@ namespace setup_ui {
             g_edit.minMs, g_edit.maxMs);
 
         // ---- 模态循环 ----
-        // GetMessage 只收本窗口的消息；窗口在关闭动画结束时被销毁，
-        // 之后 GetMessage 返回 0，循环自然退出。
+        // 退出条件是「窗口真的没了」，**不是** g_done。
+        //
+        // Commit() 在**开始**播放关闭动画的那一刻就把 g_done 置位了；
+        // 如果循环以 g_done 为条件，下面那句 aero::Destroy() 会立刻
+        // 销毁窗口，180ms 的淡出动画一帧都播不出来 —— 这正是
+        // 「关闭动画失效」的根因。窗口由 aero 在关闭动画播完后自己
+        // 销毁，让循环跑到那一刻为止就对了。
         MSG msg;
-        while (!g_done && GetMessageW(&msg, h, 0, 0) > 0)
+        while (aero::IsAlive(h) && GetMessageW(&msg, h, 0, 0) > 0)
         {
             TranslateMessage(&msg);
             DispatchMessageW(&msg);
         }
 
-        // 关闭动画走完才回来（GetMessage 在窗口销毁后返回 0）。
-        // 兜底：万一循环因为别的原因退出，这里保证窗口不残留。
+        // 兜底：只有异常路径才会走到这里（正常路径窗口已被 aero 销毁）。
         if (aero::IsAlive(h)) aero::Destroy(h);
         g_hwnd = nullptr;
         ClearHotkeyHandler();
@@ -1166,8 +1176,11 @@ namespace setup_ui {
 
         elog::Write(L"[setup] 应急提示已弹出（安全阀 Ctrl+Alt+Shift+%c）", (wchar_t)panicVk);
 
+        // 同上：跑到窗口消失为止，让关闭动画播完。
+        // 这里有两处会把 g_done 置位（点按钮 / 点 X / 按热键），
+        // 都以 g_done 为循环条件的话，关闭动画全都会被跳过去。
         MSG msg;
-        while (!g_done && GetMessageW(&msg, h, 0, 0) > 0)
+        while (aero::IsAlive(h) && GetMessageW(&msg, h, 0, 0) > 0)
         {
             TranslateMessage(&msg);
             DispatchMessageW(&msg);

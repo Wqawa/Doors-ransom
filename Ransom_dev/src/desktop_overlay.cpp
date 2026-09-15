@@ -68,6 +68,7 @@
 #include <cstdlib>
 #include <cwchar>
 #include <cwctype>
+#include <map>
 #include <set>
 #include <string>
 #include <thread>
@@ -345,6 +346,38 @@ struct Frame {
     std::wstring name;
     RECT         rc;    // 屏幕坐标，已含 pad
 };
+
+// ---- 锁定态的故障粒子 ----
+// 每个锁定方框每隔几秒闪一下：1-4 个**很小**的 A-90_JUMPSCARE 图，
+// 尺寸和宽扁比例都随机。纯粹是氛围——盯着"已加密"的方框看久了
+// 会看到它们内部跳出几张一闪而过的脸。
+//
+// 生命周期按**帧**算（不是毫秒）：锁定态刷新间隔是 70ms，
+// 3 帧 ≈ 210ms，够短促，也不至于一帧就没了看不出来。
+//
+// **定义位置**：必须在 Overlay 类之前。Overlay::Render 里要用到这两个
+// 全局量，而模块状态那个匿名 namespace 在 Overlay 后面——放那里会编译
+// 报"未声明的标识符"。
+struct GlitchParticle
+{
+    float x, y;          // 屏幕坐标（中心点）
+    float w, h;          // 绘制尺寸（宽高比随机）
+    BYTE  startAlpha;    // 出生时的 alpha
+    int   life;          // 剩余帧数
+    int   maxLife;
+};
+
+std::vector<GlitchParticle> g_glitchParticles;
+
+// 每个锁定方框一个**独立**的下次闪烁时刻。
+//
+// key 用方框的 (left, top)：这个位置在锁定期间基本不会变，
+// 拿它当身份比用 rects 数组下标稳——数组每次重扫都可能重排，
+// 用下标会把 A 的计时挪到 B 身上。
+//
+// 方框不在本轮 rects 里了（解锁、图标被拖走、桌面重排……）就在
+// Render 里顺手把它删掉，免得 map 无限增长。
+std::map<std::pair<LONG, LONG>, DWORD> g_frameNextBurst;
 
 static bool BuildFramesViaListView(const DesktopRef& d,
                                    const std::set<std::wstring>& shortcutNames,
@@ -729,6 +762,14 @@ public:
         if (w <= 0 || h <= 0) return;
         if (!EnsureBuffers(w, h)) return;
 
+        // 已经退出锁定态：把上一次攒下的粒子和每个方框的计时一并清掉，
+        // 免得下次再进锁定态时它们从旧位置继续跳。
+        if (g_opt.look != overlay::LOOK_LOCKED)
+        {
+            if (!g_glitchParticles.empty()) g_glitchParticles.clear();
+            if (!g_frameNextBurst.empty())  g_frameNextBurst.clear();
+        }
+
         // 本帧需要做预乘 alpha 的区域（只要轮廓覆盖到的范围，省时间）
         std::vector<RECT> dirty;
         dirty.reserve(rects.size());
@@ -801,8 +842,16 @@ public:
                     // 图标要够大才看得清（原来 0.42 太小）
                     const float side = min(cx, cy) * 0.78f;
                     if (side > 10.0f) {
-                        // 每帧随机一个小角度；抖动幅度很小（±7 度）
-                        const float ang = (float)((rand() % 141) - 70) / 10.0f;
+                        // 每帧随机一个角度，范围 ±kStopJitterDeg 度。
+                        // 想调抖动大小就改 kStopJitterDeg：
+                        //   0    = 不抖（静止的停牌）
+                        //   3    = 轻微晃
+                        //   7    = 原值，看得出在抖
+                        //   20   = 明显摇晃，接近"摇摇欲坠"
+                        //   45+  = 剧烈乱转，像坏了
+                        const float kStopJitterDeg = 3.0f;
+                        const float ang = ((float)(rand() % 2001) / 1000.0f - 1.0f)
+                            * kStopJitterDeg;
 
                         RECT sr;
                         sr.left   = (LONG)(x + cx / 2.0f - side / 2.0f);
@@ -817,9 +866,194 @@ public:
                 }
 
                 long m = (long)(g_opt.thickness + 12.0f);
-                RECT dirtyRect = {r.left - m, r.top - m, r.right + m, r.bottom + m};
+                RECT dirtyRect = { r.left - m, r.top - m, r.right + m, r.bottom + m };
                 MapWindowPoints(NULL, m_hwnd, (LPPOINT)&dirtyRect, 2);
                 dirty.push_back(dirtyRect);
+            }
+
+            // ---- 锁定态的故障粒子 ----
+            // 每个锁定方框**各自**每隔 4-8 秒闪出 1-4 个缩小的
+            // A-90_JUMPSCARE，尺寸、宽高比、透明度、下一次的时刻都随机。
+            //
+            // 计时是 per-frame 的：g_frameNextBurst 里每个方框一条独立
+            // 记录。以前这里是一个全局时刻，所有框一起闪，看起来像整屏
+            // 一起掉帧；改成 per-frame 之后它们会各自错开、此起彼伏。
+            //
+            // 这套逻辑放在方框循环**之后**：粒子是覆盖在停牌图标之上的，
+            // 先画方框和停牌再叠粒子，粒子落上去就像方框里冒出来的噪点。
+            if (locked && !rects.empty())
+            {
+                const DWORD nowTick = GetTickCount();
+
+                // ---- 1. 老化 ----
+                // 每帧统一减一。寿命到 0 就删——用 erase 逐个来，
+                // 粒子数最多几十个，不值得换成"标记-压缩"两趟。
+                for (size_t i = 0; i < g_glitchParticles.size(); )
+                {
+                    if (--g_glitchParticles[i].life <= 0)
+                        g_glitchParticles.erase(g_glitchParticles.begin() + i);
+                    else
+                        ++i;
+                }
+
+                // ---- 2. 每个方框独立推进自己的计时 ----
+                //
+                // alive 收集本轮还在场上的方框 key，末尾用来清理
+                // g_frameNextBurst 里已经消失的条目（解锁、图标被拖走、
+                // 桌面重排……），否则 map 会一直涨。
+                std::set<std::pair<LONG, LONG> > alive;
+
+                for (size_t ri = 0; ri < rects.size(); ++ri)
+                {
+                    const RECT& r = rects[ri];
+                    const LONG bw = r.right - r.left;
+                    const LONG bh = r.bottom - r.top;
+
+                    // 太小放不下粒子的方框直接跳过（正常桌面图标不会这么小，
+                    // 但超多列、高 DPI 混排时可能出现）。
+                    if (bw < 16 || bh < 16) continue;
+
+                    const std::pair<LONG, LONG> key(r.left, r.top);
+                    alive.insert(key);
+
+                    std::map<std::pair<LONG, LONG>, DWORD>::iterator it =
+                        g_frameNextBurst.find(key);
+
+                    if (it == g_frameNextBurst.end())
+                    {
+                        // 第一次见到这个方框：给它排一个 4-8 秒后的
+                        // **随机**首闪时刻。每个框抽的时间都不同，
+                        // 所以一进锁定态它们就是错开的，不会齐闪。
+                        g_frameNextBurst[key] =
+                            nowTick + 4000 + (DWORD)(rand() % 4001);
+                        continue;
+                    }
+
+                    if (nowTick < it->second) continue;   // 这个框还没到点
+
+                    // ---- 到点了：生成本轮粒子 ----
+                    const int n = 1 + (rand() % 4);     // 1-4 个
+                    int made = 0;
+
+                    for (int k = 0; k < n; ++k)
+                    {
+                        GlitchParticle p;
+
+                        // 尺寸：**很小**。10-20px 高，这样即使铺满一屏方框
+                        // 也不会喧宾夺主 —— 它只是方框里的"杂点"。
+                        p.h = 10.0f + (float)(rand() % 11);
+
+                        // 宽扁随机：宽高比 0.4 - 2.5。
+                        // 偏扁的多，偏瘦的少；比例再离谱就成了一条线或者
+                        // 一个方块，失去"A-90 的脸"的可辨识度。
+                        p.w = p.h * (0.4f + (float)(rand() % 211) / 100.0f);
+
+                        // 落点：把粒子整体塞进方框里（含 2px 内边距），
+                        // 免得它的边缘越过方框线，看着像是"漏出去了"。
+                        const float marginX = p.w * 0.5f + 2.0f;
+                        const float marginY = p.h * 0.5f + 2.0f;
+
+                        const LONG xMin = r.left + (LONG)marginX;
+                        const LONG xMax = r.right - (LONG)marginX;
+                        const LONG yMin = r.top + (LONG)marginY;
+                        const LONG yMax = r.bottom - (LONG)marginY;
+
+                        if (xMin >= xMax || yMin >= yMax) continue;
+
+                        p.x = (float)(xMin + (rand() % (xMax - xMin + 1)));
+                        p.y = (float)(yMin + (rand() % (yMax - yMin + 1)));
+
+                        // 透明度随机：90-255。压低下限是刻意的 ——
+                        // 全不透明会让小图很"实"，和噪点氛围不搭。
+                        p.startAlpha = (BYTE)(90 + (rand() % 166));
+
+                        p.maxLife = 3;
+                        p.life = p.maxLife;
+
+                        g_glitchParticles.push_back(p);
+                        ++made;
+                    }
+
+                    // 排下一次：又是 4-8 秒后的独立随机。
+                    // 每个框各排各的，所以之后它们的节奏也是错开的。
+                    g_frameNextBurst[key] =
+                        nowTick + 4000 + (DWORD)(rand() % 4001);
+
+                    if (made > 0)
+                        DLog(L"[overlay] 故障粒子：%d 个 @(%ld,%ld)（下次 %.1f 秒后）",
+                            made, r.left, r.top,
+                            (g_frameNextBurst[key] - nowTick) / 1000.0);
+                }
+
+                // ---- 2b. 清掉本轮不在场上的方框 ----
+                // 它们在锁定期间消失了（解锁、被拖走、桌面重排），
+                // 留着只会让 map 越滚越大，而且以后要是同样的
+                // (left, top) 又被占上，会拿一份陈旧的计时用。
+                for (std::map<std::pair<LONG, LONG>, DWORD>::iterator
+                    it = g_frameNextBurst.begin();
+                    it != g_frameNextBurst.end(); )
+                {
+                    if (alive.find(it->first) == alive.end())
+                        it = g_frameNextBurst.erase(it);
+                    else
+                        ++it;
+                }
+
+                // ---- 3. 绘制 ----
+                if (!g_glitchParticles.empty())
+                {
+                    HDC hdc = g.GetHDC();
+                    for (size_t i = 0; i < g_glitchParticles.size(); ++i)
+                    {
+                        const GlitchParticle& p = g_glitchParticles[i];
+                        if (p.life <= 0) continue;
+
+                        // 寿命线性衰减：出生那帧最亮，最后一帧最暗。
+                        const float fade = (float)p.life / (float)p.maxLife;
+                        const float alpha = ((float)p.startAlpha / 255.0f) * fade;
+                        if (alpha < 0.02f) continue;
+
+                        RECT pr;
+                        pr.left = (LONG)(p.x - p.w * 0.5f - wr.left);
+                        pr.top = (LONG)(p.y - p.h * 0.5f - wr.top);
+                        pr.right = (LONG)(p.x + p.w * 0.5f - wr.left);
+                        pr.bottom = (LONG)(p.y + p.h * 0.5f - wr.top);
+
+                        face::BlitFaceAlpha(hdc, pr, true /* 张口脸 */, alpha);
+                    }
+                    g.ReleaseHDC(hdc);
+                }
+
+                // ---- 4. 粒子的脏区 ----
+                // 算一个包围盒整体塞进 dirty 就行。粒子数最多几十个、
+                // 每个又小，一个并集矩形足够了；分成一个个小矩形反而会
+                // 因为预乘的固定开销变慢。
+                if (!g_glitchParticles.empty())
+                {
+                    RECT pb = { LONG_MAX, LONG_MAX, LONG_MIN, LONG_MIN };
+
+                    for (size_t i = 0; i < g_glitchParticles.size(); ++i)
+                    {
+                        const GlitchParticle& p = g_glitchParticles[i];
+                        if (p.life <= 0) continue;
+
+                        const LONG l = (LONG)(p.x - p.w * 0.5f);
+                        const LONG t = (LONG)(p.y - p.h * 0.5f);
+                        const LONG r2 = (LONG)(p.x + p.w * 0.5f);
+                        const LONG b2 = (LONG)(p.y + p.h * 0.5f);
+
+                        if (l < pb.left)   pb.left = l;
+                        if (t < pb.top)    pb.top = t;
+                        if (r2 > pb.right)  pb.right = r2;
+                        if (b2 > pb.bottom) pb.bottom = b2;
+                    }
+
+                    if (pb.left < pb.right && pb.top < pb.bottom)
+                    {
+                        MapWindowPoints(NULL, m_hwnd, (LPPOINT)&pb, 2);
+                        dirty.push_back(pb);
+                    }
+                }
             }
         }   // Graphics 析构时会把所有绘制刷到 DIB 上
 
@@ -970,11 +1204,34 @@ std::vector<RECT>      g_lastRects;     // 实际绘制的方框（含错位/抖
 std::vector<RECT>      g_hitRects;      // 命中判定用的方框（**不含**抖动）
 int                    g_shortcutCount  = 0;
 
-int                    g_jitter         = 0;   // 抖动幅度(px)
-int                    g_offsetX        = 0;   // 整体错位
-int                    g_offsetY        = 0;
+int                    g_jitter = 0;   // 抖动幅度(px)
+int                    g_offsetX = 0;   // 整体错位
+int                    g_offsetY = 0;
 
-Overlay*               g_overlay        = NULL;
+Overlay* g_overlay = NULL;
+
+
+// ---- 锁定态的故障粒子 ----
+// 每个锁定方框每隔几秒闪一下：1-4 个**很小**的 A-90_JUMPSCARE 图，
+// 尺寸和宽扁比例都随机。纯粹是氛围——盯着"已加密"的方框看久了
+// 会看到它们内部跳出几张一闪而过的脸。
+//
+// 生命周期按**帧**算（不是毫秒）：锁定态刷新间隔是 70ms，
+// 3 帧 ≈ 210ms，够短促，也不至于一帧就没了看不出来。
+struct GlitchParticle
+{
+    float x, y;          // 屏幕坐标（中心点）
+    float w, h;          // 绘制尺寸（宽高比随机）
+    BYTE  startAlpha;    // 出生时的 alpha
+    int   life;          // 剩余帧数
+    int   maxLife;
+};
+
+std::vector<GlitchParticle> g_glitchParticles;
+DWORD                       g_nextGlitchBurst = 0;   // 0 = 还没排过
+
+
+// ---- 拦截鼠标/键盘：已加密的图标打不开、弹不出右键菜单、也拖不走 ----
 
 
 // ---- 拦截鼠标/键盘：已加密的图标打不开、弹不出右键菜单、也拖不走 ----

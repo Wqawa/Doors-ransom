@@ -74,6 +74,11 @@ namespace face {
     int  PopupImageCount();
     bool BlitPopupImage(HDC hdc, const RECT& rc, int index);
     void BlitFace(HDC hdc, const RECT& rc, bool gape, DWORD frame);
+
+    // 同上，但可以指定整体不透明度（0..1），并且**不保持宽高比**
+    // （粒子要的就是「宽扁随机」）。overlay 的锁定态故障粒子用它。
+    void BlitFaceAlpha(HDC hdc, const RECT& rc, bool gape, float alpha);
+
     void BlitCrucified(HDC hdc, const RECT& rc, DWORD frame);
     void BlitStopSign(HDC hdc, const RECT& rc, float angleDeg);
 

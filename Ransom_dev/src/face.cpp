@@ -1273,6 +1273,56 @@ namespace face {
             (REAL)src.w, (REAL)src.h, UnitPixel);
     }
 
+    // 覆盖层锁定态的故障粒子用它：可指定整体 alpha，且**不保持宽高比**。
+    // 和 BlitFace 的差别就这两点 —— 粒子要的是"被拉伸成扁扁一条"的观感，
+    // 以及"半透明地浮在方框里"的轻量感。
+    void BlitFaceAlpha(HDC hdc, const RECT& rc, bool gape, float alpha)
+    {
+        if (!hdc) return;
+
+        const int w = rc.right - rc.left;
+        const int h = rc.bottom - rc.top;
+        if (w <= 0 || h <= 0) return;
+
+        if (alpha < 0.0f) alpha = 0.0f;
+        if (alpha > 1.0f) alpha = 1.0f;
+        if (alpha < 0.02f) return;                    // 太淡就别画了，省一次 DrawImage
+
+        const Surface& src = gape ? g_gape : g_idle;
+        if (!src.Ok()) return;
+
+        Graphics g(hdc);
+        // 粒子很小，NearestNeighbor 会把缩小后的脸糊成几个色块，
+        // 这里用 Bicubic 出一层"脏污"的观感，正好和四角红噪对味。
+        g.SetInterpolationMode(InterpolationModeHighQualityBicubic);
+        g.SetPixelOffsetMode(PixelOffsetModeHalf);
+
+        // 和 BlitFace 不同：**不**保持宽高比。粒子要的就是拉伸出来的扁/胖比例，
+        // 所以直接把整张图铺满传进来的矩形。
+        const RectF dst((REAL)rc.left, (REAL)rc.top, (REAL)w, (REAL)h);
+
+        if (alpha >= 0.99f)
+        {
+            g.DrawImage(src.bmp, dst, 0.0f, 0.0f,
+                (REAL)src.w, (REAL)src.h, UnitPixel);
+        }
+        else
+        {
+            // 整张图乘一个 alpha：只能走 ColorMatrix（ImageAttributes）
+            ColorMatrix cm = {
+                1, 0, 0, 0, 0,
+                0, 1, 0, 0, 0,
+                0, 0, 1, 0, 0,
+                0, 0, 0, alpha, 0,
+                0, 0, 0, 0, 1
+            };
+            ImageAttributes ia;
+            ia.SetColorMatrix(&cm);
+            g.DrawImage(src.bmp, dst, 0.0f, 0.0f,
+                (REAL)src.w, (REAL)src.h, UnitPixel, &ia);
+        }
+    }
+
     void BlitCrucified(HDC hdc, const RECT& rc, DWORD /*frame*/)
     {
         if (!hdc || !g_cruc.Ok()) return;
