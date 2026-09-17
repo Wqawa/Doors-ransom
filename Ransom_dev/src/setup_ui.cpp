@@ -246,7 +246,7 @@ namespace {
 
         // ---- 纯数据布局（相对内容区左上角）----
         const int kW = 520;
-        const int kH = 430;
+        const int kH = 470;             // 从 430 提到 470，给新增的金币滑条腾地方
         const int kM = 22;              // 左右页边距
         const int kLabelH = 18;         // 标签行高
         const int kTrackH = 18;         // 条带高度（视觉上的「槽」）
@@ -257,11 +257,12 @@ namespace {
         const int kSafeTop = 184;       // 光敏安全（复选框，= kSafeRowH 高）
         const int kSafeRowH = 34;
         const int kRow3Top = 236;       // 随机区间
-        const int kBtnTop = 330;
+        const int kRow4Top = 296;       // 赎金目标金币  ← 新增
+        const int kBtnTop = 356;
         const int kBtnH = 42;
         const int kBtnGap = 14;
         const int kBtnW = 150;
-        const int kHintTop = 386;
+        const int kHintTop = 412;
 
         const int kTrackLeft = kM + 18;                 // 条带左右端
         const int kTrackRight = kW - kM - 18;
@@ -271,6 +272,10 @@ namespace {
         // 改一边就得改另一边——所以这里直接从 settings 取。
         const int kLoMs = settings::kIntervalMinMs;
         const int kHiMs = settings::kIntervalMaxMs;
+
+        // 金币目标的数值范围。同样从 settings 取。
+        const int kGoldLo = settings::kGoldMin;
+        const int kGoldHi = settings::kGoldMax;
 
         const int kVolStep = 5;         // 滚轮一格 5%
 
@@ -303,9 +308,10 @@ namespace {
         // 点「开始」才写回 settings 并落盘。
         settings::Set g_edit;
 
-        RECT BgmTrack()  { RECT r; SetRectLocal(r, kTrackLeft, kRow1Top + kLabelH + 2, kTrackW, kTrackH); return r; }
-        RECT SfxTrack()  { RECT r; SetRectLocal(r, kTrackLeft, kRow2Top + kLabelH + 2, kTrackW, kTrackH); return r; }
-        RECT IntTrack()  { RECT r; SetRectLocal(r, kTrackLeft, kRow3Top + kLabelH + 2, kTrackW, kTrackH); return r; }
+        RECT BgmTrack() { RECT r; SetRectLocal(r, kTrackLeft, kRow1Top + kLabelH + 2, kTrackW, kTrackH); return r; }
+        RECT SfxTrack() { RECT r; SetRectLocal(r, kTrackLeft, kRow2Top + kLabelH + 2, kTrackW, kTrackH); return r; }
+        RECT IntTrack() { RECT r; SetRectLocal(r, kTrackLeft, kRow3Top + kLabelH + 2, kTrackW, kTrackH); return r; }
+        RECT GoldTrack() { RECT r; SetRectLocal(r, kTrackLeft, kRow4Top + kLabelH + 2, kTrackW, kTrackH); return r; }
 
         RECT SafeBox()
         {
@@ -366,6 +372,29 @@ namespace {
         {
             const RECT t = IntTrack();
             const double f = (double)(ms - kLoMs) / (double)(kHiMs - kLoMs);
+            return t.left + (int)std::lround(f * (t.right - t.left));
+        }
+
+        // 金币目标：10-1000。吸到 10 的整数倍 —— 金币面额全是 10 的倍数，
+        // 目标也跟着取整，滑条上的读数看起来才整齐。
+        int GoldFromX(int x)
+        {
+            const RECT t = GoldTrack();
+            double f = (double)(x - t.left) / (double)(t.right - t.left);
+            if (f < 0.0) f = 0.0;
+            if (f > 1.0) f = 1.0;
+
+            int v = kGoldLo + (int)std::lround(f * (kGoldHi - kGoldLo));
+            v = (v / 10) * 10;
+            if (v < kGoldLo) v = kGoldLo;
+            if (v > kGoldHi) v = kGoldHi;
+            return v;
+        }
+
+        int GoldToX(int v)
+        {
+            const RECT t = GoldTrack();
+            const double f = (double)(v - kGoldLo) / (double)(kGoldHi - kGoldLo);
             return t.left + (int)std::lround(f * (t.right - t.left));
         }
 
@@ -562,6 +591,40 @@ namespace {
                 DrawTextMono(g, L"90s", hi, 11.0f, kTextFaint, StringAlignmentFar);
             }
 
+            // ---- 赎金目标金币 ----
+            {
+                RectF t(xL, rc.Y + (REAL)kRow4Top, w, (REAL)kLabelH);
+                DrawTextCjk(g, L"赎金目标金币", t, 14.0f, kTextMain);
+
+                swprintf_s(buf, L"%d", g_edit.goldGoal);
+                RectF v(xL, rc.Y + (REAL)kRow4Top, w, (REAL)kLabelH);
+                DrawTextMono(g, buf, v, 14.0f,
+                    g_edit.goldGoal > 500 ? kAccent : kTextDim, StringAlignmentFar);
+
+                const RECT tr = GoldTrack();
+                const int kx = GoldToX(g_edit.goldGoal);
+                DrawTrack(g, rc, tr, 1, kx, kx, tr.left, kx,
+                    g_drag == 5 ? 0 : -1);
+
+                RectF lo(xL, rc.Y + (REAL)(tr.bottom + 2), w, 14.0f);
+                DrawTextMono(g, L"10", lo, 11.0f, kTextFaint);
+
+                // 中点刻度标 500（原作默认值）—— 偏了之后好一眼找到原位
+                {
+                    const REAL mx = rc.X + (REAL)GoldToX(500);
+                    const REAL my = rc.Y + (REAL)tr.top + (REAL)kTrackH * 0.5f;
+                    SolidBrush tick(kTextFaint);
+                    g.FillRectangle(&tick, mx, my - 9.0f, 1.0f, 18.0f);
+
+                    RectF mid(xL + w * 0.5f - 40.0f,
+                        rc.Y + (REAL)(tr.bottom + 2), 80.0f, 14.0f);
+                    DrawTextMono(g, L"500", mid, 11.0f, kTextFaint, StringAlignmentCenter);
+                }
+
+                RectF hi(xL, rc.Y + (REAL)(tr.bottom + 2), w, 14.0f);
+                DrawTextMono(g, L"1000", hi, 11.0f, kTextFaint, StringAlignmentFar);
+            }
+
             // ---- 按钮 ----
             DrawButton(g, rc, ResetBtn(), L"恢复默认", g_hot == HOT_RESET, false);
             DrawButton(g, rc, StartBtn(), L"开 始", g_hot == HOT_START, true);
@@ -609,6 +672,9 @@ namespace {
                 g_edit.maxMs = v;
                 break;
             }
+            case 5:     // 赎金目标金币
+                g_edit.goldGoal = GoldFromX(p.x);
+                break;
             default:
                 return;
             }
@@ -683,6 +749,7 @@ namespace {
                 const RECT bt = BgmTrack();
                 const RECT st = SfxTrack();
                 const RECT it = IntTrack();
+                const RECT gt = GoldTrack();
 
                 if (p.y >= bt.top - 8 && p.y < bt.bottom + 8 &&
                     p.x >= bt.left - 10 && p.x < bt.right + 10)
@@ -709,6 +776,14 @@ namespace {
                     const int d1 = (p.x > x1) ? (p.x - x1) : (x1 - p.x);
                     const int d2 = (p.x > x2) ? (p.x - x2) : (x2 - p.x);
                     g_drag = (d1 <= d2) ? 3 : 4;
+                    SetCapture(hwnd);
+                    ApplyDrag(p);
+                    return;
+                }
+                if (p.y >= gt.top - 8 && p.y < gt.bottom + 8 &&
+                    p.x >= gt.left - 10 && p.x < gt.right + 10)
+                {
+                    g_drag = 5;
                     SetCapture(hwnd);
                     ApplyDrag(p);
                     return;
@@ -749,6 +824,7 @@ namespace {
             const RECT bt = BgmTrack();
             const RECT st = SfxTrack();
             const RECT it = IntTrack();
+            const RECT gt = GoldTrack();
 
             if (p.y >= bt.top - 10 && p.y < bt.bottom + 10)
             {
@@ -784,6 +860,15 @@ namespace {
                     if (g_edit.maxMs > kHiMs)        g_edit.maxMs = kHiMs;
                     if (g_edit.maxMs < g_edit.minMs) g_edit.maxMs = g_edit.minMs;
                 }
+            }
+            else if (p.y >= gt.top - 10 && p.y < gt.bottom + 10)
+            {
+                // 一格 25：10-1000 跨度太大，一格 10 太慢、一格 100 太粗。
+                g_edit.goldGoal += step * 25;
+                if (g_edit.goldGoal < kGoldLo) g_edit.goldGoal = kGoldLo;
+                if (g_edit.goldGoal > kGoldHi) g_edit.goldGoal = kGoldHi;
+                // 吸到 10 的整倍数，和拖拽保持一致
+                g_edit.goldGoal = (g_edit.goldGoal / 10) * 10;
             }
             else
             {

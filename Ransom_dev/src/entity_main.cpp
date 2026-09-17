@@ -389,11 +389,12 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int)
         if (setupUi)
         {
             settings::Set demo;
-            demo.bgmVol    = 145;
-            demo.sfxVol    = 100;
-            demo.minMs     = 800;
-            demo.maxMs     = 3600;
+            demo.bgmVol = 145;
+            demo.sfxVol = 100;
+            demo.minMs = 800;
+            demo.maxMs = 3600;
             demo.photosensitiveSafe = true;
+            demo.goldGoal = 750;      // 非默认值，让预览里能看到新滑条的位置
             ok = setup_ui::DumpSettingsPreview(setupUi, demo, setupUiGrid) && ok;
         }
         if (noticeUi)

@@ -37,6 +37,13 @@ namespace settings {
 	const int kIntervalMinMs = 20;      // 两次遭遇战之间最短 20ms（几乎立刻）
 	const int kIntervalMaxMs = 90000;   // 最长 90s
 
+	// ---- 赎金目标金币数 ----
+	// 上到 1000、下到 10。原作是 500。这个值同时决定两件事：
+	//   * 付清赎金的判定阈值（director）
+	//   * 桌面散布金币的总额与面额分布（gold）
+	const int kGoldMin = 10;
+	const int kGoldMax = 1000;
+
 	// ---- 默认值 ----
 	const int kDefaultBgmVol = 100;
 	const int kDefaultSfxVol = 100;
@@ -45,6 +52,8 @@ namespace settings {
 	// 注意别写成 400：那会让默认的伺候时间缩短到原来的十分之一。
 	const int kDefaultMinMs = 4000;
 	const int kDefaultMaxMs = 4000;
+	// 原作就是 500 Gold。想改默认值改这里，ini 里没写 gold_goal= 时会用它。
+	const int kDefaultGoldGoal = 500;
 
 	struct Set {
 		// 音量（%）。0-200，其中背景音乐 / 音效最大到 200。
@@ -61,6 +70,9 @@ namespace settings {
 		// 两者相等 = 固定时长（默认 400ms 就是原来的行为）。
 		int  minMs = kDefaultMinMs;
 		int  maxMs = kDefaultMaxMs;
+
+		// 赎金目标金币数，10-1000。桌面散布的总额与面额池都跟着它走。
+		int  goldGoal = kDefaultGoldGoal;
 
 		// 是否让界面在关闭前把值写回 ini。
 		// 「开始」= true；「恢复默认」只改内存不落盘；关窗口中止 = 不落盘。
@@ -103,6 +115,7 @@ namespace settings {
 	bool PhotosensitiveSafe();
 	int  MinMs();
 	int  MaxMs();
+	int  GoldGoal();
 
 	// 本次运行的起始阶段时长（两次遭遇战之间的随机间隔）。
 	// 抽一次就固定下来，整个进程只用这一个值——同一个随机数被

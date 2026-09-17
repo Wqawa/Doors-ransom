@@ -77,8 +77,8 @@ namespace {
     const COLORREF kLockGlow = RGB(210, 16, 16);
     const int      kLockGlowStrength = 170;
 
-    // 赎金目标（原作 500 Gold）
-    const int kGoldGoal = 500;
+    // 赎金目标不再硬编码 —— 从 settings 读，玩家可以在启动设置里改。
+    // 见 settings::GoldGoal()（默认 500 = 原作）。
 
     HWND         g_hwnd = nullptr;
     director::Phase g_phase = director::PHASE_IDLE;
@@ -310,7 +310,7 @@ namespace {
             popup::BeginRansom(8);
             overlay::SetLook(overlay::LOOK_LOCKED);
             overlay::SetVisible(true);
-            gold::Spawn(kGoldGoal);
+            gold::Spawn(settings::GoldGoal());
 
             // ---- 桌面清场 ----
             // 勒索窗口已经铺开了，这时候把用户原来开着的程序全收进任务栏，
@@ -348,9 +348,10 @@ namespace {
             }
         }
         if (g_phase == director::PHASE_CAUGHT && g_ransomBegun)
-            popup::SetStatus(g_gold, kGoldGoal, director::RansomRemainMs(), kCaughtMs);
+            popup::SetStatus(g_gold, settings::GoldGoal(),
+                director::RansomRemainMs(), kCaughtMs);
 
-        if (g_phase == director::PHASE_CAUGHT && g_gold >= kGoldGoal)
+        if (g_phase == director::PHASE_CAUGHT && g_gold >= settings::GoldGoal())
         {
             EnterPhase(director::PHASE_PAID);
             return;
@@ -550,11 +551,12 @@ namespace director {
         if (amount <= 0) return;
 
         g_gold += amount;
-        elog::Write(L"[director] 收到 %d Gold（累计 %d / %d）", amount, g_gold, kGoldGoal);
+        elog::Write(L"[director] 收到 %d Gold（累计 %d / %d）",
+            amount, g_gold, settings::GoldGoal());
     }
 
     int Gold() { return g_gold; }
-    int GoldGoal() { return kGoldGoal; }
+    int GoldGoal() { return settings::GoldGoal(); }
 
     DWORD RansomRemainMs()
     {

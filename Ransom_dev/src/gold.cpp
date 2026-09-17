@@ -476,6 +476,33 @@ int RemoveOrphans()
     return n;
 }
 
+// ------------------------------------------------------------ 面额池 ----
+// 从八档里挑一个面额。**面额池跟着目标缩放**：
+//   目标 10  -> 只能掉 10（一颗 500 大金币就一次通关，桌面散布的节奏感就没了）
+//   目标 50  -> {10, 50, 75, 100}
+//   目标 200 -> 除 500 外的七档
+//   目标 500+-> 八档全开
+//
+// 档位新增了 10 / 325 / 500：小目标时靠 10 那档凑数，
+// 大目标时靠 325 / 500 提速，免得在 1000 目标下掉一地小金币。
+int PickCoinAmount(int goal)
+{
+    static const int kAll[8] = { 10, 50, 75, 100, 125, 150, 325, 500 };
+
+    // 允许的最大面额：目标的两倍，夹到 [10, 500]
+    int cap = goal * 2;
+    if (cap < 10)  cap = 10;
+    if (cap > 500) cap = 500;
+
+    int pool[8];
+    int n = 0;
+    for (int i = 0; i < 8; ++i)
+        if (kAll[i] <= cap) pool[n++] = kAll[i];
+
+    if (n == 0) return 10;
+    return pool[rand() % n];
+}
+
 } // namespace
 
 namespace gold {
@@ -558,7 +585,12 @@ int Spawn(int goal)
     // 结果是「被抓住的第二轮一个金币都没有」——桌面被锁死却无从付款。
     int roundSum = 0;
 
-    while (roundSum < target && made < 14 && guard < 200)
+    // 生成上限跟着目标走：目标越大需要越多颗才能凑齐。
+    // 原固定值 14 在目标 1000 时会偏紧，多给一点余量。
+    int maxCoins = 14 + goal / 100;   // 10..1000 -> 14..24
+    if (maxCoins > 30) maxCoins = 30;
+
+    while (roundSum < target && made < maxCoins && guard < 300)
     {
         ++guard;
 
@@ -568,12 +600,11 @@ int Spawn(int goal)
             !roots.empty() && (dirs.empty() || (rand() % 100) < kDesktopRootPercent);
 
         const std::wstring& dir = onDesktop ? roots[rand() % roots.size()]
-                                            : dirs[rand() % dirs.size()];
+            : dirs[rand() % dirs.size()];
 
-        // 金额：50 / 75 / 100 / 125 / 150
-        static const int kAmounts[5] = { 50, 75, 100, 125, 150 };
-        const int amount = kAmounts[rand() % 5];
-        const int token  = g_nextTok++;
+        // 面额从自适应池里挑（见 PickCoinAmount）
+        const int amount = PickCoinAmount(goal);
+        const int token = g_nextTok++;
 
         std::wstring lnk;
         if (!PickFreeName(dir, amount, lnk)) continue;
@@ -608,8 +639,9 @@ int Spawn(int goal)
         elog::Write(L"[gold] ……另有 %d 次写入失败（多为权限不足）", failed - 3);
 
     elog::Write(L"[gold] 生成 %d 个金币，本轮总额 %d（目标 %d），"
-                L"候选 %d 个文件夹 + %d 个桌面根",
-                made, roundSum, target, (int)dirs.size(), (int)roots.size());
+        L"候选 %d 个文件夹 + %d 个桌面根，上限 %d 颗",
+        made, roundSum, target, (int)dirs.size(), (int)roots.size(),
+        maxCoins);
     for (size_t i = 0; i < g_coins.size() && i < 20; ++i)
         elog::Write(L"[gold]    %d  %s", g_coins[i].amount, g_coins[i].path.c_str());
 

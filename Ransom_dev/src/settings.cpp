@@ -74,6 +74,9 @@ namespace {
             s.minMs = s.maxMs;
             s.maxMs = t;
         }
+
+        // 金币目标：10-1000
+        s.goldGoal = ClampInt(s.goldGoal, settings::kGoldMin, settings::kGoldMax);
     }
 
     // 从 ini 读一个整数。读不到（键不存在 / 文件没有）时返回 fallback。
@@ -112,10 +115,16 @@ namespace {
             L"; idle time between two encounters, min-max (milliseconds).\n"
             L"; min == max means a fixed delay. Max 90000 (= 90 seconds).\n"
             L"idle_min=%d\n"
-            L"idle_max=%d\n",
+            L"idle_max=%d\n"
+            L"\n"
+            L"[game]\n"
+            L"; ransom goal in gold, 10-1000. Affects both the win condition\n"
+            L"; and how much gold gets scattered across the desktop.\n"
+            L"gold_goal=%d\n",
             s.bgmVol, s.sfxVol, s.masterVol,
             s.photosensitiveSafe ? 1 : 0,
-            s.minMs, s.maxMs);
+            s.minMs, s.maxMs,
+            s.goldGoal);
 
         FILE* f = nullptr;
         if (_wfopen_s(&f, path.c_str(), L"wb") != 0 || !f) return false;
@@ -157,16 +166,20 @@ namespace settings {
             g_set.minMs = ReadInt(path, L"show", L"idle_min", kDefaultMinMs);
             g_set.maxMs = ReadInt(path, L"show", L"idle_max", kDefaultMaxMs);
 
+            // 新增：赎金目标金币
+            g_set.goldGoal = ReadInt(path, L"game", L"gold_goal", kDefaultGoldGoal);
+
             elog::Write(L"[settings] loaded %s", path.c_str());
         }
 
         Sanitize(g_set);
         g_idleMs = PickIdleMs();
 
-        elog::Write(L"[settings] bgm %d%% / sfx %d%% / master %d%% / safe %s / idle %d-%dms",
+        elog::Write(L"[settings] bgm %d%% / sfx %d%% / master %d%% / safe %s / idle %d-%dms / gold %d",
             g_set.bgmVol, g_set.sfxVol, g_set.masterVol,
             g_set.photosensitiveSafe ? L"on" : L"off",
-            g_set.minMs, g_set.maxMs);
+            g_set.minMs, g_set.maxMs,
+            g_set.goldGoal);
     }
 
     const Set& Current() { return g_set; }
@@ -220,12 +233,13 @@ namespace settings {
         fx::SetPhotosensitiveSafe(g_set.photosensitiveSafe);
     }
 
-    int BgmVol()    { return g_set.bgmVol; }
-    int SfxVol()    { return g_set.sfxVol; }
+    int BgmVol() { return g_set.bgmVol; }
+    int SfxVol() { return g_set.sfxVol; }
     int MasterVol() { return g_set.masterVol; }
     bool PhotosensitiveSafe() { return g_set.photosensitiveSafe; }
-    int MinMs()     { return g_set.minMs; }
-    int MaxMs()     { return g_set.maxMs; }
+    int MinMs() { return g_set.minMs; }
+    int MaxMs() { return g_set.maxMs; }
+    int GoldGoal() { return g_set.goldGoal; }
 
     int PickIdleMs()
     {
