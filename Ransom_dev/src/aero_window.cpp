@@ -1014,6 +1014,7 @@ namespace {
             else if (finished == ANIM_MINIMIZE)
             {
                 ShowWindow(a->hwnd, SW_MINIMIZE);
+                return;   // 最小化后不需要再重绘
             }
             else
             {

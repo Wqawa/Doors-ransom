@@ -13,10 +13,12 @@
 #include <windows.h>
 #include <shlobj.h>
 
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <cwchar>
 #include <string>
+#include <vector>
 
 // SHGetFolderPathW 在 shell32 里；CoTaskMemFree 之类走 ole32（已由别处引入）。
 #pragma comment(lib, "shell32.lib")
@@ -77,6 +79,32 @@ namespace {
 
         // 金币目标：10-1000
         s.goldGoal = ClampInt(s.goldGoal, settings::kGoldMin, settings::kGoldMax);
+
+        // ---- 面额池 ----
+        // 空 -> 填默认。非空 -> 逐项夹到 [1, 100000]、排序、去重、截断。
+        // 上限放到 100000 是为了给「自定义」留余地（默认池最大才 500）。
+        if (s.coinAmounts.empty())
+        {
+            for (int i = 0; i < settings::kDefaultCoinAmountCount; ++i)
+                s.coinAmounts.push_back(settings::kDefaultCoinAmounts[i]);
+        }
+        else
+        {
+            for (size_t i = 0; i < s.coinAmounts.size(); ++i)
+            {
+                int v = s.coinAmounts[i];
+                if (v < 1)      v = 1;
+                if (v > 100000) v = 100000;
+                s.coinAmounts[i] = v;
+            }
+            std::sort(s.coinAmounts.begin(), s.coinAmounts.end());
+            s.coinAmounts.erase(
+                std::unique(s.coinAmounts.begin(), s.coinAmounts.end()),
+                s.coinAmounts.end());
+
+            if ((int)s.coinAmounts.size() > settings::kCoinAmountMax)
+                s.coinAmounts.resize(settings::kCoinAmountMax);
+        }
     }
 
     // 从 ini 读一个整数。读不到（键不存在 / 文件没有）时返回 fallback。
@@ -94,6 +122,16 @@ namespace {
     bool WriteIni(const std::wstring& path, const settings::Set& s)
     {
         if (path.empty()) return false;
+
+        // 面额池先拼成 "10,50,75,..." 这么一串，供下面 %s 用
+        std::wstring pool;
+        for (size_t i = 0; i < s.coinAmounts.size(); ++i)
+        {
+            if (i) pool += L',';
+            wchar_t n[16];
+            swprintf_s(n, L"%d", s.coinAmounts[i]);
+            pool += n;
+        }
 
         wchar_t buf[1024];
         swprintf_s(buf,
@@ -120,11 +158,16 @@ namespace {
             L"[game]\n"
             L"; ransom goal in gold, 10-1000. Affects both the win condition\n"
             L"; and how much gold gets scattered across the desktop.\n"
-            L"gold_goal=%d\n",
+            L"gold_goal=%d\n"
+            L"; gold face values, comma-separated. Any positive integers.\n"
+            L"; Duplicates and order are normalized on load (sorted, deduped).\n"
+            L"; e.g. 10,50,75,100,125,150,325,500\n"
+            L"coin_amounts=%s\n",
             s.bgmVol, s.sfxVol, s.masterVol,
             s.photosensitiveSafe ? 1 : 0,
             s.minMs, s.maxMs,
-            s.goldGoal);
+            s.goldGoal,
+            pool.c_str());
 
         FILE* f = nullptr;
         if (_wfopen_s(&f, path.c_str(), L"wb") != 0 || !f) return false;
@@ -169,6 +212,40 @@ namespace settings {
             // 新增：赎金目标金币
             g_set.goldGoal = ReadInt(path, L"game", L"gold_goal", kDefaultGoldGoal);
 
+            // 新增：金币面额池（逗号分隔的整数串）
+            {
+                wchar_t raw[512] = { 0 };
+                GetPrivateProfileStringW(L"game", L"coin_amounts", L"",
+                    raw, _countof(raw), path.c_str());
+                g_set.coinAmounts.clear();
+
+                const std::wstring str = raw;
+                size_t pos = 0;
+                while (pos <= str.size())
+                {
+                    const size_t comma = str.find(L',', pos);
+                    std::wstring tok = (comma == std::wstring::npos)
+                        ? str.substr(pos)
+                        : str.substr(pos, comma - pos);
+
+                    // 掐头去尾的空白
+                    while (!tok.empty() &&
+                        (tok.front() == L' ' || tok.front() == L'\t')) tok.erase(tok.begin());
+                    while (!tok.empty() &&
+                        (tok.back() == L' ' || tok.back() == L'\t' ||
+                            tok.back() == L'\r' || tok.back() == L'\n')) tok.pop_back();
+
+                    if (!tok.empty())
+                    {
+                        const int v = _wtoi(tok.c_str());
+                        if (v > 0) g_set.coinAmounts.push_back(v);
+                    }
+
+                    if (comma == std::wstring::npos) break;
+                    pos = comma + 1;
+                }
+            }
+
             elog::Write(L"[settings] loaded %s", path.c_str());
         }
 
@@ -180,6 +257,20 @@ namespace settings {
             g_set.photosensitiveSafe ? L"on" : L"off",
             g_set.minMs, g_set.maxMs,
             g_set.goldGoal);
+
+        // 面额池一行单独打：条数不定，拼成一个短串更直观
+        {
+            std::wstring pool;
+            for (size_t i = 0; i < g_set.coinAmounts.size(); ++i)
+            {
+                if (i) pool += L',';
+                wchar_t n[16];
+                swprintf_s(n, L"%d", g_set.coinAmounts[i]);
+                pool += n;
+            }
+            elog::Write(L"[settings] 金币面额池（%d 项）: %s",
+                (int)g_set.coinAmounts.size(), pool.c_str());
+        }
     }
 
     const Set& Current() { return g_set; }
@@ -240,6 +331,8 @@ namespace settings {
     int MinMs() { return g_set.minMs; }
     int MaxMs() { return g_set.maxMs; }
     int GoldGoal() { return g_set.goldGoal; }
+
+    const std::vector<int>& CoinAmounts() { return g_set.coinAmounts; }
 
     int PickIdleMs()
     {

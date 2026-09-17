@@ -80,7 +80,11 @@ namespace face {
     void BlitFaceAlpha(HDC hdc, const RECT& rc, bool gape, float alpha);
 
     void BlitCrucified(HDC hdc, const RECT& rc, DWORD frame);
-    void BlitStopSign(HDC hdc, const RECT& rc, float angleDeg);
+
+    // angleDeg：绕停牌中心旋转的角度（度）。
+    // alpha：整体不透明度 0..1。默认 1.0 = 不透明。
+    //        overlay 的付清消散动画用它做停牌的淡出。
+    void BlitStopSign(HDC hdc, const RECT& rc, float angleDeg, float alpha = 1.0f);
 
     // 开发用：把程序生成的素材导出成 PNG 后退出。
     bool DumpAssets(const wchar_t* dir);

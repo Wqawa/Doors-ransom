@@ -59,7 +59,9 @@ namespace {
         wchar_t name[128];
         MakeDisarmName(pid, name, _countof(name));
         HANDLE h = CreateEventW(nullptr, TRUE, FALSE, name);
-        if (h) ResetEvent(h);
+        // 注意：如果事件已存在，CreateEventW 会打开它并设置 ERROR_ALREADY_EXISTS。
+        // 此时不要 ResetEvent，以免抹掉别的进程/线程已经 SetEvent 的状态。
+        // 新建的事件初始就是未信号，也不需要 Reset。
         return h;
     }
 

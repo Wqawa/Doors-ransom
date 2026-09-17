@@ -545,7 +545,7 @@ namespace {
                 RectF t(rc.X + (REAL)(b.right + 10), rc.Y + (REAL)kSafeTop, 260.0f, (REAL)kSafeRowH);
                 DrawTextCjk(g, L"光敏安全模式（癫痫模式）", t, 14.0f, kTextMain);
 
-                RectF d(rc.X + (REAL)(b.right + 10), rc.Y + (REAL)(kSafeTop + 18), 380.0f, 16.0f);
+                RectF d(rc.X + (REAL)(b.right + 10), rc.Y + (REAL)(kSafeTop + 28), 380.0f, 16.0f);
                 DrawTextCjk(g, L"压低整屏亮度跳变与闪烁，光敏人群建议开启", d, 11.0f, kTextFaint);
             }
 

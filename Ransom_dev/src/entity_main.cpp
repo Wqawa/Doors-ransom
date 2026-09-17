@@ -604,11 +604,6 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int)
         SetTimer(hIpc, 2, 5000, nullptr);
     }
 
-    // 主消息循环里定期检查守护进程还在不在，用 Ipc 窗口的定时器挂上。
-    // id 用 2（1 是给将来的用途预留的），5000ms 一次足够 —— guardian::Tick
-    // 里自己限流到 1000ms，这里只是提供一个心跳源。
-    SetTimer(hIpc, 2, 5000, nullptr);
-
     // ---- fx 图层导出（开发时看效果用）----
     // fx 是全屏置顶的分层窗口，截屏会被底下的桌面内容污染，
     // 只有把这一层单独导成 PNG 才能按像素数清红光范围和彩色噪点。

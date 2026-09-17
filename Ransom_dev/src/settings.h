@@ -28,6 +28,8 @@
 // ============================================================================
 #pragma once
 
+#include <vector>
+
 namespace settings {
 
 	// ---- 取值范围（界面滑条和 ini 校验共用同一套）----
@@ -43,6 +45,16 @@ namespace settings {
 	//   * 桌面散布金币的总额与面额分布（gold）
 	const int kGoldMin = 10;
 	const int kGoldMax = 1000;
+
+	// ---- 金币面额池 ----
+	// 桌面散布的每一个金币，面额都从这个池里随机挑一个。
+	// 想改默认值就改下面这个数组（顺序无所谓，读取时会排序去重）；
+	// 想临时改一次运行的面额，去 settings.ini 里改 [game] coin_amounts=。
+	const int kDefaultCoinAmounts[] = { 10, 50, 75, 100, 125, 150, 325, 500 };
+	const int kDefaultCoinAmountCount = 8;
+
+	// 面额池的项数上限。超过就截断 —— 防止 ini 里塞进来几百个值。
+	const int kCoinAmountMax = 16;
 
 	// ---- 默认值 ----
 	const int kDefaultBgmVol = 100;
@@ -73,6 +85,11 @@ namespace settings {
 
 		// 赎金目标金币数，10-1000。桌面散布的总额与面额池都跟着它走。
 		int  goldGoal = kDefaultGoldGoal;
+
+		// 金币面额池。**空 = 用 kDefaultCoinAmounts 里的默认**。
+		// 从 ini 的 [game] coin_amounts= 读（逗号分隔，如 "10,50,325,500"）。
+		// 读取时会自动排序去重、夹到合法范围。
+		std::vector<int> coinAmounts;
 
 		// 是否让界面在关闭前把值写回 ini。
 		// 「开始」= true；「恢复默认」只改内存不落盘；关窗口中止 = 不落盘。
@@ -116,6 +133,9 @@ namespace settings {
 	int  MinMs();
 	int  MaxMs();
 	int  GoldGoal();
+	// 当前生效的面额池。**永远非空**：ini 没配、或配了空串时，
+	// 里面就是 kDefaultCoinAmounts 那一份。已排序去重。
+	const std::vector<int>& CoinAmounts();
 
 	// 本次运行的起始阶段时长（两次遭遇战之间的随机间隔）。
 	// 抽一次就固定下来，整个进程只用这一个值——同一个随机数被

@@ -980,8 +980,10 @@ namespace face {
         g_idleSize = (int)(h * 0.16);
         if (g_idleSize < 90) g_idleSize = 90;
 
-        g_idleX = vr.left + rand() % (w - g_idleSize);
-        g_idleY = vr.top + rand() % (h - g_idleSize);
+        const int spanX = (w > g_idleSize) ? (w - g_idleSize) : 1;
+        const int spanY = (h > g_idleSize) ? (h - g_idleSize) : 1;
+        g_idleX = vr.left + rand() % spanX;
+        g_idleY = vr.top + rand() % spanY;
 
         g_idleShowStop = false;
         g_idleStopHideAt = 0;
@@ -1362,9 +1364,13 @@ namespace face {
         return true;
     }
 
-    void BlitStopSign(HDC hdc, const RECT& rc, float angleDeg)
+    void BlitStopSign(HDC hdc, const RECT& rc, float angleDeg, float alpha)
     {
         if (!hdc || !g_stop.Ok()) return;
+
+        if (alpha < 0.0f) alpha = 0.0f;
+        if (alpha > 1.0f) alpha = 1.0f;
+        if (alpha < 0.02f) return;   // 太淡就不画了，省一次 DrawImage
 
         const int w = rc.right - rc.left;
         const int h = rc.bottom - rc.top;
@@ -1383,8 +1389,27 @@ namespace face {
             g.TranslateTransform(-cx, -cy);
         }
 
-        g.DrawImage(g_stop.bmp, Rect(rc.left, rc.top, w, h),
-            0, 0, g_stop.w, g_stop.h, UnitPixel);
+        if (alpha >= 0.99f)
+        {
+            // 完全透明：走快速路径，不做 ColorMatrix 变换
+            g.DrawImage(g_stop.bmp, Rect(rc.left, rc.top, w, h),
+                0, 0, g_stop.w, g_stop.h, UnitPixel);
+        }
+        else
+        {
+            // 整张图乘一个 alpha：GDI+ 只能走 ColorMatrix（ImageAttributes）
+            ColorMatrix cm = {
+                1, 0, 0, 0, 0,
+                0, 1, 0, 0, 0,
+                0, 0, 1, 0, 0,
+                0, 0, 0, alpha, 0,
+                0, 0, 0, 0, 1
+            };
+            ImageAttributes ia;
+            ia.SetColorMatrix(&cm);
+            g.DrawImage(g_stop.bmp, Rect(rc.left, rc.top, w, h),
+                0, 0, g_stop.w, g_stop.h, UnitPixel, &ia);
+        }
     }
 
 } // namespace face

@@ -672,13 +672,34 @@ void SetPhotosensitiveSafe(bool on)
     const bool prev = g_safe.exchange(on);
     if (prev == on) return;
 
-    // 已经铺上去的那一层也要立刻跟着改，而不是等下一次 Set*：
-    // 设置界面就开着的时候用户勾上它，当前特效应当马上变柔。
+    // 保存进入安全模式前的原始值，退出时恢复，避免反复开关导致重复压暗。
+    static COLORREF savedSolidColor = 0;
+    static int      savedGlowStrength = 0;
+    static int      savedNoise = 0;
+    static bool     savedValid = false;
+
     if (on)
     {
+        // 进入安全模式：记录当前值，然后压暗
+        savedSolidColor = g_solidColor;
+        savedGlowStrength = g_glowStrength;
+        savedNoise = g_noise;
+        savedValid = true;
+
         if (g_noise > kSafeNoise) { g_noise = kSafeNoise; }
-        if (g_solid)              { g_solidColor = DimColor(g_solidColor, kSafeSolid); }
-        if (g_glowStrength > 0)   { g_glowStrength = (int)(g_glowStrength * kSafeGlow + 0.5); }
+        if (g_solid) { g_solidColor = DimColor(g_solidColor, kSafeSolid); }
+        if (g_glowStrength > 0) { g_glowStrength = (int)(g_glowStrength * kSafeGlow + 0.5); }
+    }
+    else
+    {
+        // 退出安全模式：恢复之前保存的值
+        if (savedValid)
+        {
+            g_solidColor = savedSolidColor;
+            g_glowStrength = savedGlowStrength;
+            g_noise = savedNoise;
+            savedValid = false;
+        }
     }
 
     elog::Write(L"[fx] 光敏安全模式 %s", on ? L"开启" : L"关闭");

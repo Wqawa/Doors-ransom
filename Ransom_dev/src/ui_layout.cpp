@@ -635,8 +635,9 @@ void ParseIni(const std::wstring& text, Layout& lay)
         if (line[0] == L'[')
         {
             const size_t close = line.find(L']');
-            const std::wstring sec = Lower(Trim(line.substr(1,
-                          close == std::wstring::npos ? std::wstring::npos : close - 1)));
+            const size_t len = (close == std::wstring::npos) ? std::wstring::npos
+                : (close > 1 ? close - 1 : 0);
+            const std::wstring sec = Lower(Trim(line.substr(1, len)));
             if (inElement) { elems.push_back(cur); cur = Element(); inElement = false; }
             if (sec == L"element") { inElement = true; cur = Element(); }
             continue;

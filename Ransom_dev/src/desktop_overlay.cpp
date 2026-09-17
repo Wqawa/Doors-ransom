@@ -379,6 +379,15 @@ std::vector<GlitchParticle> g_glitchParticles;
 // Render 里顺手把它删掉，免得 map 无限增长。
 std::map<std::pair<LONG, LONG>, DWORD> g_frameNextBurst;
 
+// ---- 付清赎金后的桌面消散动画 ----
+// 见 desktop_overlay.h 里 BeginPaidClear 的说明。
+bool  g_paidClearActive = false;
+DWORD g_paidClearStart = 0;
+
+// 总时长。刻意略短于 popup 那边窗口飞回中心的 1000ms，
+// 这样窗口起飞时桌面已经收拾干净了。
+const DWORD kPaidClearTotalMs = 900;
+
 static bool BuildFramesViaListView(const DesktopRef& d,
                                    const std::set<std::wstring>& shortcutNames,
                                    std::vector<Frame>& frames) {
@@ -762,9 +771,11 @@ public:
         if (w <= 0 || h <= 0) return;
         if (!EnsureBuffers(w, h)) return;
 
-        // 已经退出锁定态：把上一次攒下的粒子和每个方框的计时一并清掉，
-        // 免得下次再进锁定态时它们从旧位置继续跳。
-        if (g_opt.look != overlay::LOOK_LOCKED)
+        // 已经退出锁定态、或者正在播放付清消散动画：把上一次攒下的粒子和
+        // 每个方框的计时一并清掉，免得下次再进锁定态时它们从旧位置继续跳。
+        // 付清消散期间粒子会一直保持为空（动画开始时清过一次，之后
+        // 生成分支也被禁止了），所以这里只是再兜一道底。
+        if (g_opt.look != overlay::LOOK_LOCKED || g_paidClearActive)
         {
             if (!g_glitchParticles.empty()) g_glitchParticles.clear();
             if (!g_frameNextBurst.empty())  g_frameNextBurst.clear();
@@ -780,31 +791,112 @@ public:
             g.SetPixelOffsetMode(PixelOffsetModeHalf);
             g.Clear(Color(0, 0, 0, 0));   // 全透明底
 
-            const bool locked = (g_opt.look == overlay::LOOK_LOCKED);
+            // 付清消散期间仍然按锁定外观渲染（只是逐帧变形）：
+            // 一旦动画开始，g_opt.look 就不再是 LOOK_LOCKED 的唯一判据。
+            const bool paidActive = g_paidClearActive;
+            const bool locked = (g_opt.look == overlay::LOOK_LOCKED) || paidActive;
             const BYTE a = locked ? 255 : g_opt.alpha;
 
             // 全屏红底：画在方框**之前**，所以停牌一定压在它上面
             if (locked && g_veilAlpha > 0)
             {
                 SolidBrush veil(Color(g_veilAlpha,
-                                      GetRValue(g_veilColor),
-                                      GetGValue(g_veilColor),
-                                      GetBValue(g_veilColor)));
+                    GetRValue(g_veilColor),
+                    GetGValue(g_veilColor),
+                    GetBValue(g_veilColor)));
                 // 参数全用 REAL，否则 FillRectangle 在 INT/REAL 重载之间有歧义
                 g.FillRectangle(&veil, 0.0f, 0.0f, (REAL)w, (REAL)h);
             }
-            // 锁定态：纯红边框（没有发光、没有渐隐）
-            const Color outline = locked
-                ? Color(255, 235, 24, 24)
-                : Color(a, GetRValue(g_opt.color), GetGValue(g_opt.color), GetBValue(g_opt.color));
+
+            // ---- 付清消散：算出每个方框的进度 ----
+            // 「从左往右、从上往下」的排序方式：先按 top（行），同行的再按 left（列）。
+            // 每个方框有它自己的开始时刻，所以它们会依次动起来；每个方框自身的
+            // 动画时长相同，所以看起来像一波从左上扫到右下。
+            //
+            // 注意用 rects 而不是 g_hitRects：两者尺寸相同，但 rects 是这一帧
+            // 真正要画的那一份（含抖动）。抖动幅度只有 ±g_jitter px，
+            // 排序结果在帧间是稳定的，不会来回翻。
+            std::vector<float> paidP;
+            if (paidActive && !rects.empty())
+            {
+                paidP.assign(rects.size(), 0.0f);
+
+                const size_t N = rects.size();
+                std::vector<size_t> order(N);
+                for (size_t i = 0; i < N; ++i) order[i] = i;
+                std::sort(order.begin(), order.end(),
+                    [&rects](size_t p, size_t q) {
+                        if (rects[p].top != rects[q].top)  return rects[p].top < rects[q].top;
+                        return rects[p].left < rects[q].left;
+                    });
+
+                const DWORD elapsed = GetTickCount() - g_paidClearStart;
+                const DWORD perBoxMs = kPaidClearTotalMs * 5 / 10;   // 每个方框自身的动画时长
+                const DWORD staggerMs = kPaidClearTotalMs - perBoxMs; // 首尾错开的总时长
+                const double denom = (N > 1) ? (double)(N - 1) : 1.0;
+
+                for (size_t rank = 0; rank < N; ++rank)
+                {
+                    const DWORD startAt = (N > 1)
+                        ? (DWORD)((double)staggerMs * (double)rank / denom)
+                        : 0;
+                    long long t = (long long)elapsed - (long long)startAt;
+                    if (t < 0) t = 0;
+                    if (t > (long long)perBoxMs) t = perBoxMs;
+                    paidP[order[rank]] = (float)t / (float)perBoxMs;
+                }
+
+                // 消散动画期间整窗都在变（每个方框的位置/颜色/大小都不一样），
+                // 直接丢一个覆盖全窗的脏区进去，省去逐方框算脏区的麻烦。
+                RECT full = { 0, 0, w, h };
+                dirty.push_back(full);
+            }
 
             for (size_t i = 0; i < rects.size(); ++i) {
                 const RECT& r = rects[i];
-                float x  = (float)(r.left - wr.left);
-                float y  = (float)(r.top  - wr.top);
+                float x = (float)(r.left - wr.left);
+                float y = (float)(r.top - wr.top);
                 float cx = (float)(r.right - r.left);
                 float cy = (float)(r.bottom - r.top);
                 if (cx < 1.0f || cy < 1.0f) continue;
+
+                // ---- 付清消散：本帧该方框的进度（0..1） ----
+                const float pp = paidActive ? paidP[i] : 0.0f;
+                float boxScale = 1.0f;    // 方框整体放大系数
+                float boxAlpha = 1.0f;    // 方框（边框 + 底衬）的整体不透明度
+                float stopAlpha = 1.0f;    // 停牌自身的 alpha
+                float greenMix = 0.0f;    // 边框颜色：0=红 1=绿
+
+                if (paidActive) {
+                    // 颜色**立即**变绿，不做红→绿过渡。
+                    // 轮到某个方框时它是"啪"一下跳成纯绿，然后才开始消失——
+                    // 把"已解锁"这一下强调出来。greenMix 直接给 1.0，
+                    // 后面那两处 红→绿 插值公式自然算出 (0,255,0)。
+                    greenMix = 1.0f;
+
+                    // 前半段：停牌淡出
+                    const float aPhase = (pp < 0.55f) ? (pp / 0.55f) : 1.0f;
+                    stopAlpha = 1.0f - aPhase;
+
+                    // 后半段：方框整体淡出（**不放大**）。
+                    // 和停牌淡出有 0.10 的重叠，整个消失过程是连贯的一波。
+                    if (pp > 0.45f) {
+                        const float bPhase = (pp - 0.45f) / 0.55f;
+                        boxAlpha = 1.0f - bPhase;
+                    }
+
+                    // boxScale 保持 1.0 —— 下面的放大变换会自动跳过。
+                }
+
+                // 放大是绕方框中心做的，不然会从左上角往外长
+                if (boxScale != 1.0f) {
+                    const float ccx = x + cx * 0.5f;
+                    const float ccy = y + cy * 0.5f;
+                    x = ccx - (cx * boxScale) * 0.5f;
+                    y = ccy - (cy * boxScale) * 0.5f;
+                    cx *= boxScale;
+                    cy *= boxScale;
+                }
 
                 float rad = g_opt.radius;
                 float maxRad = min(cx, cy) / 2.0f - 0.5f;
@@ -813,6 +905,25 @@ public:
 
                 GraphicsPath path;
                 AddRoundRect(path, RectF(x, y, cx, cy), rad);
+
+                // 这一帧这个方框的轮廓颜色（锁定态红→绿渐变，普通态用 g_opt.color）。
+                // 颜色和 alpha 都在循环内算，因为付清消散期间每个方框的进度不同。
+                Color outline;
+                if (locked) {
+                    BYTE rr = 235, gg = 24, bb = 24;
+                    if (greenMix > 0.0f) {
+                        rr = (BYTE)(235.0f * (1.0f - greenMix) + 0.0f * greenMix);
+                        gg = (BYTE)(24.0f * (1.0f - greenMix) + 255.0f * greenMix);
+                        bb = (BYTE)(24.0f * (1.0f - greenMix) + 0.0f * greenMix);
+                    }
+                    outline = Color((BYTE)(255.0f * boxAlpha), rr, gg, bb);
+                }
+                else {
+                    outline = Color(a,
+                        GetRValue(g_opt.color),
+                        GetGValue(g_opt.color),
+                        GetBValue(g_opt.color));
+                }
 
                 // 外发光：只在非锁定态画。锁定态不要阴影
                 if (!locked && g_opt.glow) {
@@ -827,10 +938,17 @@ public:
                     }
                 }
 
-                // 锁定态：底下垫一层很淡的红
+                // 锁定态：底下垫一层很淡的底衬。
+                // 付清消散期间底衬也跟着边框一起红→绿、一起淡出。
                 if (locked) {
-                    SolidBrush fill(Color(38, 235, 24, 24));
-                    g.FillPath(&fill, &path);
+                    const BYTE fillA = (BYTE)(38.0f * boxAlpha);
+                    if (fillA > 0) {
+                        const BYTE fr = (BYTE)(235.0f * (1.0f - greenMix) + 0.0f * greenMix);
+                        const BYTE fg = (BYTE)(24.0f * (1.0f - greenMix) + 255.0f * greenMix);
+                        const BYTE fb = (BYTE)(24.0f * (1.0f - greenMix) + 0.0f * greenMix);
+                        SolidBrush fill(Color(fillA, fr, fg, fb));
+                        g.FillPath(&fill, &path);
+                    }
                 }
 
                 Pen pen(outline, locked ? g_opt.thickness + 0.8f : g_opt.thickness);
@@ -860,15 +978,18 @@ public:
                         sr.bottom = (LONG)(sr.top  + side);
 
                         HDC hdc = g.GetHDC();
-                        face::BlitStopSign(hdc, sr, ang);
+                        face::BlitStopSign(hdc, sr, ang, stopAlpha);
                         g.ReleaseHDC(hdc);
                     }
                 }
 
-                long m = (long)(g_opt.thickness + 12.0f);
-                RECT dirtyRect = { r.left - m, r.top - m, r.right + m, r.bottom + m };
-                MapWindowPoints(NULL, m_hwnd, (LPPOINT)&dirtyRect, 2);
-                dirty.push_back(dirtyRect);
+                // 付清消散期间已经整窗标脏了，跳过逐方框脏区（不重复加）。
+                if (!paidActive) {
+                    long m = (long)(g_opt.thickness + 12.0f);
+                    RECT dirtyRect = { r.left - m, r.top - m, r.right + m, r.bottom + m };
+                    MapWindowPoints(NULL, m_hwnd, (LPPOINT)&dirtyRect, 2);
+                    dirty.push_back(dirtyRect);
+                }
             }
 
             // ---- 锁定态的故障粒子 ----
@@ -881,7 +1002,10 @@ public:
             //
             // 这套逻辑放在方框循环**之后**：粒子是覆盖在停牌图标之上的，
             // 先画方框和停牌再叠粒子，粒子落上去就像方框里冒出来的噪点。
-            if (locked && !rects.empty())
+            //
+            // paidActive 期间不生成 —— 消散动画开始时粒子已经被清过一次，
+            // 这段时间再冒新的会跟"桌面正在收拾干净"的观感打架。
+            if (locked && !rects.empty() && !paidActive)
             {
                 const DWORD nowTick = GetTickCount();
 
@@ -1210,27 +1334,6 @@ int                    g_offsetY = 0;
 
 Overlay* g_overlay = NULL;
 
-
-// ---- 锁定态的故障粒子 ----
-// 每个锁定方框每隔几秒闪一下：1-4 个**很小**的 A-90_JUMPSCARE 图，
-// 尺寸和宽扁比例都随机。纯粹是氛围——盯着"已加密"的方框看久了
-// 会看到它们内部跳出几张一闪而过的脸。
-//
-// 生命周期按**帧**算（不是毫秒）：锁定态刷新间隔是 70ms，
-// 3 帧 ≈ 210ms，够短促，也不至于一帧就没了看不出来。
-struct GlitchParticle
-{
-    float x, y;          // 屏幕坐标（中心点）
-    float w, h;          // 绘制尺寸（宽高比随机）
-    BYTE  startAlpha;    // 出生时的 alpha
-    int   life;          // 剩余帧数
-    int   maxLife;
-};
-
-std::vector<GlitchParticle> g_glitchParticles;
-DWORD                       g_nextGlitchBurst = 0;   // 0 = 还没排过
-
-
 // ---- 拦截鼠标/键盘：已加密的图标打不开、弹不出右键菜单、也拖不走 ----
 
 
@@ -1383,7 +1486,7 @@ bool ShouldLogClick(const POINT& pt)
 // 这条路是**兜底**：正常情况按下就被吞了，根本走不到这里。
 // 它真正的作用是「万一漏了」：既拦住落下，又在日志里留下痕迹 ——
 // 日志里出现这行，就说明「吞按下」那条路有漏，得去查。
-void LongDrag(const POINT& pt)
+bool LongDrag(const POINT& pt)
 {
     const int dx = abs(pt.x - g_dragLatch.origin.x);
     const int dy = abs(pt.y - g_dragLatch.origin.y);
@@ -1394,7 +1497,9 @@ void LongDrag(const POINT& pt)
         DLog(L"[overlay] 拦截拖动：松开时已走了 (%d,%d) 像素，抬起被吞掉，图标落不下去", dx, dy);
         if (n == 1 || n % 20 == 0)
             DLog(L"[overlay] 拖动拦截累计 #%d", n);
+        return true;
     }
+    return false;
 }
 
 LRESULT CALLBACK LowLevelMouseProc(int nCode, WPARAM wParam, LPARAM lParam)
@@ -1407,14 +1512,14 @@ LRESULT CALLBACK LowLevelMouseProc(int nCode, WPARAM wParam, LPARAM lParam)
 
         // ---- 左键抬起：给「拖走」兜最后一道 ----
         // 能走到这里而且闩锁还 armed，说明按下那一下是**放行**给 explorer 的
-        // （Ctrl/Shift 那条路）。真拖了就把抬起也吞掉，别让位置落下去。
+        // （Ctrl/Shift 那条路）。只有确实拖动超过阈值才吞掉抬起。
         if (wParam == WM_LBUTTONUP)
         {
             if (g_dragLatch.armed)
             {
                 g_dragLatch.armed = false;
-                LongDrag(pt);
-                return 1;      // 吞掉抬起 = 这次拖放不会完成
+                if (LongDrag(pt))
+                    return 1;      // 吞掉抬起 = 这次拖放不会完成
             }
         }
 
@@ -1603,6 +1708,14 @@ static void RefreshInternal(bool force)
     if (!BuildFrames(g_desktop, g_names, fresh))
     {
         DLog(L"RefreshInternal: BuildFrames 返回 false，本帧不渲染");
+        g_hitRects.clear();
+        g_lastRects.clear();
+        g_shortcutCount = 0;
+        if (g_overlay && g_visible)
+        {
+            std::vector<RECT> none;
+            g_overlay->Render(none);
+        }
         return;
     }
 
@@ -1691,8 +1804,35 @@ static void OverlayTick()
     // 不用在这里判断间隔。
     lockdown::Tick();
 
+    // ---- 付清消散动画播完：复位外观并隐藏覆盖层 ----
+    // 这一刻桌面已经没有任何标记了（停牌、方框、粒子都不在了），
+    // 直接切回普通外观并藏起来 —— 不走 SetLook / SetVisible，
+    // 那条路会顺带触发一次重绘，把"最后一帧"再画一遍。
+    if (g_paidClearActive)
+    {
+        const DWORD el = GetTickCount() - g_paidClearStart;
+        if (el >= kPaidClearTotalMs)
+        {
+            g_paidClearActive = false;
+            g_glitchParticles.clear();
+            g_frameNextBurst.clear();
+
+            g_opt.look = overlay::LOOK_FRAME;
+            g_opt.interval = 300;
+            if (g_hwnd) SetTimer(g_hwnd, kOverlayTimerId, (UINT)g_opt.interval, NULL);
+
+            g_visible = false;
+            if (g_hwnd) ShowWindow(g_hwnd, SW_HIDE);
+
+            elog::Write(L"[overlay] 付清消散动画完成，覆盖层已复位并隐藏");
+        }
+    }
+
     if (!g_desktop.Valid() && !DiscoverDesktop(g_desktop))
     {
+        g_hitRects.clear();
+        g_lastRects.clear();
+        g_shortcutCount = 0;
         std::vector<RECT> none;
         if (g_overlay) g_overlay->Render(none);
         return;
@@ -1903,6 +2043,35 @@ void GetOffset(int* dx, int* dy)
 {
     if (dx) *dx = g_offsetX;
     if (dy) *dy = g_offsetY;
+}
+
+// ---- 付清赎金：桌面消散动画 ----
+void BeginPaidClear()
+{
+    // 只有真正处于锁定态才有意义。重复调用是空操作 —— 一场演出里
+    // 只会被调一次，但万一将来被别处误触发也不会出事。
+    if (g_opt.look != overlay::LOOK_LOCKED) return;
+    if (g_paidClearActive) return;
+
+    g_paidClearActive = true;
+    g_paidClearStart = GetTickCount();
+
+    // 立刻清空故障粒子和它们的计时。动画期间 Render 里的生成分支
+    // 也会被 paidActive 挡住，不会再冒新粒子。
+    g_glitchParticles.clear();
+    g_frameNextBurst.clear();
+
+    // 消散期间把刷新率提上去：锁定态默认是 70ms 一帧，900ms 的动画
+    // 只有 13 帧，淡出和放大都会显得一跳一跳的。33ms 差不多翻倍。
+    g_opt.interval = 33;
+    if (g_hwnd) SetTimer(g_hwnd, kOverlayTimerId, (UINT)g_opt.interval, NULL);
+
+    elog::Write(L"[overlay] 付清：开始桌面消散动画（%d 个方框，从左往右、从上往下，%lums）",
+        (int)g_hitRects.size(), (unsigned long)kPaidClearTotalMs);
+
+    // 立刻重扫一次：强制重绘，动画第一帧就能画出来，
+    // 不用等下一个 33ms 的 tick。
+    RefreshInternal(true);
 }
 
 void SetVisible(bool visible)

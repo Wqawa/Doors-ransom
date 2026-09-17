@@ -239,9 +239,19 @@ namespace {
 
         case director::PHASE_PAID:
             lockdown::Restore();          // 付清：把收走的窗口放回去
-            popup::BeginPayup();
-            overlay::SetLook(overlay::LOOK_FRAME);
-            overlay::SetVisible(false);
+
+            // 桌面消散动画：所有停牌从左往右、从上往下依次淡出，
+            // 方框同时红→绿渐变、放大淡出，故障粒子一并清掉。
+            //
+            // 这一步**必须**在 BeginPayup 之前：窗口开始飞回中心的时候
+            // 桌面已经在收拾了，两边同时推进（消散 900ms / 飞行 1000ms）。
+            //
+            // 注意：这里**不再**手动 SetLook / SetVisible —— 消散动画播完
+            // 会自己把外观切回 LOOK_FRAME 并隐藏覆盖层（见 overlay 的
+            // OverlayTick）。手动切会让消散动画立刻被打断、只留最后一帧。
+            overlay::BeginPaidClear();
+
+            popup::BeginPayup();          // 窗口飞回屏幕中央
             gold::Cleanup();
             face::Hide();
             fx::SetSolid(false);

@@ -352,6 +352,8 @@ namespace {
 
         for (size_t i = 0; i < old.size(); ++i)
         {
+            if (old[i]->playerClosed)
+                ++g_playerClosedCount;
             aero::Destroy(old[i]->hwnd);
             delete old[i];
         }
