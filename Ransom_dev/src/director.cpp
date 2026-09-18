@@ -13,6 +13,7 @@
 #include "motion.h"
 #include "popup.h"
 #include "recycle.h"
+#include "settings.h"
 
 #include <cstdlib>
 #include <cwchar>
@@ -24,7 +25,10 @@ namespace {
     const UINT     kTickMs = 16;
 
     // 各阶段时长。0 = 停住不自动推进。
-    const DWORD kIdleMs = 4000;
+    //
+    // 潜伏时长**不在这里**：它由启动设置里的「每次跳杀间隔」随机区间决定，
+    // 见 settings::PickIdleMs() 和下面的 g_idleMs。
+    const DWORD kIdleMs = 4000;   // 默认值（设置里的默认区间正好是这个数）
     const DWORD kFaceMs = 900;    // 头在任意位置浮现
     // 瞬移到中央 + 停牌出现 + jumpscare2 起播 + 检测启动，都在 CENTER 这一瞬。
     // 停牌显示到 CENTER + STOP 结束（= kStopShowMs），判定也在这时做。
@@ -49,7 +53,7 @@ namespace {
     const DWORD kCatchLeadMs = kJumpscareMs + kLoadMs + kFinishMs;
     const DWORD kCaughtMs = 90000;   // 原作就是 90 秒
     const DWORD kPaidMs = 4800;    // 要盖住 popup 那套付钱演出的全长（约 4.4 秒）
-    const DWORD kPunishMs = 4000;
+    const DWORD kPunishMs = 2200;
 
     const DWORD kCooldownPaidMs = 11000;
     const DWORD kCooldownPunishMs = 13000;
@@ -57,6 +61,11 @@ namespace {
     // 倒计时剩这么多的时候进入收尾：叠加播放 Ransom_encounter（riser），
     // **同时**主题曲开始线性渐隐。
     const DWORD kRiserLeadMs = 15000;
+
+    // 玩家每主动关掉一个勒索子窗口，勒索倒计时往前扣这么多。
+    // 这是给玩家的一条「别干等着」的出路 —— 也可以主动关窗口拖到超时，
+    // 关 9 个就直接触发没付清的跳杀。
+    const DWORD kChildCloseCreditMs = 10000;
 
     // 全屏纯色底的配色
     const COLORREF kCenterVeil = RGB(0, 0, 0);
@@ -68,8 +77,8 @@ namespace {
     const COLORREF kLockGlow = RGB(210, 16, 16);
     const int      kLockGlowStrength = 170;
 
-    // 赎金目标（原作 500 Gold）
-    const int kGoldGoal = 500;
+    // 赎金目标不再硬编码 —— 从 settings 读，玩家可以在启动设置里改。
+    // 见 settings::GoldGoal()（默认 500 = 原作）。
 
     HWND         g_hwnd = nullptr;
     director::Phase g_phase = director::PHASE_IDLE;
@@ -86,6 +95,11 @@ namespace {
     bool         g_riserFired = false;
     int          g_fadeLogged = 101;
 
+    // 玩家关子窗口累积的「提前量」。RansomElapsedMs() 会把它加到已过
+    // 时间上，所以倒计时、渐隐、riser、超时判定全都自动跟着走。
+    // 每一轮被抓（PHASE_CAUGHT 进入）时清零。
+    DWORD        g_timeCreditMs = 0;
+
     DWORD        g_idleMs = kIdleMs;
     DWORD        g_pendingIdleMs = kIdleMs;
 
@@ -93,7 +107,12 @@ namespace {
     {
         const DWORD begin = g_caughtAt + kCatchLeadMs;
         const DWORD now = GetTickCount();
-        return (now <= begin) ? 0 : (now - begin);
+        const DWORD el = (now <= begin) ? 0 : (now - begin);
+
+        // 加上玩家关子窗口攒下的提前量。
+        // DWORD 溢出不是问题：每次最多 10 秒、子窗口上限 14 个，
+        // 满打满算也就 140 秒，离 DWORD 上限差着几个数量级。
+        return el + g_timeCreditMs;
     }
 
     void EnterPhase(director::Phase p);
@@ -139,7 +158,16 @@ namespace {
             overlay::SetLook(overlay::LOOK_FRAME);
             overlay::SetVisible(false);
             audio::Silence();
-            audio::SetMaster(60);
+
+            // 音量和光敏安全每次回潜伏态都重新对齐一遍。
+            //
+            // 这里以前是硬写的 `audio::SetMaster(60)` —— 那个值会把用户
+            // 在启动设置里调的音量整个盖掉（而且每轮都盖一次）。
+            // 现在改成读设置，顺便让「设置改了之后下一轮生效」这条路也通。
+            settings::Apply();
+
+            elog::Write(L"[director] 本轮潜伏 %lu ms（按设置区间随机抽）",
+                (unsigned long)g_idleMs);
             break;
 
         case director::PHASE_FACE:
@@ -195,7 +223,6 @@ namespace {
             audio::SetGlitchBed(0);
             audio::SetTheme(false);
             break;
-
         case director::PHASE_CAUGHT:
             // 动了：开始两段开场（jumpscare -> 加载条）。
             // face 那边已经在 CENTER 进入时撤掉了停牌（如果停牌已经到点），
@@ -205,15 +232,26 @@ namespace {
             g_caughtAt = GetTickCount();
             g_ransomBegun = false;
             g_loadShown = false;
+            g_timeCreditMs = 0;            // 每一轮从头攒
             face::ShowAttackStill(kJumpscareMs);
             audio::PlayCaught();
             break;
 
         case director::PHASE_PAID:
             lockdown::Restore();          // 付清：把收走的窗口放回去
-            popup::BeginPayup();
-            overlay::SetLook(overlay::LOOK_FRAME);
-            overlay::SetVisible(false);
+
+            // 桌面消散动画：所有停牌从左往右、从上往下依次淡出，
+            // 方框同时红→绿渐变、放大淡出，故障粒子一并清掉。
+            //
+            // 这一步**必须**在 BeginPayup 之前：窗口开始飞回中心的时候
+            // 桌面已经在收拾了，两边同时推进（消散 900ms / 飞行 1000ms）。
+            //
+            // 注意：这里**不再**手动 SetLook / SetVisible —— 消散动画播完
+            // 会自己把外观切回 LOOK_FRAME 并隐藏覆盖层（见 overlay 的
+            // OverlayTick）。手动切会让消散动画立刻被打断、只留最后一帧。
+            overlay::BeginPaidClear();
+
+            popup::BeginPayup();          // 窗口飞回屏幕中央
             gold::Cleanup();
             face::Hide();
             fx::SetSolid(false);
@@ -231,7 +269,7 @@ namespace {
             fx::SetSolid(false);
             fx::SetNoise(0);
             fx::SetEdgeGlow(false);
-            face::ShowAttack(kPunishMs);
+            face::ShowAttackStill(kPunishMs, false); 
             audio::PlayHit();
             audio::SetGlitchBed(0);
             audio::SetTheme(false);
@@ -282,7 +320,7 @@ namespace {
             popup::BeginRansom(8);
             overlay::SetLook(overlay::LOOK_LOCKED);
             overlay::SetVisible(true);
-            gold::Spawn(kGoldGoal);
+            gold::Spawn(settings::GoldGoal());
 
             // ---- 桌面清场 ----
             // 勒索窗口已经铺开了，这时候把用户原来开着的程序全收进任务栏，
@@ -298,10 +336,32 @@ namespace {
             elog::Write(L"[director] 加载结束，进入勒索阶段");
         }
 
+        // 玩家关掉了子窗口？每关一个，倒计时往前扣 10 秒。
+        // 放在 SetStatus 之前：这样同一帧里 SetStatus 看到的 remain
+        // 就已经减过了，窗口上的时间显示不会慢一拍。
         if (g_phase == director::PHASE_CAUGHT && g_ransomBegun)
-            popup::SetStatus(g_gold, kGoldGoal, director::RansomRemainMs(), kCaughtMs);
+        {
+            const int n = popup::ConsumePlayerClosedCount();
+            if (n > 0)
+            {
+                const DWORD credit = (DWORD)n * kChildCloseCreditMs;
+                g_timeCreditMs += credit;
 
-        if (g_phase == director::PHASE_CAUGHT && g_gold >= kGoldGoal)
+                // 音乐也跟着往前跳，维持和倒计时的同步。
+                // 不这么做的话主题曲会继续按真实时间慢慢播，
+                // 玩家一关窗口就会发现"音乐和倒计时对不上了"。
+                audio::SeekThemeBy((double)credit / 1000.0);
+
+                elog::Write(L"[director] 玩家关闭 %d 个子窗口，倒计时提前 %d 秒（累计提前 %.1f 秒）",
+                    n, n * (int)(kChildCloseCreditMs / 1000),
+                    g_timeCreditMs / 1000.0);
+            }
+        }
+        if (g_phase == director::PHASE_CAUGHT && g_ransomBegun)
+            popup::SetStatus(g_gold, settings::GoldGoal(),
+                director::RansomRemainMs(), kCaughtMs);
+
+        if (g_phase == director::PHASE_CAUGHT && g_gold >= settings::GoldGoal())
         {
             EnterPhase(director::PHASE_PAID);
             return;
@@ -370,7 +430,7 @@ namespace {
             next = g_caught ? director::PHASE_CAUGHT
                 : director::PHASE_ESCAPED;
             break;
-        case director::PHASE_ESCAPED: g_pendingIdleMs = kIdleMs;           next = director::PHASE_IDLE; break;
+        case director::PHASE_ESCAPED: g_pendingIdleMs = (DWORD)settings::PickIdleMs(); next = director::PHASE_IDLE; break;
         case director::PHASE_PAID:    g_pendingIdleMs = kCooldownPaidMs;   next = director::PHASE_IDLE; break;
         case director::PHASE_PUNISH:  g_pendingIdleMs = kCooldownPunishMs; next = director::PHASE_IDLE; break;
         default: break;
@@ -421,6 +481,12 @@ namespace director {
 
         popup::Start(hInst);
         recycle::Start(hInst);
+
+        // 第一轮潜伏用**启动时抽好的那一个**数（settings::Load 里抽的），
+        // 不是在这儿重抽：这样日志里「本轮潜伏」和设置窗口上显示的
+        // 区间对得上，也避免同一个随机数在两处各抽一次。
+        g_idleMs = (DWORD)settings::StartupIdleMs();
+        g_pendingIdleMs = g_idleMs;
 
         EnterPhase(PHASE_IDLE);
         return true;
@@ -495,11 +561,12 @@ namespace director {
         if (amount <= 0) return;
 
         g_gold += amount;
-        elog::Write(L"[director] 收到 %d Gold（累计 %d / %d）", amount, g_gold, kGoldGoal);
+        elog::Write(L"[director] 收到 %d Gold（累计 %d / %d）",
+            amount, g_gold, settings::GoldGoal());
     }
 
     int Gold() { return g_gold; }
-    int GoldGoal() { return kGoldGoal; }
+    int GoldGoal() { return settings::GoldGoal(); }
 
     DWORD RansomRemainMs()
     {

@@ -118,11 +118,13 @@ namespace {
         if (t >= 1.0) return 1.0;
         return t + (kLoadEaseB / 6.283185307179586) * sin(6.283185307179586 * t);
     }
-
-    // 加载条和文字的抖动幅度（px）。两者用**同一个**偏移，整块一起晃。
+    // 加载条和文字的抖动幅度（px）。两者**各自独立**取随机偏移，
+// 走条和文字会各抖各的 —— 不再整块一起晃，有种信号不同步的故障感。
     const int kLoadJitterPx = 4;
 
-    // 加载条整体缩放：原始素材 962x68，这里只画 0.70 倍（674x48）。
+    // 加载条基础缩放：原始素材 962x68，这里只画 0.70 倍（674x48）。
+    // 实际渲染时还会再乘一个随加载进度从 1.0 到 1.05 的放大系数，
+    // 所以最终显示的比 0.70 略大一点（见 Render 里的 grow）。
     const REAL kLoadBarScale = 0.70f;
 
     // 加载画面上的红色噪点
@@ -141,8 +143,16 @@ namespace {
 
     // FACE_ATTACK 要不要**自己铺一层深红底**。
     // 开场那 1 秒 jumpscare 需要（这段时间屏幕上只有它），
-    // 惩罚阶段不需要。
+    // 惩罚阶段也需要 —— 两处现在共用同一套背景。
     bool g_attackVeil = false;
+
+    // FACE_ATTACK 要不要"先小后大"：前 kAttackSmallMs 按停牌尺寸显示，
+    // 之后瞬间跳到全屏。
+    //   * 开场需要 —— 是"停牌炸开成脸"的动作
+    //   * 惩罚不需要 —— 玩家已经等了 90 秒，再来一遍"小→大"像是把
+    //     开场节奏又重播了一遍，只需要脸直接压满屏幕
+    // 由 ShowAttackStill 的 smallToBig 参数控制。
+    bool g_attackSmallToBig = true;
 
     HWND      g_wnd = nullptr;
     HWND      g_driver = nullptr;
@@ -532,19 +542,30 @@ namespace {
 
                     const double prog = fin ? 1.0 : LoadProgress(t);
 
-                    const REAL jx = (REAL)((rand() % (kLoadJitterPx * 2 + 1)) - kLoadJitterPx);
-                    const REAL jy = (REAL)((rand() % (kLoadJitterPx * 2 + 1)) - kLoadJitterPx);
+                    // ---- 随进度放大 ----
+                    // 加载条和文字共用这一个系数：整块随着走条从原尺寸
+                    // 缓慢"顶上来"，到走满时是原来的 1.05 倍。
+                    const REAL grow = 1.0f + 0.05f * (REAL)prog;
+
+                    // ---- 抖动：走条和文字各自独立 ----
+                    // 原来两者共用同一组随机偏移、整块一起晃；现在分开取，
+                    // 走条和文字抖的相位不一样，看起来更像"信号不同步"。
+                    const REAL barJx = (REAL)((rand() % (kLoadJitterPx * 2 + 1)) - kLoadJitterPx);
+                    const REAL barJy = (REAL)((rand() % (kLoadJitterPx * 2 + 1)) - kLoadJitterPx);
+                    const REAL txtJx = (REAL)((rand() % (kLoadJitterPx * 2 + 1)) - kLoadJitterPx);
+                    const REAL txtJy = (REAL)((rand() % (kLoadJitterPx * 2 + 1)) - kLoadJitterPx);
 
                     const int   bw0 = (g_loadBg.Ok() ? g_loadBg.w : 962);
                     const int   bh0 = (g_loadBg.Ok() ? g_loadBg.h : 68);
                     REAL sc = kLoadBarScale;
                     const REAL maxW = (REAL)w * 0.70f;
                     if ((REAL)bw0 * sc > maxW) sc = maxW / (REAL)bw0;
+                    sc *= grow;      // 应用随进度的放大
 
                     const REAL bw = (REAL)bw0 * sc;
                     const REAL bh = (REAL)bh0 * sc;
-                    const REAL bx = ((REAL)w - bw) / 2.0f + jx;
-                    const REAL by = (REAL)h * 0.5f + 40.0f * sc + jy;
+                    const REAL bx = ((REAL)w - bw) / 2.0f + barJx;
+                    const REAL by = (REAL)h * 0.5f + 40.0f * sc + barJy;
 
                     g.SetInterpolationMode(InterpolationModeBilinear);
 
@@ -561,12 +582,15 @@ namespace {
                             (REAL)g_loadFrames[fi].w, (REAL)g_loadFrames[fi].h,
                             UnitPixel);
 
+                    // ---- 文字 ----
+                    // 走条还没满的时候显示 DOWNLOADING（点数循环，营造"在跑"的感）；
+                    // 满了切成 FINISH！
                     std::wstring txt;
                     if (fin) txt = kLoadFinishText;
                     else
                     {
                         const int dots = (int)((now / 250) % 4);
-                        txt = L"LOADING";
+                        txt = L"DOWNLOADING";
                         for (int i = 0; i < dots; ++i) txt += L'.';
                     }
 
@@ -577,22 +601,35 @@ namespace {
                     sf.SetAlignment(StringAlignmentCenter);
                     sf.SetLineAlignment(StringAlignmentCenter);
 
-                    const RectF box(bx, by - fs - 22.0f * sc, bw, fs + 14.0f * sc);
+                    // 文字基准框跟着走条走，再叠上**文字自己的**抖动偏移
+                    const RectF baseBox(bx, by - fs - 22.0f * sc, bw, fs + 14.0f * sc);
+                    const RectF box(baseBox.X + txtJx, baseBox.Y + txtJy,
+                        baseBox.Width, baseBox.Height);
 
-                    SolidBrush red(Color(255, 216, 24, 24));
+                    // ---- 白色闪红：和 A-90_JUMPSCARE 同一套方波 ----
+                    // 主频约 7.5Hz（每 4 帧翻一次），再叠 1/4 概率随机翻转，
+                    // 免得节奏太机械。闪红帧里文字主体画成红色，正常帧保持白色。
+                    bool redOn = ((g_frame / 4) & 1) != 0;
+                    if ((rand() & 3) == 0) redOn = !redOn;
+
+                    // 红描边（保持原样，给文字一个深色轮廓）
+                    SolidBrush outline(Color(255, 216, 24, 24));
                     const REAL off = (fs > 40.0f) ? 3.0f : 2.0f;
                     for (int dx = -1; dx <= 1; ++dx)
                         for (int dy = -1; dy <= 1; ++dy)
                         {
                             if (dx == 0 && dy == 0) continue;
-                            const RectF o(box.X + dx * off, box.Y + dy * off, box.Width, box.Height);
-                            g.DrawString(txt.c_str(), -1, &f, o, &sf, &red);
+                            const RectF o(box.X + dx * off, box.Y + dy * off,
+                                box.Width, box.Height);
+                            g.DrawString(txt.c_str(), -1, &f, o, &sf, &outline);
                         }
 
-                    SolidBrush white(Color(255, 245, 245, 245));
-                    g.DrawString(txt.c_str(), -1, &f, box, &sf, &white);
+                    // 主体：闪红帧红色，其余帧白色
+                    SolidBrush main(redOn ? Color(255, 235, 24, 24)
+                        : Color(255, 245, 245, 245));
+                    g.DrawString(txt.c_str(), -1, &f, box, &sf, &main);
                 }
-                break;
+                break; 
             }
 
             case face::FACE_IDLE:
@@ -690,11 +727,16 @@ namespace {
                 const int sx = (rand() % 17) - 8;
                 const int sy = (rand() % 17) - 8;
 
-                // ---- 先小后大 ----
-                // 进入 FACE_ATTACK 后的 kAttackSmallMs 内，尺寸 = 停牌尺寸
-                // （kStopSizeFrac）；之后**瞬间**跳到正常尺寸（kAttackBigFrac）。
+                // ---- 先小后大（可选） ----
+                // smallToBig 打开时：进入 FACE_ATTACK 后的 kAttackSmallMs 内
+                // 尺寸 = 停牌尺寸（kStopSizeFrac），之后瞬间跳到全屏
+                // （kAttackBigFrac）。
+                // 关掉时：el 和 kAttackSmallMs 的比较被短路，直接全屏，
+                // 抖动的起始帧就是满尺寸。
                 const DWORD el = (g_modeStart != 0) ? (GetTickCount() - g_modeStart) : 0;
-                const REAL frac = (el < kAttackSmallMs) ? kStopSizeFrac : kAttackBigFrac;
+                const REAL frac = (!g_attackSmallToBig || el >= kAttackSmallMs)
+                    ? kAttackBigFrac
+                    : kStopSizeFrac;
 
                 const REAL fh = (REAL)h * frac;
                 const REAL fw = fh * ((REAL)(g_gape.Ok() ? g_gape.w : 1) /
@@ -938,8 +980,10 @@ namespace face {
         g_idleSize = (int)(h * 0.16);
         if (g_idleSize < 90) g_idleSize = 90;
 
-        g_idleX = vr.left + rand() % (w - g_idleSize);
-        g_idleY = vr.top + rand() % (h - g_idleSize);
+        const int spanX = (w > g_idleSize) ? (w - g_idleSize) : 1;
+        const int spanY = (h > g_idleSize) ? (h - g_idleSize) : 1;
+        g_idleX = vr.left + rand() % spanX;
+        g_idleY = vr.top + rand() % spanY;
 
         g_idleShowStop = false;
         g_idleStopHideAt = 0;
@@ -1039,11 +1083,11 @@ namespace face {
         Render();
     }
 
-    // 开场 jumpscare：张口脸 + 深红底，先小后大。
-    void ShowAttackStill(DWORD lifeMs)
+    void ShowAttackStill(DWORD lifeMs, bool smallToBig)
     {
         if (!g_driver) return;
         g_attackVeil = true;
+        g_attackSmallToBig = smallToBig;
         g_idleShowStop = false;
         g_idleStopHideAt = 0;
 
@@ -1052,7 +1096,8 @@ namespace face {
         g_modeEnd = lifeMs ? (now + lifeMs) : 0;
         g_modeStart = now;
         g_frame = 0;
-        elog::Write(L"[face] 开场 jumpscare（先小后大 + 深红底）");
+        elog::Write(L"[face] jumpscare（%s + 深红底）",
+            smallToBig ? L"先小后大" : L"直接全屏");
         Render();
     }
 
@@ -1079,11 +1124,13 @@ namespace face {
         Render();
     }
 
-    // 惩罚阶段 jumpscare：张口脸，不铺底，先小后大。
+    // 无底 jumpscare（旧接口，保留兼容）。主流程现在都用
+    // ShowAttackStill —— 两处跳杀都需要深红底。
     void ShowAttackShaking(DWORD lifeMs)
     {
         if (!g_driver) return;
         g_attackVeil = false;
+        g_attackSmallToBig = false;   // 无底版一律直接全屏
         g_idleShowStop = false;
         g_idleStopHideAt = 0;
 
@@ -1228,6 +1275,56 @@ namespace face {
             (REAL)src.w, (REAL)src.h, UnitPixel);
     }
 
+    // 覆盖层锁定态的故障粒子用它：可指定整体 alpha，且**不保持宽高比**。
+    // 和 BlitFace 的差别就这两点 —— 粒子要的是"被拉伸成扁扁一条"的观感，
+    // 以及"半透明地浮在方框里"的轻量感。
+    void BlitFaceAlpha(HDC hdc, const RECT& rc, bool gape, float alpha)
+    {
+        if (!hdc) return;
+
+        const int w = rc.right - rc.left;
+        const int h = rc.bottom - rc.top;
+        if (w <= 0 || h <= 0) return;
+
+        if (alpha < 0.0f) alpha = 0.0f;
+        if (alpha > 1.0f) alpha = 1.0f;
+        if (alpha < 0.02f) return;                    // 太淡就别画了，省一次 DrawImage
+
+        const Surface& src = gape ? g_gape : g_idle;
+        if (!src.Ok()) return;
+
+        Graphics g(hdc);
+        // 粒子很小，NearestNeighbor 会把缩小后的脸糊成几个色块，
+        // 这里用 Bicubic 出一层"脏污"的观感，正好和四角红噪对味。
+        g.SetInterpolationMode(InterpolationModeHighQualityBicubic);
+        g.SetPixelOffsetMode(PixelOffsetModeHalf);
+
+        // 和 BlitFace 不同：**不**保持宽高比。粒子要的就是拉伸出来的扁/胖比例，
+        // 所以直接把整张图铺满传进来的矩形。
+        const RectF dst((REAL)rc.left, (REAL)rc.top, (REAL)w, (REAL)h);
+
+        if (alpha >= 0.99f)
+        {
+            g.DrawImage(src.bmp, dst, 0.0f, 0.0f,
+                (REAL)src.w, (REAL)src.h, UnitPixel);
+        }
+        else
+        {
+            // 整张图乘一个 alpha：只能走 ColorMatrix（ImageAttributes）
+            ColorMatrix cm = {
+                1, 0, 0, 0, 0,
+                0, 1, 0, 0, 0,
+                0, 0, 1, 0, 0,
+                0, 0, 0, alpha, 0,
+                0, 0, 0, 0, 1
+            };
+            ImageAttributes ia;
+            ia.SetColorMatrix(&cm);
+            g.DrawImage(src.bmp, dst, 0.0f, 0.0f,
+                (REAL)src.w, (REAL)src.h, UnitPixel, &ia);
+        }
+    }
+
     void BlitCrucified(HDC hdc, const RECT& rc, DWORD /*frame*/)
     {
         if (!hdc || !g_cruc.Ok()) return;
@@ -1267,9 +1364,13 @@ namespace face {
         return true;
     }
 
-    void BlitStopSign(HDC hdc, const RECT& rc, float angleDeg)
+    void BlitStopSign(HDC hdc, const RECT& rc, float angleDeg, float alpha)
     {
         if (!hdc || !g_stop.Ok()) return;
+
+        if (alpha < 0.0f) alpha = 0.0f;
+        if (alpha > 1.0f) alpha = 1.0f;
+        if (alpha < 0.02f) return;   // 太淡就不画了，省一次 DrawImage
 
         const int w = rc.right - rc.left;
         const int h = rc.bottom - rc.top;
@@ -1288,8 +1389,27 @@ namespace face {
             g.TranslateTransform(-cx, -cy);
         }
 
-        g.DrawImage(g_stop.bmp, Rect(rc.left, rc.top, w, h),
-            0, 0, g_stop.w, g_stop.h, UnitPixel);
+        if (alpha >= 0.99f)
+        {
+            // 完全透明：走快速路径，不做 ColorMatrix 变换
+            g.DrawImage(g_stop.bmp, Rect(rc.left, rc.top, w, h),
+                0, 0, g_stop.w, g_stop.h, UnitPixel);
+        }
+        else
+        {
+            // 整张图乘一个 alpha：GDI+ 只能走 ColorMatrix（ImageAttributes）
+            ColorMatrix cm = {
+                1, 0, 0, 0, 0,
+                0, 1, 0, 0, 0,
+                0, 0, 1, 0, 0,
+                0, 0, 0, alpha, 0,
+                0, 0, 0, 0, 1
+            };
+            ImageAttributes ia;
+            ia.SetColorMatrix(&cm);
+            g.DrawImage(g_stop.bmp, Rect(rc.left, rc.top, w, h),
+                0, 0, g_stop.w, g_stop.h, UnitPixel, &ia);
+        }
     }
 
 } // namespace face

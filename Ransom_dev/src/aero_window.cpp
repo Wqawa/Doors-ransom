@@ -30,6 +30,12 @@ using namespace Gdiplus;
 
 #pragma comment(lib, "gdiplus.lib")
 
+// WndProc 里调 aero::ClientToContent 时**必须**写全限定名。
+// 为什么：它下面的匿名 namespace 里还嵌着一个 `namespace aero`（内容绘制
+// 那一层就在里面），不加限定的话，非限定查找先命中那个内层 aero，
+// 从此不再往外找，于是永远看不见真正的 aero::ClientToContent。
+// （实测：不写 aero:: 就是 C3861「找不到标识符」。）
+
 namespace {
 
     const wchar_t* kClassName = L"RansomAeroWnd";
@@ -746,6 +752,32 @@ namespace {
         StartAnim(a, ANIM_CLOSE, animcfg::kCloseMs);
     }
 
+    // 最小化状态下要播关闭动画，必须先把窗口恢复出来。
+// 最小化时系统已经把窗口藏了，直接 StartClose 等于什么都没显示；
+// 而以前两条关闭路径（WM_CLOSE / SC_CLOSE）遇到最小化直接
+// DestroyWindow，关闭动画完全失效 —— 就是用户报的那个现象。
+// 恢复位置用 preMinimizeRect（StartMinimize 里存下的）。
+    void RestoreFromMinimizedForClose(AeroWnd* a)
+    {
+        if (!a->minimized) return;
+        a->minimized = false;
+
+        // SW_SHOWNOACTIVATE 会把最小化的窗口恢复成正常状态但不抢焦点。
+        // 万一某些系统/窗口组合下这一步没生效，再补一发 SW_RESTORE。
+        ShowWindow(a->hwnd, SW_SHOWNOACTIVATE);
+        if (IsIconic(a->hwnd)) ShowWindow(a->hwnd, SW_RESTORE);
+
+        SetWindowPos(a->hwnd, nullptr,
+            a->preMinimizeRect.left, a->preMinimizeRect.top,
+            a->preMinimizeRect.right - a->preMinimizeRect.left,
+            a->preMinimizeRect.bottom - a->preMinimizeRect.top,
+            SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOREDRAW);
+
+        EnsureBuffer(a,
+            a->preMinimizeRect.right - a->preMinimizeRect.left,
+            a->preMinimizeRect.bottom - a->preMinimizeRect.top);
+    }
+
     void StartMaximize(AeroWnd* a)
     {
         if (a->anim.active || a->maximized || a->minimized) return;
@@ -945,11 +977,21 @@ namespace {
         if (a->anim.useScale)
             scale = a->anim.fromScale + (a->anim.toScale - a->anim.fromScale) * e;
 
-        const BYTE alpha = (BYTE)(a->anim.fromAlpha +
-            (a->anim.toAlpha - a->anim.fromAlpha) * e);
+        // alpha 必须夹到 [0,255] 再转 BYTE。
+        //
+        // back-out / 回弹这类缓动的 e 会过冲到约 1.12，
+        // 直接 (BYTE) 强转会**模 256 溢出**：
+        //   打开动画 110 + (255-110)*1.1208 = 272 → (BYTE)272 = 16
+        // 于是 alpha 走 110 → 255 → 16 → 255，
+        // 画面表现就是"弹到最大时突然变近乎全透明，下一帧又弹回来"——
+        // 也就是动画末尾闪的那一下。
+        float af = (float)a->anim.fromAlpha +
+            ((float)a->anim.toAlpha - (float)a->anim.fromAlpha) * e;
+        if (af < 0.0f)   af = 0.0f;
+        if (af > 255.0f) af = 255.0f;
+        const BYTE alpha = (BYTE)af;
 
-        PaintWindow(a, scale, alpha, a->anim.anchorX, a->anim.anchorY);
-
+        PaintWindow(a, scale, alpha, a->anim.anchorX, a->anim.anchorY); 
         // 注意用 tRaw 判断结束：分帧后 t 在最后一格也会等于 1，但用原始进度更直观。
         if (tRaw >= 1.0f)
         {
@@ -972,6 +1014,7 @@ namespace {
             else if (finished == ANIM_MINIMIZE)
             {
                 ShowWindow(a->hwnd, SW_MINIMIZE);
+                return;   // 最小化后不需要再重绘
             }
             else
             {
@@ -1100,10 +1143,63 @@ namespace {
         }
 
         // ------------------------------------------------------- 鼠标 ----
+        //
+        // 内容区鼠标转发：自绘控件（滑条 / 复选框 / 按钮）挂在
+        // Options::onContentMouse 上。坐标先换算成内容区坐标再给出去，
+        // 回调那边就不用再关心阴影和标题栏各占多高。
+        //
+        // 只转发落在内容区里的消息：
+        //   * 标题栏（y < kTitleH + 1）是拖动 / 双击最大化 / 系统菜单的地盘
+        //   * 阴影带（外面那 14px）本来就是透明区，点它等于点桌面
+        //
+        // 落在内容区之外的消息**不在这里吞掉**，继续往下走原有分支。
+        case WM_LBUTTONDOWN:
+        case WM_LBUTTONUP:
+        case WM_LBUTTONDBLCLK:
         case WM_MOUSEMOVE:
         {
-            if (!a) break;
             const POINT pt = { GET_X_LPARAM(lp), GET_Y_LPARAM(lp) };
+            POINT cp = {};
+            const bool onContent = a && aero::ClientToContent(hwnd, pt, cp);
+
+            if (a && a->opt.onContentMouse && onContent)
+            {
+                a->opt.onContentMouse(hwnd, msg, cp, wp, a->opt.onContentMouseUser);
+                return 0;
+            }
+
+            // ---- 以下只在「消息没被内容区接走」时才有意义 ----
+            if (!a) break;
+
+            // 左键：标题栏按钮（关闭 / 最大化 / 最小化）
+            if (msg == WM_LBUTTONDOWN)
+            {
+                if (!a->opt.buttons) return 0;
+                const POINT pt = { GET_X_LPARAM(lp), GET_Y_LPARAM(lp) };
+
+                if (PtInRect(&a->rcClose, pt))
+                {
+                    elog::Write(L"[aero] 关闭按钮被点击: '%s'", a->opt.title.c_str());
+                    // 先通知上层「这是玩家主动关的」，再发 WM_CLOSE。
+                    // 顺序不能反：WM_CLOSE 会一路走到 StartClose，中间可能
+                    // 触发别的处理，先把标志立起来才最可靠。
+                    if (a->opt.onUserClose)
+                        a->opt.onUserClose(hwnd, a->opt.onUserCloseUser);
+                    SendMessageW(hwnd, WM_CLOSE, 0, 0);
+                }
+                else if (PtInRect(&a->rcMax, pt))
+                {
+                    ToggleMaximize(a);
+                }
+                else if (PtInRect(&a->rcMin, pt))
+                {
+                    StartMinimize(a);
+                }
+                return 0;
+            }
+
+            if (msg != WM_MOUSEMOVE) break;
+
             int nh = BTN_NONE;
             if (a->opt.buttons)
             {
@@ -1122,25 +1218,24 @@ namespace {
             if (a && a->hot != BTN_NONE) { a->hot = BTN_NONE; PaintWindow(a); }
             return 0;
 
-        case WM_LBUTTONDOWN:
+        // 滚轮：和内容区鼠标一样先换算坐标，再转成正负号给回调。
+        // 注意 WM_MOUSEWHEEL 的 lParam 是**屏幕坐标**（和别的鼠标消息不同），
+        // 所以这里要先 ScreenToClient。
+        case WM_MOUSEWHEEL:
         {
-            if (!a || !a->opt.buttons) return 0;
-            const POINT pt = { GET_X_LPARAM(lp), GET_Y_LPARAM(lp) };
+            if (!a || !a->opt.onContentWheel) break;
 
-            if (PtInRect(&a->rcClose, pt))
+            POINT pt = { GET_X_LPARAM(lp), GET_Y_LPARAM(lp) };
+            ScreenToClient(hwnd, &pt);
+
+            POINT cp = {};
+            if (aero::ClientToContent(hwnd, pt, cp))
             {
-                elog::Write(L"[aero] 关闭按钮被点击: '%s'", a->opt.title.c_str());
-                SendMessageW(hwnd, WM_CLOSE, 0, 0);
+                const int delta = (GET_WHEEL_DELTA_WPARAM(wp) > 0) ? 1 : -1;
+                a->opt.onContentWheel(hwnd, cp, delta, a->opt.onContentWheelUser);
+                return 0;
             }
-            else if (PtInRect(&a->rcMax, pt))
-            {
-                ToggleMaximize(a);
-            }
-            else if (PtInRect(&a->rcMin, pt))
-            {
-                StartMinimize(a);
-            }
-            return 0;
+            break;
         }
 
         case WM_NCLBUTTONDBLCLK:
@@ -1196,7 +1291,16 @@ namespace {
             {
                 if (a->anim.type == ANIM_CLOSE) return 0;
                 CancelAnim(a);
-                if (a->minimized) { DestroyWindow(hwnd); return 0; }
+
+                // 从系统菜单 / Alt+F4 走来的「关闭」也算玩家主动关。
+                // 注意：aero::AnimateClose() 走的是 WM_CLOSE，**不经过这里**，
+                // 所以「到寿命自动淡出」不会被误判。
+                if (a->opt.onUserClose)
+                    a->opt.onUserClose(hwnd, a->opt.onUserCloseUser);
+
+                // 同 WM_CLOSE：先把最小化的窗口恢复出来，关闭动画才有东西可画。
+                RestoreFromMinimizedForClose(a);
+
                 StartClose(a);
                 return 0;
             }
@@ -1271,9 +1375,15 @@ namespace {
         case WM_SIZE:
             if (a && wp != SIZE_MINIMIZED)
             {
+                // 动画期间直接返回：那几帧的位置/尺寸本来就在动，
+                // OnAnimTick 下一帧会自己补上。在这里插一脚只会得到
+                // 一帧全透明 —— EnsureBuffer 若因尺寸变化重建了 DIB，
+                // 重建后的 bits 还没画过，直接呈现就是一片空白。
+                if (a->anim.active) return 0;
+
                 RECT wr; GetWindowRect(hwnd, &wr);
                 EnsureBuffer(a, wr.right - wr.left, wr.bottom - wr.top);
-                if (!a->anim.active) PaintWindow(a);
+                PaintWindow(a);
             }
             return 0;
 
@@ -1283,7 +1393,12 @@ namespace {
                 elog::Write(L"[aero] WM_CLOSE '%s'", a->opt.title.c_str());
                 if (a->anim.type == ANIM_CLOSE) return 0;
                 CancelAnim(a);
-                if (a->minimized) { DestroyWindow(hwnd); return 0; }
+
+                // 最小化状态下走关闭：先把窗口恢复出来再播关闭动画。
+                // 以前这里直接 DestroyWindow，所以最小化后关闭动画
+                // 一帧都播不出来 —— 这是用户报的「关闭动画失效」。
+                RestoreFromMinimizedForClose(a);
+
                 StartClose(a);
                 return 0;
             }
@@ -1356,7 +1471,14 @@ namespace aero {
         int x = opt.x, y = opt.y;
         if (x == CW_USEDEFAULT || y == CW_USEDEFAULT) CenterOnScreen(W, H, x, y);
 
-        DWORD ex = WS_EX_LAYERED | WS_EX_TOOLWINDOW;
+        DWORD ex = WS_EX_LAYERED;
+        // 有按钮的窗口（设置窗口 / 子窗口）加 WS_EX_APPWINDOW：
+        // 这类窗口用户可能点最小化，必须让它出现在任务栏，
+        // 否则最小化之后没有恢复入口，窗口就永远回不来了。
+        // 没按钮的（主勒索窗口）保持 WS_EX_TOOLWINDOW：不进任务栏、不进 Alt+Tab。
+        // 两者不能同时用 —— WS_EX_TOOLWINDOW 优先级更高，会盖掉 WS_EX_APPWINDOW。
+        if (opt.buttons) ex |= WS_EX_APPWINDOW;
+        else             ex |= WS_EX_TOOLWINDOW;
         if (opt.topmost) ex |= WS_EX_TOPMOST;
 
         a->hwnd = CreateWindowExW(ex, kClassName, opt.title.c_str(), WS_POPUP,
@@ -1371,11 +1493,18 @@ namespace aero {
         }
 
         // 先按打开动画的初始状态画一帧，再显示，避免出现瞬间全尺寸的闪烁
+        // 先启动动画状态，再用动画起点画首帧，最后才显示窗口。
+        //
+        // 顺序很要紧：ShowWindow 可能触发 WM_SIZE，而 WM_SIZE 里会检查
+        // anim.active —— 如果此刻动画还没开始，它就会按「最终尺寸 + 全不透明」
+        // 重画一帧，于是先闪一下完整窗口、再缩回去重播打开动画。
+        // 把 StartOpen 提到 ShowWindow 之前，anim.active 已是 true，
+        // 那一帧误绘自然被跳过。
         if (opt.animate)
         {
+            StartOpen(a);
             PaintWindow(a, animcfg::kOpenScale, animcfg::kOpenAlpha);
             ShowWindow(a->hwnd, SW_SHOWNOACTIVATE);
-            StartOpen(a);
         }
         else
         {
@@ -1383,7 +1512,6 @@ namespace aero {
             ShowWindow(a->hwnd, SW_SHOWNOACTIVATE);
             SetTimer(a->hwnd, kTickId, a->opt.tickMs, nullptr);
         }
-
         g_windows.push_back(a);
         return a->hwnd;
     }
@@ -1641,6 +1769,50 @@ namespace aero {
     {
         RECT r = { 0, 0, 0, 0 };
         if (hwnd && IsWindow(hwnd)) GetWindowRect(hwnd, &r);
+        return r;
+    }
+
+    // 内容区相对**客户区**的左上角 = (kShadow + 1, kShadow + kTitleH + 1)。
+    // 这两个常量必须和 PaintWindow 里算 content 的那段保持一致：
+    //   那里是 rcMain.X + 1, rcMain.Y + kTitleH + 1，而 rcMain 从 kShadow 起。
+    bool ClientToContent(HWND hwnd, POINT clientPt, POINT& out)
+    {
+        AeroWnd* a = hwnd ? From(hwnd) : nullptr;
+        if (!a) return false;
+
+        RECT cr = {};
+        GetClientRect(hwnd, &cr);
+        const int cw = cr.right - cr.left;
+        const int ch = cr.bottom - cr.top;
+
+        const int left   = kShadow + 1;
+        const int top    = kShadow + kTitleH + 1;
+        const int right  = cw - kShadow - 1;
+        const int bottom = ch - kShadow - 1;
+
+        if (clientPt.x < left || clientPt.x >= right ||
+            clientPt.y < top  || clientPt.y >= bottom)
+            return false;
+
+        out.x = clientPt.x - left;
+        out.y = clientPt.y - top;
+        return true;
+    }
+
+    RECT ContentRectOf(HWND hwnd)
+    {
+        RECT r = {};
+        if (!hwnd || !IsWindow(hwnd)) return r;
+
+        RECT wr = {};
+        GetWindowRect(hwnd, &wr);
+
+        r.left   = wr.left + kShadow + 1;
+        r.top    = wr.top + kShadow + kTitleH + 1;
+        r.right  = wr.right - kShadow - 1;
+        r.bottom = wr.bottom - kShadow - 1;
+        if (r.right  < r.left) r.right  = r.left;
+        if (r.bottom < r.top)  r.bottom = r.top;
         return r;
     }
 

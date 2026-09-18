@@ -93,6 +93,18 @@ namespace {
     // ------------------------------------------------------------ 声部 ----
     const int kMaxOneShots = 8;
 
+        // 主题曲跳变后的淡入时长（采样帧）。约 34ms @ 44100Hz。
+    // 纯粹为了盖住跳变点波形不连续产生的咔哒声——这个时长足够短，
+    // 听感上不会被当成"音乐断了一下"。
+    const int kThemeSeekFadeFrames = 1500;
+
+    // 主题曲跳变请求的通道（主线程 -> 合成线程）。
+    // 和 g_req / g_themeRestart 同一套无锁模式：主线程只递增计数，
+    // 合成线程看到计数变了才去动 pos / gain。
+    std::atomic<int>  g_themeSeekReq{ 0 };
+    int               g_themeSeekSeen = 0;
+    std::atomic<long> g_themeSeekDeltaFrames{ 0 };
+
     // 循环层：增益平滑过渡，避免开关时爆音
     struct LoopLayer {
         int    clipId = -1;
@@ -100,20 +112,51 @@ namespace {
         double gain = 0.0;
         double target = 0.0;
 
+        // 播到末尾是否回绕。主题曲默认循环；被 SeekThemeBy 往前跳过
+        // 一次之后翻成 false —— 因为主题曲本来就是 90 秒对应 90 秒倒计时，
+        // 玩家把倒计时扣到 0 就意味着这一轮音乐也该结束了，
+        // 再循环会盖住后面的惩罚音效。
+        bool loop = true;
+
+        // SeekThemeBy 之后的淡入：还剩多少采样帧。
+        // >0 时由 Sample() 按线性插值把 gain 从 0 拉回 target，
+        // Tick() 在这段时间里不插手（否则两边会打架）。
+        int  fadeInLeft = 0;
+
         void Tick()
         {
+            if (fadeInLeft > 0) return;   // 淡入由 Sample 管
             gain += (target - gain) * 0.00025;
             if (gain < 0.0001 && target == 0.0) gain = 0.0;
         }
 
         double Sample()
         {
-            if (clipId < 0 || gain <= 0.0) return 0.0;
+            if (clipId < 0) return 0.0;
+
+            // ---- 跳变淡入 ----
+            // 必须在 gain 检查之前递减：gain 可能是 0，也得让计数走。
+            if (fadeInLeft > 0)
+            {
+                --fadeInLeft;
+                gain = target * (1.0 - (double)fadeInLeft / (double)kThemeSeekFadeFrames);
+                if (gain < 0.0) gain = 0.0;
+            }
+
+            if (gain <= 0.0) return 0.0;
             const audio_clip::Clip& c = g_clips[clipId];
             if (!c.Ok()) return 0.0;
 
+            // 走到末尾：这一层停播（loop=false 时）。
+            if (pos >= c.Frames())
+            {
+                if (!loop) return 0.0;
+                pos = 0;
+            }
+
             const double v = (c.pcm[pos] / 32768.0) * gain;
-            if (++pos >= c.Frames()) pos = 0;
+            ++pos;
+            if (loop && pos >= c.Frames()) pos = 0;
             return v;
         }
     };
@@ -139,7 +182,13 @@ namespace {
     std::atomic<int> g_themeRestart{ 0 };
     int              g_themeRestartSeen = 0;
 
-    std::atomic<int>  g_master{ 70 };
+    std::atomic<int>  g_master{ 100 };   // 上限，0-100
+    std::atomic<int>  g_bgm{ 100 };      // 背景音乐通道，0-200
+    std::atomic<int>  g_sfx{ 100 };      // 音效通道，0-200
+
+    // 设置界面的「试听」：到点自动把主题曲放回去。
+    // 存的是目标时刻（GetTickCount），0 = 没有在试听。
+    std::atomic<DWORD> g_previewUntil{ 0 };
     HWAVEOUT          g_hwo = nullptr;
     HANDLE            g_thread = nullptr;
     std::atomic<bool> g_stop{ false };
@@ -181,7 +230,30 @@ namespace {
     // ------------------------------------------------------------ 混音 ----
     void Fill(short* out, int n)
     {
-        const double mGain = g_master.load() / 100.0;
+        // ---- 通道增益 ----
+        // 三条线在主线程随时可改（用户拖滑条），这里每块缓冲取一次。
+        // 200% 就是乘 2.0：不在这里夹，留给末尾的统一软削波处理，
+        // 否则「拉到 200% 却听不出区别」。
+        const double mGain   = g_master.load() / 100.0;
+        const double bgmGain = g_bgm.load() / 100.0;
+        const double sfxGain = g_sfx.load() / 100.0;
+        const double themeGain = mGain * bgmGain;
+        const double bedGain   = mGain * bgmGain;
+        const double oneGain   = mGain * sfxGain;
+
+        // ---- 设置界面的试听截止 ----
+        // 到点就静音主题曲。放在这里而不是挂定时器：合成线程本来就在
+        // 每块缓冲跑一遍，不需要额外的窗口和消息。
+        {
+            const DWORD until = g_previewUntil.load();
+            if (until != 0 && GetTickCount() >= until)
+            {
+                g_previewUntil.store(0);
+                g_theme.target = 0.0;
+                g_bed.target = 0.0;
+                elog::Write(L"[audio] 试听结束");
+            }
+        }
 
         // ---- 处理主线程的触发请求 ----
         for (int t = 0; t < C_COUNT; ++t)
@@ -193,7 +265,48 @@ namespace {
         // ---- 主题曲重头播：每一轮勒索都从 0 秒起，和 90 秒倒计时对齐 ----
         {
             const int cur = g_themeRestart.load();
-            if (g_themeRestartSeen != cur) { g_themeRestartSeen = cur; g_theme.pos = 0; }
+            if (g_themeRestartSeen != cur)
+            {
+                g_themeRestartSeen = cur;
+                g_theme.pos = 0;
+                g_theme.loop = true;      // 新的一轮，恢复循环
+                g_theme.fadeInLeft = 0;   // 清掉可能残留的淡入计数
+            }
+        }
+
+        // ---- 主题曲跳变：玩家关子窗口时倒计时被扣，音乐跟着往前跳 ----
+        {
+            const int cur = g_themeSeekReq.load();
+            if (g_themeSeekSeen != cur)
+            {
+                g_themeSeekSeen = cur;
+
+                const long delta = g_themeSeekDeltaFrames.load();
+                const audio_clip::Clip& c = g_clips[g_theme.clipId];
+                if (c.Ok())
+                {
+                    long long p = (long long)g_theme.pos + (long long)delta;
+                    const long long len = (long long)c.Frames();
+
+                    // 前跳超过曲长：停在末尾。这一轮的音乐到此为止 ——
+                    // 倒计时都已经归零了，音乐也该结束。
+                    // 往后跳（负 delta）不可能小于 0，因为 pos 是累加过的
+                    // 实际位置，delta 只会是在它基础上加。
+                    if (p >= len)
+                    {
+                        p = len;
+                        g_theme.loop = false;
+                    }
+                    if (p < 0) p = 0;
+
+                    g_theme.pos = (size_t)p;
+
+                    // 归零增益，让 Sample() 在 kThemeSeekFadeFrames 帧内
+                    // 把它拉回 target —— 盖住波形不连续造成的咔哒声。
+                    g_theme.gain = 0.0;
+                    g_theme.fadeInLeft = kThemeSeekFadeFrames;
+                }
+            }
         }
 
         for (int i = 0; i < n; ++i)
@@ -203,9 +316,11 @@ namespace {
             g_theme.Tick();
             g_bed.Tick();
 
-            s += g_theme.Sample();
-            s += g_bed.Sample();
+            // 常驻层走 BGM 通道
+            s += g_theme.Sample() * themeGain;
+            s += g_bed.Sample() * bedGain;
 
+            // 一次性音效走 SFX 通道
             for (int v = 0; v < kMaxOneShots; ++v)
             {
                 OneShot& o = g_shots[v];
@@ -214,15 +329,18 @@ namespace {
                 const audio_clip::Clip& c = g_clips[o.clipId];
                 if (!c.Ok() || o.pos >= c.Frames()) { o.active = false; continue; }
 
-                s += (c.pcm[o.pos] / 32768.0) * o.gain;
+                s += (c.pcm[o.pos] / 32768.0) * o.gain * oneGain;
                 ++o.pos;
             }
 
-            // ---- 合成的 tada（素材缺失时的替代）----
+            // ---- 统一软削波 ----
+            // 以前是 mGain * 32000 直接落 short：音符叠加 + 通道拉到 200%
+            // 时会溢出成刺耳的爆音（短整型回绕），而不是「响」。
+            // 现在先在 [-1,1] 里夹一次，再留 3% 的余量落盘。
             if (s > 1.0) s = 1.0;
             if (s < -1.0) s = -1.0;
 
-            out[i] = (short)(s * mGain * 32000.0);
+            out[i] = (short)(s * 32000.0);
         }
     }
 
@@ -312,6 +430,15 @@ namespace audio {
 
     bool Start()
     {
+        // ---- 已经起过了：直接返回 ----
+        //
+        // 现在有两个调用点（启动设置界面里为了试听会先起一次，
+        // 主流程里那句 `if (!noAudio) audio::Start()` 是第二次）。
+        // 以前重复调用会把素材重载一遍、EditTheme 再跑一遍
+        // （慢放是 CPU 活，几十毫秒到几百毫秒），还顺手清掉已经
+        // 排上队的一次性音效请求 —— 全都不是我们想要的。
+        if (g_hwo) return true;
+
         // ---- 载入素材 ----
         // 名字是**文件名**，字节从内嵌资源里取（--audio-dir 时改读盘）。
         g_loaded = 0;
@@ -414,6 +541,28 @@ namespace audio {
         g_master = level;
     }
 
+    int Master() { return g_master.load(); }
+
+    // 背景音乐 / 音效通道。**故意允许到 200%** —— 这是需求：
+    // 原版音量标在 100，滑条还能往上推一倍。
+    void SetBgmLevel(int percent)
+    {
+        if (percent < 0)   percent = 0;
+        if (percent > 200) percent = 200;
+        g_bgm = percent;
+    }
+
+    int BgmLevel() { return g_bgm.load(); }
+
+    void SetSfxLevel(int percent)
+    {
+        if (percent < 0)   percent = 0;
+        if (percent > 200) percent = 200;
+        g_sfx = percent;
+    }
+
+    int SfxLevel() { return g_sfx.load(); }
+
     void SetTheme(bool on)
     {
         g_theme.target = on ? kThemeFullGain : 0.0;
@@ -460,7 +609,43 @@ namespace audio {
     {
         g_theme.target = 0.0;
         g_bed.target = 0.0;
+        g_previewUntil.store(0);      // 收场时把试听状态一并清掉
         for (int i = 0; i < kMaxOneShots; ++i) g_shots[i].active = false;
+    }
+
+    void PreviewBgm(DWORD previewMs)
+    {
+        // 音频没起来（--no-audio / 没声卡）就什么都不做，静默降级是设计的一部分。
+        if (!g_hwo) return;
+        if (previewMs < 200) previewMs = 200;
+
+        ++g_themeRestart;             // 从 0 秒起播，试听听到的就是开场那段
+        g_theme.target = kThemeFullGain;
+        g_bed.target = (6 / 100.0) * 0.42;      // 顺手把底噪也带起来一点
+
+        g_previewUntil.store(GetTickCount() + previewMs);
+    }
+
+    void PreviewSfx()
+    {
+        if (!g_hwo) return;
+        ++g_req[C_SPAWN];
+    }
+
+    void SeekThemeBy(double seconds)
+    {
+        // 没启动音频（--no-audio / 无声卡）：什么都不做。
+        // 这里**不**报"主题曲未载入"那类日志 —— 静默降级是设计的一部分。
+        if (!g_hwo) return;
+
+        const long frames = (long)(seconds * kSampleRate);
+        if (frames == 0) return;
+
+        g_themeSeekDeltaFrames.store(frames);
+        ++g_themeSeekReq;
+
+        elog::Write(L"[audio] 主题曲位置跳变 %+.2f 秒（约 %ld 帧）",
+            seconds, frames);
     }
 
     // ---------------------------------------------------------------- 导出 ----
@@ -504,7 +689,12 @@ namespace audio {
         for (int i = 0; i < C_COUNT; ++i) { g_req[i] = 0; g_seen[i] = 0; }
 
         const int savedMaster = g_master.load();
+        const int savedBgm    = g_bgm.load();
+        const int savedSfx    = g_sfx.load();
         g_master = 100;
+        g_bgm    = 100;
+        g_sfx    = 100;
+        g_previewUntil.store(0);      // 别让设置界面留下的试听截止时间腰斩导出
         g_theme.target = kThemeFullGain;
         g_bed.target = 0.20;
 
@@ -544,6 +734,8 @@ namespace audio {
 
         Silence();
         g_master = savedMaster;
+        g_bgm    = savedBgm;
+        g_sfx    = savedSfx;
         for (int i = 0; i < kMaxOneShots; ++i) g_shots[i].active = false;
 
         elog::Write(L"[audio] 已导出 %d 秒混音到 %s（成功=%d）", seconds, path, (int)ok);

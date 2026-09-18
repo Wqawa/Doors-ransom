@@ -41,8 +41,14 @@ namespace face {
     // 停牌闪现（头隐藏，只有停牌）—— 旧接口，保留兼容，主流程不再用。
     void ShowStopSign(DWORD lifeMs);
 
-    // 开场 jumpscare（张口脸 + 深红底）。先小后大 + 抖动 + 白处闪红。
-    void ShowAttackStill(DWORD lifeMs);
+    // 开场 jumpscare（张口脸 + 深红底）。抖动 + 白处闪红 + 尺寸变化。
+    //
+    // smallToBig = true （默认）：先按停牌大小显示 kAttackSmallMs（100ms），
+    //                            再瞬间跳到全屏 —— 开场那个"停牌炸开成脸"。
+    // smallToBig = false        ：直接全屏，跳过那 100ms 的小尺寸。
+    //                            给惩罚跳杀用 —— 玩家已经等了 90 秒，
+    //                            再来一遍"小→大"像是在重播开场。
+    void ShowAttackStill(DWORD lifeMs, bool smallToBig = true);
 
     // 惩罚 jumpscare（张口脸，不铺底）。同样先小后大 + 抖动 + 白处闪红。
     void ShowAttackShaking(DWORD lifeMs);
@@ -68,8 +74,17 @@ namespace face {
     int  PopupImageCount();
     bool BlitPopupImage(HDC hdc, const RECT& rc, int index);
     void BlitFace(HDC hdc, const RECT& rc, bool gape, DWORD frame);
+
+    // 同上，但可以指定整体不透明度（0..1），并且**不保持宽高比**
+    // （粒子要的就是「宽扁随机」）。overlay 的锁定态故障粒子用它。
+    void BlitFaceAlpha(HDC hdc, const RECT& rc, bool gape, float alpha);
+
     void BlitCrucified(HDC hdc, const RECT& rc, DWORD frame);
-    void BlitStopSign(HDC hdc, const RECT& rc, float angleDeg);
+
+    // angleDeg：绕停牌中心旋转的角度（度）。
+    // alpha：整体不透明度 0..1。默认 1.0 = 不透明。
+    //        overlay 的付清消散动画用它做停牌的淡出。
+    void BlitStopSign(HDC hdc, const RECT& rc, float angleDeg, float alpha = 1.0f);
 
     // 开发用：把程序生成的素材导出成 PNG 后退出。
     bool DumpAssets(const wchar_t* dir);

@@ -38,6 +38,7 @@
 #include "aero_window.h"
 #include "ui_layout.h"
 #include "desktop_overlay.h"
+#include "guardian.h"
 #include "lockdown.h"
 #include "audio.h"
 #include "director.h"
@@ -47,7 +48,8 @@
 #include "gold.h"
 #include "motion.h"
 #include "recycle.h"
-
+#include "settings.h"
+#include "setup_ui.h"
 #pragma comment(lib, "user32.lib")
 #pragma comment(lib, "gdi32.lib")
 #pragma comment(lib, "ole32.lib")
@@ -94,6 +96,21 @@ int SendPayment(int amount, int token)
 
 LRESULT CALLBACK IpcProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
 {
+    // 开场设置 / 应急提示那两屏自带模态循环，主循环里那一段解释走不到，
+    // 而 WM_HOTKEY 又是投给**注册它的窗口**（就是这个 IPC 窗口）的。
+    // 所以这里先把热键转给正在开着的设置界面；没人接再往下走各自的处理。
+    if (msg == WM_HOTKEY && wp == kHotkeyPanic)
+    {
+        if (setup_ui::DispatchHotkey()) return 0;
+    }
+
+    // 守护进程心跳：定期检查守护还在不在，不在就重启一个。
+    if (msg == WM_TIMER && wp == 2)
+    {
+        guardian::Tick();
+        return 0;
+    }
+
     if (msg == g_msgPay && g_msgPay != 0)
     {
         const int amount = (int)wp;
@@ -125,6 +142,25 @@ LRESULT CALLBACK IpcProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
 // ------------------------------------------------------------------ 入口 ----
 int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int)
 {
+    // ---- 守护模式：直接进守护循环，不碰主流程 ----
+    //
+    // 守护进程是同一个 exe 拉起来的自己，只是带了 --guardian <pid> <gen>。
+    // 这一段必须在**最前面**：守护进程不该碰高 DPI 设置、命令行解析、
+    // 模块启动……它只需要监护主进程，然后在需要时跑一次惩罚演出。
+    if (guardian::IsGuardianMode())
+    {
+        DWORD targetPid = 0;
+        int   gen = 0;
+        if (!guardian::ParseGuardianArgs(__argc, __wargv, targetPid, gen) ||
+            targetPid == 0)
+        {
+            // 参数坏了（不该发生），直接退，别把守护进程留成孤儿
+            return 2;
+        }
+        return guardian::RunGuardian(hInst, targetPid, gen);
+    }
+
+    // ---- 高 DPI ----
     // ---- 高 DPI ----
     {
         typedef BOOL (WINAPI *PFN_SetProcessDpiAwarenessContext)(HANDLE);
@@ -151,6 +187,8 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int)
     //   --overlay-topmost      覆盖层置顶（默认贴桌面层）
     //   --no-block-menu        不拦截被加密图标上的右键菜单（排查问题时用）
     //   --no-lockdown          勒索时不最小化别的程序（排查问题时用）
+    //   --no-guardian          不启动双进程看守（调试时用；有调试器时也会自动跳过）
+    //   --no-setup             不弹启动设置和应急提示，直接用 ini 里的值开演
     //   --tolerance N          鼠标容差像素（默认 10）
     //   --face-demo MODE       只显示某张脸：idle/stop/attack/thanks/loading
     //   --face-dump DIR        把程序生成的素材导出成 PNG 后退出（验证外观用）
@@ -160,6 +198,9 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int)
     //   --theme-dump PATH      把处理后的主题曲导成 WAV 后退出（试听用）
     //   --ui-preview PATH      把勒索主窗口排版渲染成 PNG 后退出（调排版用）
     //   --ui-grid              配合 --ui-preview，预览图叠坐标网格
+    //   --setup-ui PATH        把启动设置窗口渲染成 PNG 后退出（调排版用）
+    //   --notice-ui PATH       把应急提示窗口渲染成 PNG 后退出
+    //   --setup-grid           配合上面两个，预览图叠坐标网格
     //   --fx-demo NAME PATH    设置 fx 图层状态并把它单独导成 PNG 后退出。
     //                          NAME：glow（四角红光）/ black（黑幕+雪花）/ stop（亮红幕）
     //   --image-dir DIR        覆盖图片素材目录（默认自动找 assets\image）
@@ -170,7 +211,9 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int)
     bool           noOverlay   = false;
     bool           overlayTop  = false;
     bool           noBlockMenu = false;
-    bool           noLockdown  = false;
+    bool           noLockdown = false;
+    bool           noGuardian = false;    
+    bool           noSetup    = false;
     const wchar_t* startPhase  = nullptr;
     const wchar_t* faceDemo    = nullptr;
     const wchar_t* faceDump    = nullptr;
@@ -186,6 +229,9 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int)
     const wchar_t* uiPreview   = nullptr;
     bool           uiPreviewGrid = false;
     bool           uiPreviewPayup = false;
+    const wchar_t* setupUi     = nullptr;
+    const wchar_t* noticeUi    = nullptr;
+    bool           setupUiGrid = false;
     const wchar_t* fxDemo      = nullptr;
     const wchar_t* fxDump      = nullptr;
     const wchar_t* audioDir    = nullptr;
@@ -200,8 +246,10 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int)
         else if (_wcsicmp(a, L"--no-audio") == 0)     noAudio    = true;
         else if (_wcsicmp(a, L"--no-overlay") == 0)   noOverlay  = true;
         else if (_wcsicmp(a, L"--overlay-topmost") == 0) overlayTop = true;
-        else if (_wcsicmp(a, L"--no-block-menu") == 0)   noBlockMenu = true;
-        else if (_wcsicmp(a, L"--no-lockdown") == 0)     noLockdown  = true;
+        else if (_wcsicmp(a, L"--no-block-menu") == 0)   noBlockMenu = true;        
+        else if (_wcsicmp(a, L"--no-lockdown") == 0)     noLockdown = true;
+        else if (_wcsicmp(a, L"--no-guardian") == 0)     noGuardian = true;
+        else if (_wcsicmp(a, L"--no-setup") == 0)        noSetup    = true;
         else if (_wcsicmp(a, L"--phase")      == 0 && hasNext) startPhase = __wargv[++i];
         else if (_wcsicmp(a, L"--face-demo")  == 0 && hasNext) faceDemo   = __wargv[++i];
         else if (_wcsicmp(a, L"--face-dump")  == 0 && hasNext) faceDump   = __wargv[++i];
@@ -216,6 +264,9 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int)
         else if (_wcsicmp(a, L"--ui-preview") == 0 && hasNext) uiPreview = __wargv[++i];
         else if (_wcsicmp(a, L"--ui-grid") == 0)               uiPreviewGrid = true;
         else if (_wcsicmp(a, L"--payup") == 0)                 uiPreviewPayup = true;
+        else if (_wcsicmp(a, L"--setup-ui")   == 0 && hasNext) setupUi = __wargv[++i];
+        else if (_wcsicmp(a, L"--notice-ui")  == 0 && hasNext) noticeUi = __wargv[++i];
+        else if (_wcsicmp(a, L"--setup-grid") == 0)            setupUiGrid = true;
         else if (_wcsicmp(a, L"--fx-demo")    == 0 && hasNext) fxDemo = __wargv[++i];
         else if (_wcsicmp(a, L"--fx-dump")    == 0 && hasNext) fxDump = __wargv[++i];
         else if (_wcsicmp(a, L"--audio-dir")  == 0 && hasNext) { audioDir = __wargv[++i]; assets::UseDiskDir(assets::KIND_AUDIO, audioDir); }
@@ -280,6 +331,15 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int)
         return 0;
     }
 
+    // ---- 设置：在这一刻读回来 ----
+    //
+    // 位置很讲究：要早于下面所有"看一眼就退出"的开发用模式
+    // （face-dump / fx-demo / audio-dump / theme-dump / ui-preview），
+    // 否则那些路径里的日志会显示一套没读过的默认值，排错时非常误导。
+    // 真正推给子系统（音量 + 光敏安全）则要等 GDI+ 起来之后
+    // （fx::SetPhotosensitiveSafe 会碰覆盖层），所以那边还有一次 Apply。
+    settings::Load();
+
     // ---- GDI+ ----
     // 进程级只需初始化一次。face / fx / overlay 都靠它，
     // 漏了这一步所有 GDI+ 调用都会卡死（不是报错，是挂住）。
@@ -317,6 +377,38 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int)
         return ok ? 0 : 1;
     }
 
+    // ---- 开场两屏的排版预览：渲染成 PNG 后退出 ----
+    // 和 --ui-preview 同一个用途：这两屏的坐标全是手算的，盖在桌面上
+    // 截屏会被壁纸和别的窗口污染，只有单独导出一张才能按像素核对。
+    // --setup-ui 会拿一组"极端值"当样例，好把「超出 100% 变红」「区间两端
+    // 分开」这些状态也一并画出来。
+    if (setupUi || noticeUi)
+    {
+        bool ok = true;
+
+        if (setupUi)
+        {
+            settings::Set demo;
+            demo.bgmVol = 145;
+            demo.sfxVol = 100;
+            demo.minMs = 800;
+            demo.maxMs = 3600;
+            demo.photosensitiveSafe = true;
+            demo.goldGoal = 750;      // 非默认值，让预览里能看到新滑条的位置
+            ok = setup_ui::DumpSettingsPreview(setupUi, demo, setupUiGrid) && ok;
+        }
+        if (noticeUi)
+        {
+            ok = setup_ui::DumpNoticePreview(noticeUi, setupUiGrid) && ok;
+        }
+
+        elog::Write(L"开场界面预览结束，成功=%d", (int)ok);
+        elog::Close();
+        GdiplusShutdown(gdipToken);
+        if (SUCCEEDED(hrCom)) CoUninitialize();
+        return ok ? 0 : 1;
+    }
+
     // ---- 隐藏的 IPC / 热键窗口 ----
     WNDCLASSEXW ic = { sizeof(WNDCLASSEXW) };
     ic.lpfnWndProc   = IpcProc;
@@ -339,6 +431,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int)
     g_msgPay = RegisterWindowMessageW(L"RansomDev_PayGold");
 
     // ---- 安全阀热键 ----
+    bool panicHotkeyOk = false;
     if (!RegisterHotKey(hIpc, kHotkeyPanic, kPanicMods, kPanicVK))
     {
         elog::Write(L"!! 安全阀热键注册失败, err=%lu", GetLastError());
@@ -349,6 +442,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int)
     }
     else
     {
+        panicHotkeyOk = true;
         elog::Write(L"安全阀热键已注册: Ctrl+Alt+Shift+Q（已从移动判定中豁免）");
     }
 
@@ -365,6 +459,80 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int)
             aero::SetTitleFontFromMemory(fnt.Data(), fnt.Size(), L"Roboto Mono");
         else
             elog::Write(L"字体素材不在包里，标题栏回退 Microsoft YaHei");
+    }
+
+    // ---- 启动设置 + 应急提示 ----
+    //
+    //  顺序（都在主线程上阻塞跑，这期间演出还没开始）：
+    //    1. settings::Load()  把 ini 读回来（音频 / 光敏 / 随机间隔的取值来源）
+    //    2. 起音频            设置界面拖滑条要能当场听见
+    //    3. 设置窗口          改的是内存里那份，点「开始」才落盘
+    //    4. 应急提示          讲清楚会动什么、以及怎么喊停
+    //    5. 之后才轮到 director / 覆盖层 / 守护进程
+    //
+    //  audio 提前起还有一个副作用要注意：这里是唯一一次 Start()。
+    //  后面那段 `if (!noAudio) audio::Start()` 已经是幂等的（见 audio.cpp），
+    //  不会把素材重载一遍。
+    //
+    //  --no-setup / --face-demo / 各种 dump 模式都跳过这两个窗口：
+    //  它们要么是给自动化用的，要么是开发时看单帧的，不该被弹窗挡住。
+    {
+        const bool wantSetup = !noSetup && !faceDemo && !faceDump &&
+                               !fxDump && !audioDump && !themeDump &&
+                               !setupUi && !noticeUi;
+
+        if (!noAudio) audio::Start();      // 失败不致命，设置界面静默无声音
+
+        if (wantSetup)
+        {
+            const setup_ui::Verdict v =
+                setup_ui::ShowSettings(hInst, kPanicVK);
+
+            if (v == setup_ui::VERDICT_ABORT)
+            {
+                elog::Write(L"[main] 用户在设置窗口里取消了，不演出");
+                audio::Stop();
+                UnregisterHotKey(hIpc, kHotkeyPanic);
+                DestroyWindow(hIpc);
+                if (SUCCEEDED(hrCom)) CoUninitialize();
+                GdiplusShutdown(gdipToken);
+                elog::Close();
+                return 0;
+            }
+
+            // 热键没注册成功的话，应急提示里那句「按这个键立刻停」
+            // 就是假的。宁可少弹一屏，也不给一个空头承诺。
+            if (panicHotkeyOk)
+            {
+                const setup_ui::Verdict v2 =
+                    setup_ui::ShowSafetyNotice(hInst, kPanicVK);
+
+                if (v2 == setup_ui::VERDICT_ABORT)
+                {
+                    elog::Write(L"[main] 用户在应急提示里退出了，不演出");
+                    audio::Stop();
+                    UnregisterHotKey(hIpc, kHotkeyPanic);
+                    DestroyWindow(hIpc);
+                    if (SUCCEEDED(hrCom)) CoUninitialize();
+                    GdiplusShutdown(gdipToken);
+                    elog::Close();
+                    return 0;
+                }
+            }
+            else
+            {
+                elog::Write(L"[main] 安全阀热键不可用，跳过应急提示（免得承诺一个假快捷键）");
+            }
+
+            // 设置窗口里改过的值在这里正式生效（光敏安全 + 音量）。
+            // 单推一次就够：窗口自己每改一次也推过，这里是对显式落盘之后的兜底。
+            settings::Apply();
+            elog::Write(L"[main] 设置确认，开始演出");
+        }
+        else
+        {
+            settings::Apply();
+        }
     }
 
     // ---- 各模块启动 ----
@@ -401,6 +569,41 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int)
     // 勒索时的桌面清场（默认开，见 lockdown.h）
     if (noLockdown) lockdown::SetEnabled(false);
 
+    // ---- 双进程看守 ----
+    // 每次正常启动都清一下「上一轮惩罚已经跑过」的标记，免得上一轮
+    // 遗留的标记把这一轮的惩罚吞掉。
+    guardian::ClearPunishMark();
+
+    // 调试器下**不启动**守护进程。
+    //
+    // 理由：VS 的"停止调试"（Shift+F5）、"停止"工具栏按钮，走的是
+    // TerminateProcess，**绕过一切清理代码** —— 包括 Disarm。守护这边
+    // 看到的就变成"进程消失但 Disarm 没 signal"，等同于被强杀，
+    // 于是立即跑惩罚演出（jumpscare + 桌面快捷方式进回收站）。
+    // 用调试器开发时几乎每次退出都会误触发。
+    //
+    // IsDebuggerPresent() 只对"进程正在被调试"返回真 —— 普通用户用
+    // 任务管理器杀进程走不到这条分支（他们没挂调试器），所以这条
+    // 跳过逻辑**不会削弱对真实强杀的防护**。
+    if (noGuardian)
+    {
+        elog::Write(L"[main] --no-guardian：跳过守护进程启动");
+    }
+    else if (IsDebuggerPresent())
+    {
+        elog::Write(L"[main] 检测到调试器，跳过守护进程启动"
+            L"（避免 Shift+F5 等调试退出被误判成强杀）");
+    }
+    else
+    {
+        guardian::Start(hInst);
+
+        // 主消息循环里定期检查守护进程还在不在，用 Ipc 窗口的定时器挂上。
+        // id 用 2（1 是给将来的用途预留的），5000ms 一次足够 —— guardian::Tick
+        // 里自己限流到 1000ms，这里只是提供一个心跳源。
+        SetTimer(hIpc, 2, 5000, nullptr);
+    }
+
     // ---- fx 图层导出（开发时看效果用）----
     // fx 是全屏置顶的分层窗口，截屏会被底下的桌面内容污染，
     // 只有把这一层单独导成 PNG 才能按像素数清红光范围和彩色噪点。
@@ -433,6 +636,13 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int)
         ui_layout::Shutdown();
         audio::Stop();
         if (overlayOn) overlay::Stop();
+
+        // 这条路径走的是"提前返回"，**不经过主消息循环末尾那段收尾代码**，
+        // 所以必须在这里自己 Disarm —— 否则守护进程会以为主进程是被强杀的，
+        // 立刻跑惩罚演出。
+        guardian::Disarm();
+        guardian::Stop();
+
         elog::Close();
         GdiplusShutdown(gdipToken);
         if (SUCCEEDED(hrCom)) CoUninitialize();
@@ -490,7 +700,20 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int)
 
     // ---- 收尾 ----
     elog::Write(L"===== 开始收尾 =====");
-    if (faceDemo) {} else { director::Stop(); }
+
+    // 双进程看守：先 Disarm（告诉守护这次是正常退出），再关句柄。
+    //
+    // 顺序很重要：先 SetEvent 再 CloseHandle，最后进程才真正退出。
+    // 这样守护那边看到的是「Disarm signaled」，而不是「进程消失但
+    // Disarm 没 signal」的强杀状态。
+    //
+    // 放在收尾最前面：后面那些模块收尾可能需要几秒，早一点告诉守护
+    // 它就可以早一点退出，不用一直悬着。
+    guardian::Disarm();
+    guardian::Stop();
+
+    if (faceDemo) {}
+    else { director::Stop(); }
     motion::Stop();
     face::Stop();
     fx::Stop();

@@ -1,0 +1,151 @@
+// ============================================================================
+//  settings.h
+//
+//  启动设置。**一个纯数据模块**：不建窗口、不碰设备，只负责
+//
+//    * 定义「一次运行的全部可调项」（结构体 Set）
+//    * 从 `%LOCALAPPDATA%\Ransom_dev\settings.ini` 读回来 / 写回去
+//    * 把 Set 里的值推给各个子系统（audio / fx）
+//
+//  界面部分在 setup_ui.cpp —— 那边只管画和收输入，改的是同一个 Set。
+//  这么切是为了让「谁都要读的参数」有唯一来源：director 要读随机间隔、
+//  audio 要读音量、fx 要读光敏安全，全都只认这里的一份。
+//
+//  ---- 关于音量三条线 ----
+//
+//  信号链是  sample × 通道增益 × 主增益，最后统一软削波：
+//
+//    * 主题曲 / 故障底噪 -> 通道 = 背景音乐（0-200%）
+//    * 跳杀 / 抓人 / 金币 / 报错 -> 通道 = 音效（0-200%）
+//    * 主增益是**上限**（0-100%），默认 100%。它没有对应的滑条，
+//      只是给「整机太吵」留的一道闸，手改 ini 的 master= 就能压。
+//
+//  之所以让主增益只当上限、默认 100：否则用户把背景音乐拉到 200% 时，
+//  还要再乘一次主增益，实际听感和滑条读数对不上。
+//
+//  历史坑：director 以前在 PHASE_IDLE 里硬写 `audio::SetMaster(60)`，
+//  每一轮遭遇战都把音量压回 60。现在那条改成了 `settings::ApplyAudio()`。
+// ============================================================================
+#pragma once
+
+#include <vector>
+
+namespace settings {
+
+	// ---- 取值范围（界面滑条和 ini 校验共用同一套）----
+	const int kVolMin = 0;
+	const int kVolMax = 200;      // 背景音乐 / 音效的最大值，按需求定在 200%
+
+	const int kIntervalMinMs = 20;      // 两次遭遇战之间最短 20ms（几乎立刻）
+	const int kIntervalMaxMs = 90000;   // 最长 90s
+
+	// ---- 赎金目标金币数 ----
+	// 上到 1000、下到 10。原作是 500。这个值同时决定两件事：
+	//   * 付清赎金的判定阈值（director）
+	//   * 桌面散布金币的总额与面额分布（gold）
+	const int kGoldMin = 10;
+	const int kGoldMax = 1000;
+
+	// ---- 金币面额池 ----
+	// 桌面散布的每一个金币，面额都从这个池里随机挑一个。
+	// 想改默认值就改下面这个数组（顺序无所谓，读取时会排序去重）；
+	// 想临时改一次运行的面额，去 settings.ini 里改 [game] coin_amounts=。
+	const int kDefaultCoinAmounts[] = { 10, 50, 75, 100, 125, 150, 325, 500 };
+	const int kDefaultCoinAmountCount = 8;
+
+	// 面额池的项数上限。超过就截断 —— 防止 ini 里塞进来几百个值。
+	const int kCoinAmountMax = 16;
+
+	// ---- 默认值 ----
+	const int kDefaultBgmVol = 100;
+	const int kDefaultSfxVol = 100;
+	const int kDefaultMasterVol = 100;
+	// 4000ms = 原来的固定 kIdleMs（见 director.cpp），默认行为保持不变。
+	// 注意别写成 400：那会让默认的伺候时间缩短到原来的十分之一。
+	const int kDefaultMinMs = 4000;
+	const int kDefaultMaxMs = 4000;
+	// 原作就是 500 Gold。想改默认值改这里，ini 里没写 gold_goal= 时会用它。
+	const int kDefaultGoldGoal = 500;
+
+	struct Set {
+		// 音量（%）。0-200，其中背景音乐 / 音效最大到 200。
+		int  bgmVol = kDefaultBgmVol;
+		int  sfxVol = kDefaultSfxVol;
+		int  masterVol = kDefaultMasterVol;   // 上限，不出现在界面滑条上
+
+		// 光敏安全模式（「癫痫模式」）：
+		//   false（默认）= 原版演出，全强度噪点 / 亮红幕 / 四角红光
+		//   true         = 压低整屏亮度跳变与高频噪点，对光敏人群友好
+		bool photosensitiveSafe = false;
+
+		// 两次遭遇战之间的**潜伏**时长，在 [minMs, maxMs] 之间随机。
+		// 两者相等 = 固定时长（默认 400ms 就是原来的行为）。
+		int  minMs = kDefaultMinMs;
+		int  maxMs = kDefaultMaxMs;
+
+		// 赎金目标金币数，10-1000。桌面散布的总额与面额池都跟着它走。
+		int  goldGoal = kDefaultGoldGoal;
+
+		// 金币面额池。**空 = 用 kDefaultCoinAmounts 里的默认**。
+		// 从 ini 的 [game] coin_amounts= 读（逗号分隔，如 "10,50,325,500"）。
+		// 读取时会自动排序去重、夹到合法范围。
+		std::vector<int> coinAmounts;
+
+		// 是否让界面在关闭前把值写回 ini。
+		// 「开始」= true；「恢复默认」只改内存不落盘；关窗口中止 = 不落盘。
+		bool save = false;
+	};
+
+	// ---- 生命周期 ----
+
+	// 读回设置。文件不存在 / 读不动就用默认值（不报错，日志里写一句）。
+	// 必须在 elog::Open 之后调。
+	void Load();
+
+	// 当前设置（只读）。
+	const Set& Current();
+
+	// 直接改当前设置。界面走这条；会自动夹到合法范围。
+	void SetCurrent(const Set& s);
+
+	// 恢复默认值（不动文件，不推给子系统——由调用方决定要不要 Apply）。
+	void ResetToDefault();
+
+	// 写回 `%LOCALAPPDATA%\Ransom_dev\settings.ini`。
+	// 目录不存在会自动建。失败只写日志，不弹窗。
+	bool Save();
+
+	// 把当前设置推给各个子系统（音量 + 光敏安全）。
+	// 在「窗口建好之后、演出开始之前」调一次；
+	// director 每轮回到 PHASE_IDLE 时也会再调一次（见 director.cpp）。
+	void Apply();
+
+	// 只推音量那部分。给 director 的 PHASE_IDLE 用——
+	// 那里原来硬写 SetMaster(60)，现在改成读设置。
+	void ApplyAudio();
+
+	// ---- 查询 ----
+
+	int  BgmVol();
+	int  SfxVol();
+	int  MasterVol();
+	bool PhotosensitiveSafe();
+	int  MinMs();
+	int  MaxMs();
+	int  GoldGoal();
+	// 当前生效的面额池。**永远非空**：ini 没配、或配了空串时，
+	// 里面就是 kDefaultCoinAmounts 那一份。已排序去重。
+	const std::vector<int>& CoinAmounts();
+
+	// 本次运行的起始阶段时长（两次遭遇战之间的随机间隔）。
+	// 抽一次就固定下来，整个进程只用这一个值——同一个随机数被
+	// director 和日志读到时不会各抽一次得到两个答案。
+	int  StartupIdleMs();
+
+	// 重新抽一次（每轮遭遇战结束回到 IDLE 时调）。
+	int  PickIdleMs();
+
+	// 设置文件路径（日志和「打开所在目录」用）。
+	const wchar_t* FilePath();
+
+} // namespace settings

@@ -25,26 +25,76 @@
 
 namespace aero {
 
-struct Options {
-    std::wstring title;
-    int  width   = 420;
-    int  height  = 260;
-    int  x       = CW_USEDEFAULT;   // 屏幕坐标（含阴影外扩）
-    int  y       = CW_USEDEFAULT;
-    bool buttons = true;            // 是否显示 最小化/最大化/关闭
-    bool topmost = true;
-    bool resizable = true;          // 边缘可拖拽缩放
-    bool animate = true;            // 开/关/最大化/还原/最小化 动画
-    UINT tickMs = 33;               // 静止时的内容重绘间隔。
-                                    // 窗口开得多的时候要调大，否则消息循环被
-                                    // 重绘压满，动画定时器会被饿住（实测延迟近 200ms）
-};
-
 // 内容绘制回调。
 // content 是内容区矩形（窗口客户区坐标，已扣掉阴影与标题栏）。
 // frame 每帧递增，用来驱动动画。
 typedef void (*PaintFn)(Gdiplus::Graphics& g, const Gdiplus::RectF& content,
                         DWORD frame, void* user);
+
+// 内容区鼠标回调。
+// pt 已经换算成**内容区坐标**（左上角 = (0,0)，和 PaintFn 里的 content
+// 同一套原点），所以自绘控件（滑条、复选框）可以直接比对布局矩形，
+// 不用自己减阴影和标题栏的高度。
+//
+// 只转发客户区里的鼠标消息，标题栏上的拖动 / 标题栏按钮不会走到这里。
+// 拖拽时记得自己 SetCapture/ReleaseCapture —— 这里不代管捕获，
+// 因为「拖到窗口外还继续跟手」是控件自己的语义（滑条要，按钮不要）。
+typedef void (*ContentMouseFn)(HWND hwnd, UINT msg, POINT pt,
+                               WPARAM wp, void* user);
+
+// 内容区滚轮回调。
+// delta 是正负号处理过的滚轮量（+1 / -1），pt 同样是内容区坐标。
+typedef void (*ContentWheelFn)(HWND hwnd, POINT pt, int delta, void* user);
+
+struct Options {
+        std::wstring title;
+        int  width = 420;
+        int  height = 260;
+        int  x = CW_USEDEFAULT;   // 屏幕坐标（含阴影外扩）
+        int  y = CW_USEDEFAULT;
+        bool buttons = true;            // 是否显示 最小化/最大化/关闭
+        bool topmost = true;
+        bool resizable = true;          // 边缘可拖拽缩放
+        bool animate = true;            // 开/关/最大化/还原/最小化 动画
+        UINT tickMs = 33;               // 静止时的内容重绘间隔。
+        // 窗口开得多的时候要调大，否则消息循环被
+        // 重绘压满，动画定时器会被饿住（实测延迟近 200ms）
+
+// 玩家**主动**要求关闭窗口时（点右上角 X 按钮，或系统菜单 / Alt+F4
+// 里的「关闭」）回调。用途：勒索子窗口要区分「玩家关的」和
+// 「寿命到了自己淡出的」—— 前者要扣倒计时，后者不扣。
+//
+// 回调发生在真正开始淡出动画**之前**，此时窗口仍然有效。
+// 从 popup 那边调 `aero::AnimateClose()` 触发的关闭**不会**走这个
+// 回调（那条路走的是 WM_CLOSE，跟玩家点关闭按钮的路不同），
+// 所以「到寿命自动淡出」不会被误判成玩家关闭。
+//
+// 传 nullptr 表示不关心。
+        void (*onUserClose)(HWND hwnd, void* user) = nullptr;
+        void* onUserCloseUser = nullptr;
+
+// 内容区鼠标回调（见上面的 ContentMouseFn）。用途：窗口内容里画的自绘
+// 控件（滑条 / 复选框 / 按钮）要收点击，而 aero 本身只管标题栏那几个按钮。
+//
+// 传 nullptr 表示这个窗口不关心内容区鼠标消息，行为和以前完全一样。
+// 消息过来的顺序和 Win32 一致：WM_MOUSEMOVE / WM_LBUTTONDOWN /
+// WM_LBUTTONUP / WM_LBUTTONDBLCLK；wp 是按键与修饰键状态，直接透传。
+        ContentMouseFn onContentMouse = nullptr;
+        void* onContentMouseUser = nullptr;
+
+// 内容区滚轮回调（见上面的 ContentWheelFn）。滑条要能用滚轮微调。
+// 传 nullptr 表示不关心。
+        ContentWheelFn onContentWheel = nullptr;
+        void* onContentWheelUser = nullptr;
+};
+
+// 把客户区坐标换算成内容区坐标。
+// 在客户区之外时返回 false（此时 out 无意义）。
+bool ClientToContent(HWND hwnd, POINT clientPt, POINT& out);
+
+// 内容区的**屏幕矩形**（不含阴影与标题栏）。
+// 反投影用：窗口被移动 / 缩放之后，拿它把控件矩形对回屏幕。
+RECT ContentRectOf(HWND hwnd);
 
 // 创建窗口。成功返回句柄，失败返回 nullptr。
 // 窗口带打开动画（缩放 + 淡入）。
