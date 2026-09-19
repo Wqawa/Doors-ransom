@@ -1,16 +1,16 @@
-// ============================================================================
-//  assets.cpp
-//
-//  两种来源：
-//    内嵌（默认）—— assets_gen.rc 编进 exe 的 RCDATA 资源。
-//                    资源 1000 是清单，每行 "<KIND>\t<文件名>\t<资源ID>"。
-//                    启动时读一次建成 name -> id 的表，之后按名字取字节。
-//    读盘          —— --image-dir / --audio-dir 指定的目录。
-//
-//  为什么清单是**数据**而不是把文件名编进资源名：rc.exe 会把带引号的
-//  资源名连引号一起存进去（枚举出来是 "\"IMG_x.PNG\""），而裸 RC 标识符
-//  又不允许 '-' '.' '(' ')'——真实文件名两样都占。所以映射做成数据。
-// ============================================================================
+
+
+
+
+
+
+
+
+
+
+
+
+
 #include "assets.h"
 
 #include "entity_log.h"
@@ -21,17 +21,17 @@
 
 namespace {
 
-// 清单资源自己的 ID（gen_assets.ps1 生成时固定用 1000，素材从 1001 起）
+
 const int kManifestResId = 1000;
 
-std::wstring g_diskDir[assets::KIND_COUNT];      // 空 = 用内嵌资源
+std::wstring g_diskDir[assets::KIND_COUNT];
 
-// name -> 资源 ID
+
 std::map<std::wstring, int> g_index[assets::KIND_COUNT];
 bool                        g_indexBuilt = false;
 int                         g_indexCount = 0;
 
-// ------------------------------------------------------------ 工具 ----
+
 bool IsDir(const std::wstring& p)
 {
     if (p.empty()) return false;
@@ -45,18 +45,18 @@ std::wstring EnsureSlash(std::wstring d)
     return d;
 }
 
-// 上一级目录，带尾部反斜杠。到根（"E:\" → "E:"）时返回空串，循环靠它收敛。
+
 std::wstring ParentOf(std::wstring dir)
 {
     dir = EnsureSlash(std::move(dir));
     if (dir.size() <= 1) return L"";
-    dir.pop_back();                                   // 去掉尾部反斜杠
+    dir.pop_back();
     const size_t s = dir.find_last_of(L"\\/");
-    if (s == std::wstring::npos) return L"";           // 相对路径，没有上级
+    if (s == std::wstring::npos) return L"";
     return dir.substr(0, s + 1);
 }
 
-// 读一个 RCDATA 资源。找不到返回 false。
+
 bool ReadResource(int id, assets::Blob& out)
 {
     HMODULE self = GetModuleHandleW(nullptr);
@@ -75,8 +75,8 @@ bool ReadResource(int id, assets::Blob& out)
     return true;
 }
 
-// 把清单文本解析进 g_index。
-// 每行三段，TAB 分隔：KIND \t 文件名 \t 资源ID
+
+
 void BuildIndex()
 {
     if (g_indexBuilt) return;
@@ -90,19 +90,19 @@ void BuildIndex()
         return;
     }
 
-    // 清单是 ASCII，逐字节扫即可，顺便省掉一次宽窄转换。
+
     const char* p   = (const char*)mani.Data();
     const char* end = p + mani.Size();
 
     int bad = 0;
     while (p < end)
     {
-        // 取一行
+
         const char* nl = p;
         while (nl < end && *nl != '\n' && *nl != '\r') ++nl;
 
-        const char* t1 = nullptr;      // 第一个 TAB
-        const char* t2 = nullptr;      // 第二个 TAB
+        const char* t1 = nullptr;
+        const char* t2 = nullptr;
         for (const char* q = p; q < nl; ++q)
         {
             if (*q != '\t') continue;
@@ -151,7 +151,7 @@ bool GetEmbedded(assets::Kind k, const wchar_t* name, assets::Blob& out)
     return ReadResource(it->second, out);
 }
 
-// 通配符匹配：支持 "*"、"*.ext" 和精确文件名（都不区分大小写）
+
 bool MatchName(const wchar_t* base, const wchar_t* pattern)
 {
     if (!pattern || !*pattern) return true;
@@ -169,7 +169,7 @@ std::wstring FindFirstEmbedded(assets::Kind k, const wchar_t* pattern)
 {
     BuildIndex();
 
-    // map 是按名字排好序的，所以"第一个"是稳定的
+
     for (std::map<std::wstring, int>::const_iterator it = g_index[k].begin();
          it != g_index[k].end(); ++it)
         if (MatchName(it->first.c_str(), pattern)) return it->first;
@@ -195,11 +195,11 @@ bool ReadFileBytes(const std::wstring& full, assets::Blob& out)
     return true;
 }
 
-} // namespace
+}
 
 namespace assets {
 
-// ---------------------------------------------------------------- 来源 ----
+
 void UseDiskDir(Kind k, const wchar_t* dir)
 {
     if (k < 0 || k >= KIND_COUNT) return;
@@ -231,7 +231,7 @@ std::wstring DiskDir(Kind k)
     return g_diskDir[k];
 }
 
-// ---------------------------------------------------------------- 取素材 ----
+
 bool Get(Kind k, const wchar_t* name, Blob& out)
 {
     out.bytes.clear();
@@ -299,4 +299,4 @@ std::wstring ExeDir()
     return ParentOf(buf);
 }
 
-} // namespace assets
+}

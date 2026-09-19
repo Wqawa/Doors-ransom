@@ -1,6 +1,6 @@
-// ============================================================================
-//  fx.cpp
-// ============================================================================
+
+
+
 #include "fx.h"
 
 #include "entity_log.h"
@@ -21,9 +21,9 @@ const wchar_t* kFxClass     = L"RansomFxOverlay";
 const wchar_t* kDriverClass = L"RansomFxDriver";
 
 const UINT_PTR kTickId = 1;
-const UINT     kTickMs = 33;      // ~30fps，闪屏和雪花够用
+const UINT     kTickMs = 33;
 
-// ---------------------------------------------------------------- 状态 ----
+
 HWND      g_overlay = nullptr;
 HWND      g_driver  = nullptr;
 HINSTANCE g_hInst   = nullptr;
@@ -35,7 +35,7 @@ void*     g_bits    = nullptr;
 HDC       g_screen  = nullptr;
 int       g_w = 0, g_h = 0;
 
-// 闪屏
+
 int       g_flashTimes   = 0;
 bool      g_flashPhaseOn = false;
 DWORD     g_flashNext    = 0;
@@ -44,39 +44,39 @@ DWORD     g_flashOffMs   = 70;
 COLORREF  g_flashColor   = RGB(255, 255, 255);
 BYTE      g_flashAlpha   = 210;
 
-// 噪声
+
 int       g_noise = 0;
 
-// 全屏纯色底（不透明）
+
 bool      g_solid       = false;
 COLORREF  g_solidColor  = RGB(200, 0, 0);
 
-// 四角红光（「已加密」阶段的红幕）
+
 bool                g_glow        = false;
 COLORREF            g_glowColor   = RGB(210, 16, 16);
 int                 g_glowStrength = 170;
-DWORD               g_glowFrame = 0; // 呼吸相位
+DWORD               g_glowFrame = 0;
 
-// 反色
+
 bool      g_invert     = false;
 bool      g_magReady   = false;
 DWORD     g_invertOffAt = 0;
 
-// ---- 光敏安全模式 ----
-// 主线程（设置界面 / director）写，别的都在同一线程读，但还是用原子：
-// 那几个 Set* 有可能从别的线程被调到，读端拿一个撕裂的值不值得省这点开销。
+
+
+
 std::atomic<bool> g_safe{ false };
 
-// 安全模式下的缩放系数。
-//   kSafeNoise   ：噪点密度的上限（原版 80 -> 24）
-//   kSafeSolid   ：纯色底各通道的**乘数**（0.55 = 明显压暗，但不是全黑）
-//   kSafeGlow    ：四角红光强度的乘数
-//   kSafeFlash   ：闪屏次数与亮度的乘数（次数按 0.5 四舍五入）
+
+
+
+
+
 const int    kSafeNoise = 24;
 const double kSafeSolid = 0.55;
 const double kSafeGlow  = 0.45;
 
-// 把颜色按系数压暗（保持色相，各通道同比例）。
+
 COLORREF DimColor(COLORREF c, double f)
 {
     const int r = (int)(GetRValue(c) * f + 0.5);
@@ -85,7 +85,7 @@ COLORREF DimColor(COLORREF c, double f)
     return RGB(r > 255 ? 255 : r, g > 255 ? 255 : g, b > 255 ? 255 : b);
 }
 
-// ---------------------------------------------------------------- 尺寸 ----
+
 void VirtualRect(RECT& r)
 {
     r.left   = GetSystemMetrics(SM_XVIRTUALSCREEN);
@@ -111,56 +111,56 @@ void FreeBuffers()
     g_w = g_h = 0;
 }
 
-// ---------------------------------------------------------------- 四角红光 ----
-// 「已加密」阶段的红幕：**集中在四个角**的红色大噪点像素。
-//
-// 和普通的「发光」有两处根本不同：
-//
-//   1. 权重是两条轴衰减的**乘积**（不是取 max）。
-//      取 max 的话整条边都会亮——那是四边泛光。
-//      乘积要求两轴同时靠近边缘，所以只有四个角有值，边的中段自然为零。
-//
-//   2. 不是逐像素渐变，而是 kGlowBlock × kGlowBlock 的**大块**，
-//      每块**随机**决定亮不亮、有多亮。所以是一粒粒的噪点，不是一层光晕。
-//      每帧重掷一次随机数，看起来就是四角在闪噪点。
-//
-// 开销：只遍历四个角区，而且是按块写（不是逐像素），比原来那条
-// 全屏逐像素的通道便宜得多——所以 90 秒的持续演出也扛得住。
-const int   kGlowBlock     = 4;      // 噪点块边长（px）
-// 角区占屏的比例。原来两边都是 0.30，四个角的光斑显得太「收」，
-// 中间留出 40% 的纯黑带，看着像四个孤立的小方块。
-// 放大到 0.42 之后角区在屏幕中段附近才收住，四个角连成一片包围感。
-const float kGlowBandFracX = 0.42f;  // 左右向角区宽度占屏宽的比例
-const float kGlowBandFracY = 0.42f;  // 上下向角区高度占屏高的比例
-// ---- 彩色噪点 ----
-// 红幕上极少量地混进绿/蓝/紫/黄的亮点。
-// 数量刻意压得很低（十几到二十几块），目的是给「一条纯红通道坏掉」的
-// 画面加一点 CRT 色散的脏感；撒多了就变成彩噪花屏，反而糊。
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+const int   kGlowBlock     = 4;
+
+
+
+const float kGlowBandFracX = 0.42f;
+const float kGlowBandFracY = 0.42f;
+
+
+
+
 const int kAccentMin = 14;
 const int kAccentMax = 26;
 
-// 彩色点**只落在贴着角的那一小块**里（不是整个 42% 的角区）。
-// 用 0.16 而不是 kGlowBandFrac：红光本来就随权重往里衰减，
-// 彩色点再摊到整个角区上就散成满屏彩点了，和「集中到四个角」正相反。
+
+
+
 const float kAccentCornerFrac = 0.16f;
 
 struct Accent { BYTE r, g, b; };
 const Accent kAccents[4] = {
-    {  60, 255,  70 },   // 绿
-    {  70, 120, 255 },   // 蓝
-    { 190,  80, 255 },   // 紫
-    { 255, 235,  60 },   // 黄
+    {  60, 255,  70 },
+    {  70, 120, 255 },
+    { 190,  80, 255 },
+    { 255, 235,  60 },
 };
 
-// 四个角上撒几颗彩色亮点（未预乘的直通 alpha）。
-//
-// 两个「和红光保持一致」的地方：
-//   1. **块大小一样**：都是 kGlowBlock × kGlowBlock（4x4），
-//      不是 1x1/2x2 的细点——细点在颗粒状的红光里像坏点，不像同一种噪点。
-//   2. **对齐同一张网格**：块坐标按 kGlowBlock 取整，
-//      和 RenderCornerGlow 用的是同一套「从角往里数」的 bx/by，
-//      右/下两边同样要翻过来（w - kGlowBlock - bx），否则衰减方向会反。
-// 中间那片（玩家要找金币的地方）一个点都不撒。
+
+
+
+
+
+
+
+
+
 void RenderAccentPixels(BYTE* bits, int w, int h)
 {
     const int spanX = (int)(w * kAccentCornerFrac);
@@ -177,7 +177,7 @@ void RenderAccentPixels(BYTE* bits, int w, int h)
         const bool right = (ci & 1) != 0;
         const bool bot   = (ci & 2) != 0;
 
-        // 第 0 块就是最贴角的那一块，和红光的 bx/by 同一个含义
+
         const int bx = (rand() % nx) * kGlowBlock;
         const int by = (rand() % ny) * kGlowBlock;
 
@@ -185,7 +185,7 @@ void RenderAccentPixels(BYTE* bits, int w, int h)
         const int y0 = bot   ? (h - kGlowBlock - by) : by;
         if (x0 < 0 || y0 < 0) continue;
 
-        const int a = 150 + (rand() % 106);       // 150..255
+        const int a = 150 + (rand() % 106);
         const Accent& c = kAccents[rand() & 3];
 
         int x1 = x0 + kGlowBlock, y1 = y0 + kGlowBlock;
@@ -198,7 +198,7 @@ void RenderAccentPixels(BYTE* bits, int w, int h)
             for (int px = x0; px < x1; ++px)
             {
                 BYTE* q = row + (size_t)px * 4;
-                if (a <= q[3]) continue;          // 已经有更实的内容就别盖
+                if (a <= q[3]) continue;
                 q[0] = c.b; q[1] = c.g; q[2] = c.r; q[3] = (BYTE)a;
             }
         }
@@ -215,7 +215,7 @@ void RenderCornerGlow(BYTE* bits, int w, int h, int strength, COLORREF color)
     const BYTE cg = GetGValue(color);
     const BYTE cr = GetRValue(color);
 
-    // 四个角：ci 的第 0 位 = 在右边，第 1 位 = 在下边
+
     for (int ci = 0; ci < 4; ++ci)
     {
         const bool right  = (ci & 1) != 0;
@@ -224,31 +224,31 @@ void RenderCornerGlow(BYTE* bits, int w, int h, int strength, COLORREF color)
         for (int by = 0; by < bandY; by += kGlowBlock)
         for (int bx = 0; bx < bandX; bx += kGlowBlock)
         {
-            // bx / by 是**从角向里数**的偏移（0 = 最贴角的那一块），
-            // 所以左右、上下可以共用同一套衰减公式。
-            // 用块中心算距离，免得最贴边那一块权重突变。
+
+
+
             const double fx = 1.0 - ((double)bx + kGlowBlock * 0.5) / (double)bandX;
             const double fy = 1.0 - ((double)by + kGlowBlock * 0.5) / (double)bandY;
             if (fx <= 0.0 || fy <= 0.0) continue;
 
-            // 二次衰减再相乘：角上最亮，沿任一条边走出去都迅速变暗。
+
             const double weight = fx * fx * fy * fy;
             if (weight <= 0.01) continue;
 
             const int rnd = rand();
 
-            // 按权重决定这一块亮不亮 —— 越靠角越密
+
             if ((rnd & 0xFF) > (int)(weight * 255.0)) continue;
 
-            // 亮度也随机（45%~100%），每块深浅不一才像噪点
+
             int a = (int)((double)strength * weight *
                           (0.45 + 0.55 * (double)((rnd >> 8) & 0xFF) / 255.0));
             if (a <= 0)   continue;
             if (a > 255)  a = 255;
 
-            // 坐标必须**从角往里**摆：右边/下边要翻过来（w - bx - block）。
-            // 如果一律写 ox + bx，衰减方向就反了——亮的地方会跑到屏幕中段、
-            // 真正该亮的角上反而是黑的。这个错误实测抓到过（左角亮、右角全黑）。
+
+
+
             const int x0 = right  ? (w - kGlowBlock - bx) : bx;
             const int y0 = bottom ? (h - kGlowBlock - by) : by;
             if (x0 < 0 || y0 < 0) continue;
@@ -263,7 +263,7 @@ void RenderCornerGlow(BYTE* bits, int w, int h, int strength, COLORREF color)
                 for (int x = x0; x < x1; ++x)
                 {
                     BYTE* q = row + (size_t)x * 4;
-                    if (a <= q[3]) continue;      // 已经有更实的内容就别盖
+                    if (a <= q[3]) continue;
                     q[0] = cb; q[1] = cg; q[2] = cr; q[3] = (BYTE)a;
                 }
             }
@@ -300,7 +300,7 @@ bool EnsureBuffers(int w, int h)
     return true;
 }
 
-// ---------------------------------------------------------------- 反色 ----
+
 bool ApplyInvertMatrix(bool on)
 {
     if (!g_magReady) return false;
@@ -309,7 +309,7 @@ bool ApplyInvertMatrix(bool on)
 
     if (on)
     {
-        // 对角线上 R/G/B 取负 = 全屏反色
+
         const float m[5][5] = {
             { -1.0f,  0.0f,  0.0f, 0.0f, 0.0f },
             {  0.0f, -1.0f,  0.0f, 0.0f, 0.0f },
@@ -321,7 +321,7 @@ bool ApplyInvertMatrix(bool on)
     }
     else
     {
-        // 单位矩阵 = 恢复正常
+
         const float m[5][5] = {
             { 1.0f, 0.0f, 0.0f, 0.0f, 0.0f },
             { 0.0f, 1.0f, 0.0f, 0.0f, 0.0f },
@@ -335,7 +335,7 @@ bool ApplyInvertMatrix(bool on)
     return MagSetFullscreenColorEffect(&eff) != FALSE;
 }
 
-// ---------------------------------------------------------------- 渲染 ----
+
 void ShowOverlay(bool show)
 {
     if (!g_overlay) return;
@@ -349,7 +349,7 @@ void Render()
     const bool solidActive = g_solid;
     const bool glowActive  = g_glow;
 
-    // 注意：纯色底也要算进「有内容」，否则只有它的时候窗口会被直接隐藏。
+
     if (!flashActive && !noiseActive && !solidActive && !glowActive)
     {
         ShowOverlay(false);
@@ -364,7 +364,7 @@ void Render()
 
     if (!EnsureBuffers(w, h)) return;
 
-    // 窗口位置跟着虚拟屏走（多屏/改分辨率时）
+
     RECT cur;
     GetWindowRect(g_overlay, &cur);
     if (cur.left != vr.left || cur.top != vr.top ||
@@ -378,10 +378,10 @@ void Render()
     BYTE* p   = (BYTE*)g_bits;
     const size_t n = (size_t)w * h;
 
-    // ---- 1. 底色：纯色底 > 闪屏 > 透明 ----
+
     if (g_solid)
     {
-        // 完全不透明：桌面完全看不见
+
         const BYTE r2 = GetRValue(g_solidColor);
         const BYTE g2 = GetGValue(g_solidColor);
         const BYTE b2 = GetBValue(g_solidColor);
@@ -408,16 +408,16 @@ void Render()
         memset(g_bits, 0, n * 4);
     }
 
-    // ---- 2. 雪花：按概率把像素换成灰度噪点 ----
+
     if (noiseActive)
     {
         const int density = g_noise;
 
-        // 有纯色底的时候，噪点必须**不透明**。
-        // 原来这里让灰度值同时充当 alpha（p[3]=v），半透明的噪点会把底下的
-        // 桌面/窗口透出来——实测黑幕上有 31% 的像素能直接看到背后的窗口，
-        // 「黑屏全覆盖」就等于白铺了。所以有纯色底时改成「底色 + 灰度」、
-        // alpha 拉满；没有纯色底时保持原来的半透明雪花（那时本来就该透）。
+
+
+
+
+
         const BYTE sr = solidActive ? GetRValue(g_solidColor) : 0;
         const BYTE sg = solidActive ? GetGValue(g_solidColor) : 0;
         const BYTE sb = solidActive ? GetBValue(g_solidColor) : 0;
@@ -443,24 +443,24 @@ void Render()
         }
     }
 
-    // ---- 3. 四角红光 ----
-    // 只遍历四个角区、而且按块写，中间那一大片完全不碰——
-    // 90 秒的持续演出里这点开销可以忽略。
-    // 写进去的是**直通 alpha**（未预乘），第 4 步会统一预乘。
+
+
+
+
     if (glowActive)
     {
         ++g_glowFrame;
 
-        // 呼吸：整体强度在 88% ~ 100% 之间缓慢起伏
+
         const int pulse = 224 + (int)(31 * ((g_glowFrame / 4) & 1));
         RenderCornerGlow((BYTE*)g_bits, w, h,
                          g_glowStrength * pulse / 255, g_glowColor);
 
-        // 极少量彩色亮点，压在红光之上
+
         RenderAccentPixels((BYTE*)g_bits, w, h);
     }
 
-    // ---- 4. UpdateLayeredWindow 要预乘 alpha ----
+
     p = (BYTE*)g_bits;
     for (size_t i = 0; i < n; ++i, p += 4)
     {
@@ -490,14 +490,14 @@ void Tick()
 {
     const DWORD now = GetTickCount();
 
-    // ---- 反色脉冲到点自动还原 ----
+
     if (g_invertOffAt != 0 && now >= g_invertOffAt)
     {
         g_invertOffAt = 0;
-        fx::SetInvert(false);      // Tick 在匿名 namespace 里，要写全名
+        fx::SetInvert(false);
     }
 
-    // ---- 闪屏相位变化 ----
+
     if (g_flashTimes > 0 && now >= g_flashNext)
     {
         if (g_flashPhaseOn)
@@ -523,7 +523,7 @@ LRESULT CALLBACK OverlayProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
     case WM_ERASEBKGND:
         return 1;
     case WM_NCHITTEST:
-        return HTTRANSPARENT;     // 鼠标穿透
+        return HTTRANSPARENT;
     }
     return DefWindowProcW(hwnd, msg, wp, lp);
 }
@@ -541,7 +541,7 @@ LRESULT CALLBACK DriverProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
     return DefWindowProcW(hwnd, msg, wp, lp);
 }
 
-} // namespace
+}
 
 namespace fx {
 
@@ -593,7 +593,7 @@ bool Start(HINSTANCE hInst)
 
     SetTimer(g_driver, kTickId, kTickMs, nullptr);
 
-    // 反色能力探测：只初始化，不改矩阵
+
     g_magReady = (MagInitialize() != FALSE);
     elog::Write(L"[fx] 就绪，反色支持 %d", (int)g_magReady);
 
@@ -602,7 +602,7 @@ bool Start(HINSTANCE hInst)
 
 void Stop()
 {
-    // 先把反色还原，再拆窗口——顺序不能反，否则可能留下反色的屏幕
+
     if (g_invert) SetInvert(false);
 
     if (g_driver)
@@ -634,14 +634,14 @@ void Flash(COLORREF color, int times, DWORD onMs, DWORD offMs)
 {
     if (!g_driver) return;
 
-    // 光敏安全模式：次数砍半（至少 1 次），颜色压暗、单次也更短。
-    // 改的是**进来的参数**，所以调用点一行都不用动。
+
+
     BYTE alpha = 210;
     if (g_safe.load())
     {
         times = (times + 1) / 2;
         onMs  = (onMs > 40) ? 40 : onMs;
-        offMs = (offMs < 80) ? 80 : offMs;      // 灭的时间拉长，给眼睛留余地
+        offMs = (offMs < 80) ? 80 : offMs;
         color = DimColor(color, 0.55);
         alpha = 120;
     }
@@ -672,7 +672,7 @@ void SetPhotosensitiveSafe(bool on)
     const bool prev = g_safe.exchange(on);
     if (prev == on) return;
 
-    // 保存进入安全模式前的原始值，退出时恢复，避免反复开关导致重复压暗。
+
     static COLORREF savedSolidColor = 0;
     static int      savedGlowStrength = 0;
     static int      savedNoise = 0;
@@ -680,7 +680,7 @@ void SetPhotosensitiveSafe(bool on)
 
     if (on)
     {
-        // 进入安全模式：记录当前值，然后压暗
+
         savedSolidColor = g_solidColor;
         savedGlowStrength = g_glowStrength;
         savedNoise = g_noise;
@@ -692,7 +692,7 @@ void SetPhotosensitiveSafe(bool on)
     }
     else
     {
-        // 退出安全模式：恢复之前保存的值
+
         if (savedValid)
         {
             g_solidColor = savedSolidColor;
@@ -745,8 +745,8 @@ bool Invert() { return g_invert; }
 
 void InvertPulse(DWORD ms)
 {
-    // 整屏反色是**最**刺眼的一种闪：光敏安全模式下直接不执行，
-    // 而不是把它变短——「闪得短」对光敏人群并不更安全。
+
+
     if (g_safe.load())
     {
         elog::Write(L"[fx] 反色脉冲被光敏安全模式拦下（%lums）", (unsigned long)ms);
@@ -754,15 +754,15 @@ void InvertPulse(DWORD ms)
     }
 
     if (ms < 16) ms = 16;
-    if (!SetInvert(true)) return;          // 不支持就什么都不做
+    if (!SetInvert(true)) return;
     g_invertOffAt = GetTickCount() + ms;
     elog::Write(L"[fx] 反色脉冲 %lums", ms);
 }
 
 void SetSolid(bool on, COLORREF color)
 {
-    // 纯色底是全屏铺满的，它的亮度就是「整屏亮度跳变」本身——
-    // 安全模式按比例压暗（亮红 170,0,0 -> 约 94,0,0），色相不变。
+
+
     if (on && g_safe.load()) color = DimColor(color, kSafeSolid);
 
     if (g_solid == on && g_solidColor == color) return;
@@ -785,20 +785,20 @@ void SetEdgeGlow(bool on, COLORREF color, int strength)
     g_glow         = on;
     g_glowColor    = color;
     g_glowStrength = strength;
-    if (on) g_glowFrame = 0;          // 从相位 0 起跑，每次开场图案一致
+    if (on) g_glowFrame = 0;
     elog::Write(L"[fx] 边缘红光 %s color=%06lX 强度=%d",
                 on ? L"开启" : L"关闭", (unsigned long)color, strength);
 }
 
 bool EdgeGlow() { return g_glow; }
 
-// 把当前 fx 图层的位图（含 alpha）存成 PNG。调外观用。
-//
-// 为什么非要这个：fx 和 face 都是**全屏置顶的分层窗口**，光靠截屏根本没法
-// 把它单独拎出来看——底下的桌面、浏览器窗口自带的红/蓝/黄像素会把
-// 「四角红光」和「彩色噪点」的统计完全淹掉（实测：彩色噪点计数被
-// 背景窗口的 5 万个蓝色像素盖住，根本读不出数）。
-// 存成 PNG 之后就能直接按像素统计这一层自己的内容。
+
+
+
+
+
+
+
 bool DumpLayer(const wchar_t* path)
 {
     if (!g_overlay)
@@ -807,7 +807,7 @@ bool DumpLayer(const wchar_t* path)
         return false;
     }
 
-    // 后备缓冲是在 Render() 里按需分配的，所以必须先渲染再检查尺寸
+
     Render();
 
     if (!g_bits || g_w <= 0 || g_h <= 0)
@@ -842,8 +842,8 @@ bool DumpLayer(const wchar_t* path)
         {
             const BYTE a = s[3];
             d[3] = a;
-            // 管线里存的是**预乘过**的像素，直接存出来颜色会偏暗，
-            // 这里反预乘回去，方便直接读颜色。
+
+
             if (a == 0)          { d[0] = d[1] = d[2] = 0; }
             else if (a == 255)   { d[0] = s[0]; d[1] = s[1]; d[2] = s[2]; }
             else
@@ -885,4 +885,4 @@ void ClearAll()
     ShowOverlay(false);
 }
 
-} // namespace fx
+}

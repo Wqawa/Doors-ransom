@@ -1,6 +1,6 @@
-// ============================================================================
-//  gold.cpp
-// ============================================================================
+
+
+
 #include "gold.h"
 
 #include "assets.h"
@@ -17,7 +17,7 @@
 #include <shlguid.h>
 #include <shobjidl.h>
 
-// GDI+ 前置依赖（WIN32_LEAN_AND_MEAN 不会带进来）
+
 #include <objbase.h>
 #include <objidl.h>
 #include <propidl.h>
@@ -29,46 +29,46 @@
 
 namespace {
 
-// 直接落在桌面根目录（而不是文件夹里）的金币比例，百分比。
-// 桌面是「明面上」的位置，玩家一低头就能看到几枚；
-// 其余仍然散进各顶层文件夹，保持翻找的节奏。
+
+
+
 const int kDesktopRootPercent = 25;
 
-// 本次运行生成的金币
+
 struct Coin {
-    std::wstring path;      // .lnk 的完整路径
+    std::wstring path;
     int          amount;
     int          token;
 };
 
 std::vector<Coin> g_coins;
-int g_total    = 0;         // 累计生成过几个
-int g_sum      = 0;         // 累计生成金额
+int g_total    = 0;
+int g_sum      = 0;
 int g_nextTok  = 1;
 std::wstring g_exePath;
 bool g_started = false;
 
-// 金币快捷方式用的 .ico（由 Gold_icon.png / Honey_Pot_icon.png 生成）。
-// 空 = 没有，快捷方式不设图标。
-// 声明放在这里是因为 WriteLnk() 在这行下面就要用它。
-//
-// 两个图标的分工（见 Spawn 里挑图标的逻辑）：
-//   g_iconPath      面额 <= kHoneyIconThreshold 用（金币）
-//   g_honeyIconPath 面额 >  kHoneyIconThreshold 用（蜂蜜罐）
-//
-// 素材缺 Honey_Pot_icon.png 时 g_honeyIconPath 留空，
-// 那部分金币会自动退回金币图标，不影响生成。
+
+
+
+
+
+
+
+
+
+
 std::wstring g_iconPath;
 std::wstring g_honeyIconPath;
 
-// 面额**超过**这个值就换成蜂蜜罐图标。500 本身还是金币。
-// 想改分界线改这里：想让 500 也变蜂蜜罐就写 499；想更宽松写 999。
+
+
 const int kHoneyIconThreshold = 499;
 
-// 上一次运行遗留的清单
+
 std::vector<std::wstring> g_stale;
 
-// 本地数据目录（清单、金币图标缓存都放这儿）。取不到返回空串。
+
 std::wstring DataDir()
 {
     wchar_t buf[MAX_PATH] = { 0 };
@@ -81,7 +81,7 @@ std::wstring DataDir()
     return dir;
 }
 
-// ------------------------------------------------------------ 清单路径 ----
+
 std::wstring ManifestPath()
 {
     const std::wstring dir = DataDir();
@@ -130,17 +130,17 @@ void LoadStaleManifest()
     fclose(f);
 }
 
-// ------------------------------------------------------------ 目标文件夹 ----
+
 bool IsSkippableDir(DWORD attrs)
 {
     if (attrs & FILE_ATTRIBUTE_READONLY) return true;
     if (attrs & FILE_ATTRIBUTE_HIDDEN)   return true;
     if (attrs & FILE_ATTRIBUTE_SYSTEM)   return true;
-    if (attrs & FILE_ATTRIBUTE_REPARSE_POINT) return true;   // 符号链接/junction 不碰
+    if (attrs & FILE_ATTRIBUTE_REPARSE_POINT) return true;
     return false;
 }
 
-// 只收桌面上的**顶层**文件夹
+
 void ScanOneDesktop(int csidl, std::vector<std::wstring>& out)
 {
     wchar_t desk[MAX_PATH] = { 0 };
@@ -171,9 +171,9 @@ void CollectTargets(std::vector<std::wstring>& out)
     ScanOneDesktop(CSIDL_COMMON_DESKTOPDIRECTORY, out);
 }
 
-// 桌面根目录本身。金币会**少量**直接撒在桌面上（见 Spawn 里的比例），
-// 主体仍然散在各顶层文件夹里——外面随手就能捡到两枚，
-// 剩下的还是得一个个文件夹翻。
+
+
+
 void CollectDesktopRoots(std::vector<std::wstring>& out)
 {
     out.clear();
@@ -187,9 +187,9 @@ void CollectDesktopRoots(std::vector<std::wstring>& out)
         out.push_back(buf);
 }
 
-// ------------------------------------------------------------ 写快捷方式 ----
-// iconPath：这个快捷方式要用的 .ico。空串 = 不设图标（用目标程序自己的）。
-// 由调用方按面额挑好传进来，这里不再自己判断。
+
+
+
 bool WriteLnk(const std::wstring& lnkPath, const std::wstring& args,
     const std::wstring& iconPath)
 {
@@ -203,9 +203,9 @@ bool WriteLnk(const std::wstring& lnkPath, const std::wstring& args,
     link->SetDescription(L"Gold");
     link->SetWorkingDirectory(g_exePath.substr(0, g_exePath.find_last_of(L'\\')).c_str());
 
-    // 图标由调用方按面额挑好（金币 / 蜂蜜罐）。生成失败（源图缺失 /
-    // 格式不支持）就不设，快捷方式退回目标程序自己的图标——
-    // 不影响金币能不能点。
+
+
+
     if (!iconPath.empty())
         link->SetIconLocation(iconPath.c_str(), 0);
 
@@ -220,7 +220,7 @@ bool WriteLnk(const std::wstring& lnkPath, const std::wstring& args,
     return ok;
 }
 
-// 挑一个不冲突的文件名。**绝不覆盖已存在的文件。**
+
 bool PickFreeName(const std::wstring& dir, int amount, std::wstring& outPath)
 {
     for (int suffix = 0; suffix < 40; ++suffix)
@@ -231,7 +231,7 @@ bool PickFreeName(const std::wstring& dir, int amount, std::wstring& outPath)
 
         const std::wstring full = dir + L"\\" + name;
 
-        // 已存在就换下一个候选名——**不覆盖**
+
         if (GetFileAttributesW(full.c_str()) != INVALID_FILE_ATTRIBUTES) continue;
 
         outPath = full;
@@ -240,8 +240,8 @@ bool PickFreeName(const std::wstring& dir, int amount, std::wstring& outPath)
     return false;
 }
 
-// ------------------------------------------------------------ 读快捷方式 ----
-// 读出 .lnk 的目标与参数，用来判断「这是不是我造的金币」。
+
+
 bool ReadLnk(const std::wstring& lnkPath, std::wstring& target, std::wstring& args)
 {
     target.clear();
@@ -271,14 +271,14 @@ bool ReadLnk(const std::wstring& lnkPath, std::wstring& target, std::wstring& ar
     return ok;
 }
 
-// ------------------------------------------------------------ 金币图标 ----
-// 快捷方式的图标**只能指向 .ico / .exe / .dll**——指向 .png 会被 shell 直接
-// 忽略、退回目标程序自己的图标（实测过：指向 PNG 时桌面显示的是本程序的
-// exe 图标，不是金币图）。所以这里把 assets\image\ 里那张金币图转成 .ico，
-// 缓存在 %LOCALAPPDATA%，所有金币快捷方式都指向它。
-//
-// 缓存策略：ico 不存在、或者比源图**旧**，就重新生成一次。
-// 这样你换掉 Gold_icon.png 之后下次运行会自动跟上，不用手动转换。
+
+
+
+
+
+
+
+
 
 int GetPngEncoderClsid(CLSID* clsid)
 {
@@ -299,24 +299,24 @@ int GetPngEncoderClsid(CLSID* clsid)
     return found;
 }
 
-// 计算一段素材字节的 FNV-1a 哈希。
-// 用途：EnsureIcon 的缓存版本戳。以前用源图字节数当版本戳，
-// 如果换了一张内容不同但字节数恰好相同的图标，缓存不会重建。
-// 改用哈希之后，只要内容变了，缓存就一定会失效重建。
+
+
+
+
 unsigned long long HashBlob(const assets::Blob& b)
 {
-    unsigned long long h = 1469598103934665603ULL; // FNV offset basis
+    unsigned long long h = 1469598103934665603ULL;
     for (size_t i = 0; i < b.Size(); ++i)
     {
         h ^= b.Data()[i];
-        h *= 1099511628211ULL;                     // FNV prime
+        h *= 1099511628211ULL;
     }
     return h;
 }
 
-// 把源图缩到 256x256、编成 PNG 存内存。
-// 为什么是 256：ICO 的宽高字段只有 1 字节，0 表示 256，所以 256 就是上限。
-// 源图来自内嵌资源（磁盘上没有 PNG 可读），所以走内存解码。
+
+
+
 bool EncodeScaledPng(const assets::Blob& png, std::vector<BYTE>& out)
 {
     using namespace Gdiplus;
@@ -361,8 +361,8 @@ bool EncodeScaledPng(const assets::Blob& png, std::vector<BYTE>& out)
     return (got == len && len > 0);
 }
 
-// 组装 ICO：6 字节 ICONDIR + 16 字节 ICONDIRENTRY + 一段 PNG 数据。
-// Vista 以后 ICO 允许直接内嵌 PNG，省掉 BMP + AND 掩码那一整套。
+
+
 bool WriteIcoWithPng(const std::wstring& icoPath, const std::vector<BYTE>& png)
 {
     if (png.empty() || png.size() > 0xFFFFFFFFu) return false;
@@ -372,19 +372,19 @@ bool WriteIcoWithPng(const std::wstring& icoPath, const std::vector<BYTE>& png)
 
     const unsigned len = (unsigned)png.size();
     BYTE hdr[22] = {};
-    hdr[2]  = 1;                     // type = 1 (icon)
-    hdr[4]  = 1;                     // count = 1
-    hdr[6]  = 0;                     // width  = 0 -> 256
-    hdr[7]  = 0;                     // height = 0 -> 256
-    hdr[8]  = 0;                     // 调色板数
-    hdr[9]  = 0;                     // reserved
-    hdr[10] = 1;                     // planes
-    hdr[12] = 32;                    // 位深
+    hdr[2]  = 1;
+    hdr[4]  = 1;
+    hdr[6]  = 0;
+    hdr[7]  = 0;
+    hdr[8]  = 0;
+    hdr[9]  = 0;
+    hdr[10] = 1;
+    hdr[12] = 32;
     hdr[14] = (BYTE)( len        & 0xFF);
     hdr[15] = (BYTE)((len >>  8) & 0xFF);
     hdr[16] = (BYTE)((len >> 16) & 0xFF);
     hdr[17] = (BYTE)((len >> 24) & 0xFF);
-    hdr[18] = 22;                    // 数据偏移
+    hdr[18] = 22;
 
     const bool ok = (fwrite(hdr, 1, 22, f) == 22) &&
                     (fwrite(png.data(), 1, len, f) == len);
@@ -394,17 +394,17 @@ bool WriteIcoWithPng(const std::wstring& icoPath, const std::vector<BYTE>& png)
     return ok;
 }
 
-// 需要（重新）生成就生成。返回可用的 .ico 路径，失败返回空串。
-//
-// 注意这里**还是要在磁盘上落一个 .ico**：IShellLink::SetIconLocation 只认
-// 文件路径（.ico/.exe/.dll），没法从内存里的字节取图标。所以这一步是
-// 「把内嵌的 PNG 转成缓存文件」，不是「素材没打包进去」。
-//
-// 参数化之后金币图标和蜂蜜罐图标共用这一份逻辑：
-//   pngName  assets\image\ 下那张源图（如 "Gold_icon.png"）
-//   icoName  缓存到 %LOCALAPPDATA%\Ransom_dev\ 下的文件名（如 "gold_coin.ico"）
-//
-// 两份图标分开缓存、互不干扰 —— 素材缺一张不影响另一张。
+
+
+
+
+
+
+
+
+
+
+
 std::wstring EnsureIcon(const wchar_t* pngName, const wchar_t* icoName)
 {
     assets::Blob png;
@@ -418,15 +418,15 @@ std::wstring EnsureIcon(const wchar_t* pngName, const wchar_t* icoName)
     if (dir.empty()) return L"";
     const std::wstring ico = dir + L"\\" + icoName;
 
-    // 缓存还有效？（存在、大小和源图当前字节数一致）
-    // 内嵌素材没有修改时间可比，所以拿源图字节数当版本戳——换图标必然会
-    // 改变 PNG 大小，改一次就够触发重建了。
+
+
+
     WIN32_FILE_ATTRIBUTE_DATA icoA = {};
     if (GetFileAttributesExW(ico.c_str(), GetFileExInfoStandard, &icoA) &&
         icoA.nFileSizeHigh == 0 &&
         icoA.nFileSizeLow > 0)
     {
-        // 缓存里存过版本戳就直接比，省掉一次编码
+
         const std::wstring stamp = ico + L".src";
         FILE* f = nullptr;
         if (_wfopen_s(&f, stamp.c_str(), L"rb") == 0 && f)
@@ -446,7 +446,7 @@ std::wstring EnsureIcon(const wchar_t* pngName, const wchar_t* icoName)
         return L"";
     }
 
-    // 记下这次的源图哈希，下次直接命中缓存
+
     FILE* sf = nullptr;
     if (_wfopen_s(&sf, (ico + L".src").c_str(), L"wb") == 0 && sf)
     {
@@ -460,9 +460,9 @@ std::wstring EnsureIcon(const wchar_t* pngName, const wchar_t* icoName)
     return ico;
 }
 
-// 是不是我们造的金币？
-// 判据很严：目标必须是本程序本体，参数必须同时含 --pay 和 --token。
-// 你自己的快捷方式目标是别的程序，永远不会被误判。
+
+
+
 bool IsOurCoin(const std::wstring& lnkPath)
 {
     std::wstring target, args;
@@ -475,15 +475,15 @@ bool IsOurCoin(const std::wstring& lnkPath)
     return true;
 }
 
-// ------------------------------------------------------------ 孤儿回收 ----
-// 不依赖任何清单文件：直接扫桌面顶层文件夹，找出「目标指向本程序
-// 且参数像金币」的快捷方式删掉。清单写不出去时（受限环境）这条路径仍然有效。
+
+
+
 int RemoveOrphans()
 {
     std::vector<std::wstring> dirs;
     CollectTargets(dirs);
 
-    // 桌面根目录也要扫：金币现在也可能直接落在那里
+
     std::vector<std::wstring> roots;
     CollectDesktopRoots(roots);
     for (size_t i = 0; i < roots.size(); ++i) dirs.push_back(roots[i]);
@@ -515,32 +515,32 @@ int RemoveOrphans()
     return n;
 }
 
-// ------------------------------------------------------------ 面额池 ----
-// 从**可配置**的面额池里挑一个。池子来源：settings.ini 的
-// [game] coin_amounts=（settings::CoinAmounts()），没配就用内置默认
-// { 10, 50, 75, 100, 125, 150, 325, 500 }。
-//
-// 挑的时候会按目标做一层过滤：只挑 <= cap 的面额，
-// 其中 cap = min(目标*2, 500)。这个上限是硬编码的，**不受自定义池影响**：
-// 目标是 10 的时候如果掉出一颗 500，玩家一捡就通关，桌面散布的节奏感
-// 就没了 —— 所以这里必须有个闸。
-//
-//   目标 10   -> 只会掉池里 <= 20 的那档
-//   目标 200  -> 掉池里 <= 400 的
-//   目标 500+ -> 池里所有面额都能掉
-//
-// 池里所有面额都超过 cap 时（例如池里只有 {500}，而目标是 10），
-// 退回池里**最小**的那一个 —— 否则永远生成不出金币。
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 int PickCoinAmount(int goal)
 {
     const std::vector<int>& all = settings::CoinAmounts();
-    if (all.empty()) return 10;   // 理论上不会：Sanitize 保证非空
+    if (all.empty()) return 10;
 
     int cap = goal * 2;
     if (cap < 10)  cap = 10;
     if (cap > 500) cap = 500;
 
-    // 挑出所有 <= cap 的。池子最多 kCoinAmountMax（16）项，定长缓冲够用。
+
     int pool[32];
     int n = 0;
     for (size_t i = 0; i < all.size() && n < 32; ++i)
@@ -548,7 +548,7 @@ int PickCoinAmount(int goal)
 
     if (n == 0)
     {
-        // 全都超了：退回池里最小的那个
+
         int mn = all[0];
         for (size_t i = 1; i < all.size(); ++i)
             if (all[i] < mn) mn = all[i];
@@ -557,11 +557,11 @@ int PickCoinAmount(int goal)
     return pool[rand() % n];
 }
 
-} // namespace
+}
 
 namespace gold {
 
-bool Start(HINSTANCE /*hInst*/)
+bool Start(HINSTANCE          )
 {
     if (g_started) return true;
 
@@ -574,10 +574,10 @@ bool Start(HINSTANCE /*hInst*/)
     g_nextTok = 1;
     g_started = true;
 
-    // 两种图标一起生成：
-    //   面额 <= 500 -> 金币    (Gold_icon.png       -> gold_coin.ico)
-    //   面额 >  500 -> 蜂蜜罐  (Honey_Pot_icon.png -> honey_pot.ico)
-    // 各自缓存、互不影响。任一失败都不致命——那部分快捷方式退回默认图标。
+
+
+
+
     g_iconPath = EnsureIcon(L"Gold_icon.png", L"gold_coin.ico");
     g_honeyIconPath = EnsureIcon(L"Honey_Pot_icon.png", L"honey_pot.ico");
 
@@ -592,7 +592,7 @@ int CleanupStale()
 {
     int n = 0;
 
-    // 路径 1：清单（快，但依赖 %LOCALAPPDATA% 可写）
+
     LoadStaleManifest();
     for (size_t i = 0; i < g_stale.size(); ++i)
     {
@@ -608,9 +608,9 @@ int CleanupStale()
         g_stale.clear();
     }
 
-    // 路径 2：扫桌面找孤儿。
-    // 这条不依赖任何可写位置，是真正兜底的那条——
-    // 判据是「目标是本程序 + 参数含 --pay/--token」，不会误伤你的快捷方式。
+
+
+
     n += RemoveOrphans();
 
     if (n > 0) elog::Write(L"[gold] 上次遗留共清理 %d 个", n);
@@ -633,35 +633,35 @@ int Spawn(int goal)
         return 0;
     }
 
-    // 目标：总额达到 goal 再加约 40% 余量，让玩家有余地
+
     const int target = goal + goal * 2 / 5;
 
     int made = 0;
     int failed = 0;
     int guard = 0;
-    // 本轮生成的金额。**不能拿 g_sum 当停止条件**：它是进程累计值，
-    // 第一轮就已经越过 target，于是第二轮回合循环体一次都不执行，
-    // 结果是「被抓住的第二轮一个金币都没有」——桌面被锁死却无从付款。
+
+
+
     int roundSum = 0;
 
-    // 生成上限跟着目标走：目标越大需要越多颗才能凑齐。
-    // 原固定值 14 在目标 1000 时会偏紧，多给一点余量。
-    int maxCoins = 14 + goal / 100;   // 10..1000 -> 14..24
+
+
+    int maxCoins = 14 + goal / 100;
     if (maxCoins > 30) maxCoins = 30;
 
     while (roundSum < target && made < maxCoins && guard < 300)
     {
         ++guard;
 
-        // 大多数金币散进桌面上的顶层文件夹，约四分之一直接落在桌面上。
-        // 文件夹那边优先，桌面只是「顺手能捡到几枚」。
+
+
         const bool onDesktop =
             !roots.empty() && (dirs.empty() || (rand() % 100) < kDesktopRootPercent);
 
         const std::wstring& dir = onDesktop ? roots[rand() % roots.size()]
             : dirs[rand() % dirs.size()];
 
-        // 面额从自适应池里挑（见 PickCoinAmount）
+
         const int amount = PickCoinAmount(goal);
         const int token = g_nextTok++;
 
@@ -671,10 +671,10 @@ int Spawn(int goal)
         wchar_t args[128];
         swprintf_s(args, L"--pay %d --token %d", amount, token);
 
-        // ---- 按面额挑图标 ----
-        // 大于 kHoneyIconThreshold（默认 500）的用蜂蜜罐，其余用金币。
-        // 蜂蜜罐素材缺失时 g_honeyIconPath 是空串，这里会自然退回金币图标——
-        // 不写额外的 fallback 分支，读起来更直白。
+
+
+
+
         const std::wstring& iconPath =
             (amount > kHoneyIconThreshold && !g_honeyIconPath.empty())
             ? g_honeyIconPath
@@ -683,7 +683,7 @@ int Spawn(int goal)
         if (!WriteLnk(lnk, args, iconPath))
         {
             ++failed;
-            // 权限受限时可能整片失败，别把日志刷爆
+
             if (failed <= 3)
                 elog::Write(L"[gold] 写快捷方式失败: %s", lnk.c_str());
             continue;
@@ -695,8 +695,8 @@ int Spawn(int goal)
         c.token  = token;
         g_coins.push_back(c);
 
-        g_sum += amount;          // 进程累计，只作统计用
-        roundSum += amount;       // 本轮累计，循环的停止条件
+        g_sum += amount;
+        roundSum += amount;
         ++made;
         ++g_total;
     }
@@ -727,7 +727,7 @@ int Consume(int token)
 
         const int amount = g_coins[i].amount;
 
-        // 只删自己登记过的那个路径
+
         DeleteFileW(g_coins[i].path.c_str());
 
         elog::Write(L"[gold] 收下 %d Gold（%s）", amount, g_coins[i].path.c_str());
@@ -775,4 +775,4 @@ bool IsOurCoinFile(const wchar_t* lnkPath)
     return IsOurCoin(lnkPath);
 }
 
-} // namespace gold
+}

@@ -1,11 +1,11 @@
-// ============================================================================
-//  image_blob.cpp
-// ============================================================================
+
+
+
 #include "image_blob.h"
 
 #include <windows.h>
 #include <gdiplus.h>
-#include <shlwapi.h>      // SHCreateMemStream
+#include <shlwapi.h>
 
 #pragma comment(lib, "shlwapi.lib")
 #pragma comment(lib, "gdiplus.lib")
@@ -18,9 +18,9 @@ Bitmap* Decode(const unsigned char* data, size_t size)
 {
     if (!data || size == 0) return nullptr;
 
-    // SHCreateMemStream 直接把一段内存包成 IStream，比手搓
-    // CreateStreamOnHGlobal + GlobalAlloc + 拷贝短得多。
-    // 它拷贝了一份数据，所以调用方的缓冲区可以立刻释放。
+
+
+
     IStream* st = SHCreateMemStream(data, (UINT)size);
     if (!st) return nullptr;
 
@@ -41,8 +41,8 @@ Bitmap* Decode(const unsigned char* data, size_t size)
         return nullptr;
     }
 
-    // Clone 出一份自有的像素：这样解码结果和那个临时流彻底脱钩，
-    // 后面可以放心 Release 掉流（GDI+ 的 Image 会一直引用它）。
+
+
     Bitmap* copy = src->Clone(0, 0, w, h, PixelFormat32bppARGB);
 
     delete src;
@@ -52,4 +52,4 @@ Bitmap* Decode(const unsigned char* data, size_t size)
     return copy;
 }
 
-} // namespace image_blob
+}

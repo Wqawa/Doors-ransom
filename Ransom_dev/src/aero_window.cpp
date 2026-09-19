@@ -1,26 +1,26 @@
-// ============================================================================
-//  aero_window.cpp
-//
-//  绘制流程与原版一致：先在 32bpp DIB 上用 GDI+ 画好整扇窗（阴影 / 圆角 /
-//  标题栏高光 / 底部反光），把内容交给回调，手动预乘 alpha，
-//  最后 UpdateLayeredWindow 呈现。
-//
-//  动画也按原版恢复：
-//    打开    缩放 0.85 + alpha 120 -> 1.0 / 255      （200ms，缓出）
-//    关闭    缩放 -> 0.90 + 淡出                      （180ms，缓入）
-//    最大化  窗口矩形插值到工作区                      （220ms，缓出）
-//    还原    矩形插值回原位置                          （220ms，缓出）
-//    最小化  缩放 -> 0.35 + 淡出，锚点在底部            （200ms，缓出）
-//    换位置  沿弧线平移到新的随机位置                    （900ms，smoothstep）
-//    原地抖动 真实窗口位移做衰减振荡                    （时长由调用方给）
-//  另有：原地轻微抖动 & 旋转（角点位移 < 3px，纯绘制层实现，不动窗口矩形）、
-//        边缘拖拽缩放、右键/Alt+Space 系统菜单、双击标题最大化、F11。
-// ============================================================================
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 #include "aero_window.h"
 
 #include "entity_log.h"
 
-#include <windowsx.h>      // GET_X_LPARAM / GET_Y_LPARAM
+#include <windowsx.h>
 #include <cmath>
 #include <cstdlib>
 #include <string>
@@ -30,17 +30,17 @@ using namespace Gdiplus;
 
 #pragma comment(lib, "gdiplus.lib")
 
-// WndProc 里调 aero::ClientToContent 时**必须**写全限定名。
-// 为什么：它下面的匿名 namespace 里还嵌着一个 `namespace aero`（内容绘制
-// 那一层就在里面），不加限定的话，非限定查找先命中那个内层 aero，
-// 从此不再往外找，于是永远看不见真正的 aero::ClientToContent。
-// （实测：不写 aero:: 就是 C3861「找不到标识符」。）
+
+
+
+
+
 
 namespace {
 
     const wchar_t* kClassName = L"RansomAeroWnd";
 
-    // 与原版一致的观感参数
+
     const int kCorner = 8;
     const int kShadow = 14;
     const int kTitleH = 32;
@@ -55,30 +55,30 @@ namespace {
 
     const UINT_PTR kTickId = 1;
 
-    // ---- 原地抖动 ----
-    // 「稍微抖动 & 旋转」：随机位移动 + 绕中心旋转，幅度都刻意压得很小。
-    //
-    // 位移和旋转是**叠加**的，最坏情况下的角点位移 =
-    //     位移 * √2 + 半对角线 * sin(旋转角)
-    // 主勒索窗口内容区 400x250，半对角线约 236px，于是：
-    //     1.0 * 1.414 + 236 * sin(0.30°) ≈ 1.41 + 1.24 ≈ 2.65px   （< 3px ✓）
-    //
-    // 三个不同的周期（约 0.9 / 1.3 / 1.7 秒）让 x、y、角度各走各的，
-    // 合起来是李萨如式的漂移，不会所有窗口整齐划一地晃。
-    //
-    // 因为窗口外层本来就有 kShadow=14px 的透明边距，这点位移和旋转
-    // **不会被裁掉**，所以完全不用动窗口矩形——纯绘制层的事，
-    // 也不影响鼠标命中判定和拖拽。
-    const float kWobblePx = 1.0f;      // 位移振幅（px）
-    const float kWobbleDeg = 0.30f;     // 旋转振幅（度）
-    const double kFreqX = 0.00698;   // 2π/900ms
-    const double kFreqY = 0.00483;   // 2π/1300ms
-    const double kFreqRot = 0.00370;   // 2π/1700ms
 
-    // ---- 动画参数（照搬原版）----
+
+
+
+
+
+
+
+
+
+
+
+
+
+    const float kWobblePx = 1.0f;
+    const float kWobbleDeg = 0.30f;
+    const double kFreqX = 0.00698;
+    const double kFreqY = 0.00483;
+    const double kFreqRot = 0.00370;
+
+
     namespace animcfg {
-        const UINT  kAnimMs = 15;    // 动画期间的重绘间隔
-        const UINT  kIdleMs = 33;    // 静止时的重绘间隔（内容动画用）
+        const UINT  kAnimMs = 15;
+        const UINT  kIdleMs = 33;
 
         const DWORD kOpenMs = 300;
         const DWORD kCloseMs = 180;
@@ -104,8 +104,8 @@ namespace {
         ANIM_RESTORE,
         ANIM_MINIMIZE,
         ANIM_TASKBAR_RESTORE,
-        ANIM_MOVE,           // 平移到新位置，沿弧线走
-        ANIM_JOLT            // 原地抖一下（真实窗口位移，衰减振荡）
+        ANIM_MOVE,
+        ANIM_JOLT
     };
 
     struct AnimState {
@@ -124,18 +124,18 @@ namespace {
 
         float anchorX = 0.5f, anchorY = 0.5f;
 
-        float arcAmp = 0.0f;     // ANIM_MOVE：垂直于位移方向的弧高（px），可正可负
+        float arcAmp = 0.0f;
 
-        float joltAmp = 0.0f;    // ANIM_JOLT：初始振幅（px），随时间平方衰减到 0
+        float joltAmp = 0.0f;
 
-        RECT  bounds{};          // ANIM_MOVE：动画期间允许的活动范围（工作区）
-        bool  useBounds = false; // 弧线会把窗口甩出去，所以每帧要夹回范围内
+        RECT  bounds{};
+        bool  useBounds = false;
 
-        // ---- 分帧移动（"卡帧"手感）----
-        // steps > 0 时，整段动画只走 steps 个离散位置：t 被量化成 k/steps，
-        // 窗口一格一格地跳，而不是平滑滑动。steps == 0 就是原来的连续插值。
+
+
+
         int   steps = 0;
-        // 缓动换成 back-out（冲过目标再弹回来），配合分帧就是「一下甩到位」。
+
         bool  overshoot = false;
     };
 
@@ -145,7 +145,7 @@ namespace {
         aero::PaintFn paint = nullptr;
         void* user = nullptr;
 
-        int  w = 0, h = 0;             // 含阴影
+        int  w = 0, h = 0;
         bool maximized = false;
         bool minimized = false;
         RECT restoreRect{};
@@ -157,10 +157,10 @@ namespace {
 
         AnimState anim;
 
-        bool      wobble = false;   // 原地抖动 & 旋转
-        float     wobbleSeed = 0.0f;    // 每个窗口一个相位，免得所有窗口同步晃
+        bool      wobble = false;
+        float     wobbleSeed = 0.0f;
 
-        // AnimateJolt 撞上别的动画时的排队位（见 StartJolt / OnAnimTick 末尾）
+
         bool  joltQueued = false;
         float joltQueuedAmp = 0.0f;
         DWORD joltQueuedMs = 0;
@@ -175,28 +175,28 @@ namespace {
 
     std::vector<AeroWnd*> g_windows;
 
-    // ---- 外观资源（图标 / 字体），由 aero::SetAppIconFromSelf / SetTitleFont* 填 ----
-    // exe 图标资源的 ID（Ransom_dev.rc 里的 `1 ICON`）
+
+
     const int kAppIconResId = 1;
 
     HICON        g_iconBig = nullptr;
     HICON        g_iconSmall = nullptr;
-    // GDI+ 的 Graphics **没有** DrawIcon（那是 GDI 的东西），
-    // 所以标题栏那个图标要先把 HICON 转成 Bitmap 缓存下来，别再每帧转一次。
+
+
     Gdiplus::Bitmap* g_iconBmp = nullptr;
 
-    // UI 字体。**不能用 FontFamily(L"名字") 去查**：AddFontResourceEx(FR_PRIVATE)
-    // 注册的字体，GDI+ 按名字是查不到的（实测 GetLastStatus != Ok，会静默回退，
-    // 用户会以为字体没生效）。必须走 PrivateFontCollection，拿到 FontFamily 再用。
-    //
-    // g_fontBytes 是字体文件的字节。素材现在内嵌在 exe 里，
-    // AddMemoryFont / AddFontMemResourceEx 都**不拷贝**这块内存，
-    // 所以必须自己留一份，一直活到进程结束。
+
+
+
+
+
+
+
     std::vector<unsigned char>       g_fontBytes;
     Gdiplus::PrivateFontCollection* g_pfc = nullptr;
     Gdiplus::FontFamily* g_titleFamily = nullptr;
 
-    // 标题栏字体。注册成功走素材里那套，否则退回系统雅黑。
+
     Gdiplus::Font MakeTitleFont()
     {
         if (g_titleFamily) return Gdiplus::Font(g_titleFamily, 15.0f, Gdiplus::FontStyleRegular, Gdiplus::UnitPixel);
@@ -205,7 +205,7 @@ namespace {
 
     AeroWnd* From(HWND hwnd) { return (AeroWnd*)GetWindowLongPtrW(hwnd, GWLP_USERDATA); }
 
-    // ------------------------------------------------------------ 绘图工具 ----
+
     void AddRoundRect(GraphicsPath& path, const RectF& r, REAL radius)
     {
         REAL d = radius * 2.0f;
@@ -294,7 +294,7 @@ namespace {
         }
     }
 
-    // ------------------------------------------------------------ 后备缓冲 ----
+
     bool EnsureBuffer(AeroWnd* a, int w, int h)
     {
         if (a->memDC && a->bits && a->w == w && a->h == h) return true;
@@ -325,7 +325,7 @@ namespace {
         return true;
     }
 
-    // ------------------------------------------------------------ 绘制 ----
+
     void PaintWindow(AeroWnd* a,
         float scale = 1.0f,
         BYTE alphaOverride = 255,
@@ -342,10 +342,10 @@ namespace {
         g.SetTextRenderingHint(TextRenderingHintAntiAlias);
         g.Clear(Color(0, 0, 0, 0));
 
-        // ---- 原地抖动：绕中心旋转 + 平移 ----
-        // 只在静止时抖（动画期间窗口本来就在动，再叠一层没必要）。
-        // 相位用 double 算：GetTickCount() 到几十万毫秒时，float 的精度
-        // 已经不够表示 sin 的参数了，会出现明显的台阶。
+
+
+
+
         double wobPx = 0.0, wobPy = 0.0, wobDeg = 0.0;
         if (a->wobble && !a->anim.active)
         {
@@ -356,7 +356,7 @@ namespace {
             wobDeg = (double)kWobbleDeg * sin(t * kFreqRot + s * 0.3);
         }
 
-        // ---- 变换：先绕锚点缩放，再叠加抖动的旋转与平移 ----
+
         if (scale != 1.0f || wobPx != 0.0 || wobPy != 0.0 || wobDeg != 0.0)
         {
             const REAL cx = W * anchorX;
@@ -373,7 +373,7 @@ namespace {
         GraphicsPath mainPath;
         AddRoundRect(mainPath, rcMain, (REAL)kCorner);
 
-        // 1. 四周阴影
+
         {
             GraphicsPath inner;
             AddRoundRect(inner, rcMain, (REAL)kCorner);
@@ -393,13 +393,13 @@ namespace {
             g.ResetClip();
         }
 
-        // 2. 主体底色
+
         {
             SolidBrush br(Color(1, 255, 255, 255));
             g.FillPath(&br, &mainPath);
         }
 
-        // 3. 标题栏高光
+
         {
             g.SetClip(&mainPath);
             const RectF rcTitle(rcMain.X, rcMain.Y, rcMain.Width, (REAL)kTitleH);
@@ -437,7 +437,7 @@ namespace {
             g.ResetClip();
         }
 
-        // 4. 底部内阴影
+
         {
             g.SetClip(&mainPath);
             const REAL shadowH = 28.0f;
@@ -449,7 +449,7 @@ namespace {
             g.ResetClip();
         }
 
-        // 5. 底部反光
+
         {
             g.SetClip(&mainPath);
             const REAL reflectH = 34.0f;
@@ -474,13 +474,13 @@ namespace {
             g.ResetClip();
         }
 
-        // 6. 描边
+
         {
             Pen pen(Color(200, 90, 130, 200), 1.5f);
             g.DrawPath(&pen, &mainPath);
         }
 
-        // 6b. 底边白亮光
+
         {
             g.SetClip(&mainPath);
             const REAL overhang = 40.0f;
@@ -493,7 +493,7 @@ namespace {
             g.ResetClip();
         }
 
-        // 7. 标题栏分隔线
+
         {
             g.SetClip(&mainPath);
             const REAL y = rcMain.Y + (REAL)kTitleH;
@@ -502,9 +502,9 @@ namespace {
             g.ResetClip();
         }
 
-        // 8. 标题栏图标 + 标题文字
+
         {
-            // 右边留给三个按钮，图标占最左边，文字相应右移
+
             const REAL textRight = rcMain.GetRight() - 156.0f;
             REAL textX = rcMain.X + 14.0f;
 
@@ -540,7 +540,7 @@ namespace {
             }
         }
 
-        // 9. 标题栏按钮。主窗口 buttons=false —— 一个按钮都不画
+
         if (a->opt.buttons)
         {
             const int top = (int)(rcMain.Y + (kTitleH - kBtnH) * 0.5f);
@@ -563,7 +563,7 @@ namespace {
             SetRectEmpty(&a->rcClose);
         }
 
-        // 10. 内容交给回调
+
         if (a->paint)
         {
             const RectF content(rcMain.X + 1.0f,
@@ -573,7 +573,7 @@ namespace {
             a->paint(g, content, a->frame, a->user);
         }
 
-        // ---- 预乘 alpha 后呈现 ----
+
         Premultiply(a->bits, W, H);
 
         HDC screen = GetDC(nullptr);
@@ -589,7 +589,7 @@ namespace {
         ReleaseDC(nullptr, screen);
     }
 
-    // ------------------------------------------------------------ 动画 ----
+
     void SetTickRate(AeroWnd* a, UINT ms)
     {
         SetTimer(a->hwnd, kTickId, ms, nullptr);
@@ -617,9 +617,9 @@ namespace {
         SetTickRate(a, a->opt.tickMs);
     }
 
-    // 平移到新位置，走一条弧线。w/h 传 0 表示保持当前尺寸。
-    // x/y 是**含阴影的**窗口左上角屏幕坐标（和 RectOf() 同一套坐标）。
-    // steps/overshoot/arc 见 AnimState 上的注释。
+
+
+
     void StartMove(AeroWnd* a, int x, int y, int w, int h, DWORD durMs,
         int steps, bool overshoot, bool arc)
     {
@@ -632,9 +632,9 @@ namespace {
         if (h <= 0) h = curH;
         if (cur.left == x && cur.top == y && curW == w && curH == h) return;
 
-        // 弧高按位移长度取，有下限免得短距离看不出弧，有上限免得飞出屏幕。
-        // 方向随机，这样每次换位置的走法都不一样。
-        // arc=false 时弧高留 0，走直线。
+
+
+
         const float dx = (float)(x - cur.left);
         const float dy = (float)(y - cur.top);
         const float len = sqrtf(dx * dx + dy * dy);
@@ -657,9 +657,9 @@ namespace {
         a->anim.steps = (steps > 0) ? steps : 0;
         a->anim.overshoot = overshoot;
 
-        // 弧线在中途会把窗口甩到位移方向的两侧，终点没出界不代表中途也没出界。
-        // 所以记下所在显示器的工作区，OnAnimTick 每帧把位置夹回去——
-        // 贴边时弧线会被压平，但**绝不会跑出屏幕**。
+
+
+
         MONITORINFO mi = { sizeof(MONITORINFO) };
         GetMonitorInfoW(MonitorFromWindow(a->hwnd, MONITOR_DEFAULTTONEAREST), &mi);
         a->anim.bounds = mi.rcWork;
@@ -668,18 +668,18 @@ namespace {
         StartAnim(a, ANIM_MOVE, durMs);
     }
 
-    // 原地抖一下：真实窗口位移，振幅按 (1-t)^2 衰减，最后一帧精确回原位。
-    // 刻意用**真实位移**而不是绘制层偏移——这一下要的就是整扇窗被撞了一下的
-    // 物理感，绘制层那点幅度（±1px）压不住这个场合。
+
+
+
     void StartJolt(AeroWnd* a, float amp, DWORD durMs)
     {
         if (!a || amp <= 0.0f) return;
         if (a->minimized || a->maximized) return;
         if (durMs < 60) durMs = 60;
 
-        // 正在跑别的动画：排队，等它在 OnAnimTick 末尾收干净再抖。
-        // 这里**不能**强插：travel 那种带 back-out 过冲的移动被中途掐掉，
-        // 窗口会停在过冲位置上，抖完就偏几像素、回不到终点。
+
+
+
         if (a->anim.active)
         {
             a->joltQueued = true;
@@ -691,10 +691,10 @@ namespace {
         RECT cur;
         GetWindowRect(a->hwnd, &cur);
 
-        a->anim.useRect = false;      // 位移由本类型自己在 OnAnimTick 里做
+        a->anim.useRect = false;
         a->anim.useScale = false;
         a->anim.fromRect = cur;
-        a->anim.toRect = cur;        // 不移动，只抖
+        a->anim.toRect = cur;
         a->anim.joltAmp = amp;
         a->anim.arcAmp = 0.0f;
         a->anim.useBounds = false;
@@ -721,7 +721,7 @@ namespace {
         GetMonitorInfoW(MonitorFromWindow(a->hwnd, MONITOR_DEFAULTTONEAREST), &mi);
 
         RECT r = mi.rcWork;
-        InflateRect(&r, -kShadow, -kShadow);      // 阴影内缩，避免被屏幕边缘裁掉
+        InflateRect(&r, -kShadow, -kShadow);
         return r;
     }
 
@@ -752,18 +752,18 @@ namespace {
         StartAnim(a, ANIM_CLOSE, animcfg::kCloseMs);
     }
 
-    // 最小化状态下要播关闭动画，必须先把窗口恢复出来。
-// 最小化时系统已经把窗口藏了，直接 StartClose 等于什么都没显示；
-// 而以前两条关闭路径（WM_CLOSE / SC_CLOSE）遇到最小化直接
-// DestroyWindow，关闭动画完全失效 —— 就是用户报的那个现象。
-// 恢复位置用 preMinimizeRect（StartMinimize 里存下的）。
+
+
+
+
+
     void RestoreFromMinimizedForClose(AeroWnd* a)
     {
         if (!a->minimized) return;
         a->minimized = false;
 
-        // SW_SHOWNOACTIVATE 会把最小化的窗口恢复成正常状态但不抢焦点。
-        // 万一某些系统/窗口组合下这一步没生效，再补一发 SW_RESTORE。
+
+
         ShowWindow(a->hwnd, SW_SHOWNOACTIVATE);
         if (IsIconic(a->hwnd)) ShowWindow(a->hwnd, SW_RESTORE);
 
@@ -792,7 +792,7 @@ namespace {
         a->anim.fromAlpha = 255;
         a->anim.toAlpha = 255;
 
-        a->maximized = true;                 // 状态先行
+        a->maximized = true;
         StartAnim(a, ANIM_MAXIMIZE, animcfg::kMaximizeMs);
     }
 
@@ -809,7 +809,7 @@ namespace {
         a->anim.fromAlpha = 255;
         a->anim.toAlpha = 255;
 
-        a->maximized = false;                // 状态先行
+        a->maximized = false;
         StartAnim(a, ANIM_RESTORE, animcfg::kRestoreMs);
     }
 
@@ -828,7 +828,7 @@ namespace {
         a->anim.anchorX = 0.5f;
         a->anim.anchorY = 0.92f;
 
-        a->minimized = true;                 // 状态先行
+        a->minimized = true;
         StartAnim(a, ANIM_MINIMIZE, animcfg::kMinimizeMs);
     }
 
@@ -865,8 +865,8 @@ namespace {
         if (t < 0.0f) t = 0.0f;
         const float tRaw = t;
 
-        // 分帧：把 t 量化成 k/steps，整段动画只落在 steps 个离散位置上
-        // （窗口一格一格地跳，不是平滑滑动）。tRaw 到 1 时 k==steps，正好落在终点。
+
+
         if (a->anim.steps > 0)
         {
             int k = (int)(tRaw * (float)a->anim.steps);
@@ -874,12 +874,12 @@ namespace {
             t = (float)k / (float)a->anim.steps;
         }
 
-        // 缓动曲线：
-        //   关闭            -> 缓入（t^2）
-        //   打开 / 任务栏恢复 -> 回弹缓出（冲过头一点点再收回，这就是「弹出」的手感）
-        //   换位置           -> smoothstep 缓入缓出（起停都不生硬）
-        //   换位置 + overshoot -> back-out（过冲约 12%），配合分帧就是「甩到位再弹回来」
-        //   其余            -> 缓出（1-(1-t)^3）
+
+
+
+
+
+
         float e;
         if (a->anim.type == ANIM_CLOSE)
         {
@@ -888,18 +888,18 @@ namespace {
         else if (a->anim.type == ANIM_OPEN || a->anim.type == ANIM_TASKBAR_RESTORE)
         {
             const float u = t - 1.0f;
-            e = 1.0f + u * u * (2.9f * u + 1.9f);      // back-out，约 12% 过冲
+            e = 1.0f + u * u * (2.9f * u + 1.9f);
         }
         else if (a->anim.type == ANIM_MOVE)
         {
             if (a->anim.overshoot)
             {
                 const float u = t - 1.0f;
-                e = 1.0f + u * u * (2.9f * u + 1.9f);  // back-out
+                e = 1.0f + u * u * (2.9f * u + 1.9f);
             }
             else
             {
-                e = t * t * (3.0f - 2.0f * t);         // smoothstep
+                e = t * t * (3.0f - 2.0f * t);
             }
         }
         else
@@ -908,13 +908,13 @@ namespace {
             e = 1.0f - u * u * u;
         }
 
-        // ---- 原地抖动：真实窗口位移 ----
-        // 必须放在 useRect 分支之前，并且 useRect 保持 false——
-        // 否则后面那条分支会用 fromRect 把位置覆盖回去。
+
+
+
         if (a->anim.type == ANIM_JOLT)
         {
-            const float env = (1.0f - tRaw) * (1.0f - tRaw);   // 振幅衰减，t=1 时精确为 0
-            const float ph = tRaw * 15.0f;                    // 约 2.4 个周期
+            const float env = (1.0f - tRaw) * (1.0f - tRaw);
+            const float ph = tRaw * 15.0f;
             const LONG  ox = (LONG)(a->anim.joltAmp * env * sinf(ph));
             const LONG  oy = (LONG)(a->anim.joltAmp * 0.6f * env * sinf(ph * 0.78f + 1.1f));
 
@@ -925,7 +925,7 @@ namespace {
                 SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
         }
 
-        // ---- 矩形插值（最大化 / 还原 / 换位置）----
+
         if (a->anim.useRect)
         {
             RECT r;
@@ -934,9 +934,9 @@ namespace {
             r.right = (LONG)(a->anim.fromRect.right + (a->anim.toRect.right - a->anim.fromRect.right) * e);
             r.bottom = (LONG)(a->anim.fromRect.bottom + (a->anim.toRect.bottom - a->anim.fromRect.bottom) * e);
 
-            // 换位置时叠一条弧：垂直于位移方向偏移 sin(πe)。
-            // 两端为 0、中间最大，所以起止点和目标位置都精确落位，
-            // 中间走的是弧而不是直线。
+
+
+
             if (a->anim.type == ANIM_MOVE && a->anim.arcAmp != 0.0f)
             {
                 const float dx = (float)(a->anim.toRect.left - a->anim.fromRect.left);
@@ -944,7 +944,7 @@ namespace {
                 const float len = sqrtf(dx * dx + dy * dy);
                 if (len > 1.0f)
                 {
-                    const float nx = -dy / len;        // 位移方向逆时针 90°
+                    const float nx = -dy / len;
                     const float ny = dx / len;
                     const float s = sinf(3.14159265f * e) * a->anim.arcAmp;
                     const LONG  ox = (LONG)(nx * s);
@@ -954,8 +954,8 @@ namespace {
                 }
             }
 
-            // 弧线可能把窗口甩出工作区，这里夹回来。
-            // （贴边时弧线被压平，看起来像沿着屏幕边缘滑过去。）
+
+
             if (a->anim.useBounds)
             {
                 const LONG bw = r.right - r.left, bh = r.bottom - r.top;
@@ -969,7 +969,7 @@ namespace {
             SetWindowPos(a->hwnd, nullptr, r.left, r.top,
                 r.right - r.left, r.bottom - r.top,
                 SWP_NOZORDER | SWP_NOACTIVATE);
-            // 尺寸变了要重建后备缓冲
+
             EnsureBuffer(a, r.right - r.left, r.bottom - r.top);
         }
 
@@ -977,14 +977,14 @@ namespace {
         if (a->anim.useScale)
             scale = a->anim.fromScale + (a->anim.toScale - a->anim.fromScale) * e;
 
-        // alpha 必须夹到 [0,255] 再转 BYTE。
-        //
-        // back-out / 回弹这类缓动的 e 会过冲到约 1.12，
-        // 直接 (BYTE) 强转会**模 256 溢出**：
-        //   打开动画 110 + (255-110)*1.1208 = 272 → (BYTE)272 = 16
-        // 于是 alpha 走 110 → 255 → 16 → 255，
-        // 画面表现就是"弹到最大时突然变近乎全透明，下一帧又弹回来"——
-        // 也就是动画末尾闪的那一下。
+
+
+
+
+
+
+
+
         float af = (float)a->anim.fromAlpha +
             ((float)a->anim.toAlpha - (float)a->anim.fromAlpha) * e;
         if (af < 0.0f)   af = 0.0f;
@@ -992,7 +992,7 @@ namespace {
         const BYTE alpha = (BYTE)af;
 
         PaintWindow(a, scale, alpha, a->anim.anchorX, a->anim.anchorY); 
-        // 注意用 tRaw 判断结束：分帧后 t 在最后一格也会等于 1，但用原始进度更直观。
+
         if (tRaw >= 1.0f)
         {
             const AnimType finished = a->anim.type;
@@ -1008,13 +1008,13 @@ namespace {
             if (finished == ANIM_CLOSE)
             {
                 DestroyWindow(a->hwnd);
-                // WM_NCDESTROY 已经把 a 释放了，后面不能再碰
+
                 return;
             }
             else if (finished == ANIM_MINIMIZE)
             {
                 ShowWindow(a->hwnd, SW_MINIMIZE);
-                return;   // 最小化后不需要再重绘
+                return;
             }
             else
             {
@@ -1022,7 +1022,7 @@ namespace {
                 PaintWindow(a);
             }
 
-            // 排队中的抖动：等这段动画彻底收完再抖
+
             if (a->joltQueued)
             {
                 const float amp = a->joltQueuedAmp;
@@ -1033,7 +1033,7 @@ namespace {
         }
     }
 
-    // ------------------------------------------------------------ 系统菜单 ----
+
     void ShowSystemMenu(AeroWnd* a, POINT ptScreen)
     {
         HMENU menu = CreatePopupMenu();
@@ -1067,7 +1067,7 @@ namespace {
         y = wa.top + ((wa.bottom - wa.top) - h) / 2;
     }
 
-    // ------------------------------------------------------------ 窗口过程 ----
+
     LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
     {
         AeroWnd* a = From(hwnd);
@@ -1081,7 +1081,7 @@ namespace {
             return TRUE;
         }
 
-        // ------------------------------------------------------- 命中测试 ----
+
         case WM_NCHITTEST:
         {
             if (!a) break;
@@ -1105,7 +1105,7 @@ namespace {
                     PtInRect(&a->rcMin, cp));
             const bool onTitle = (y >= bodyT && y < bodyT + kTitleH);
 
-            // 边缘拖拽缩放（最大化时不响应）
+
             if (a->opt.resizable && !a->maximized)
             {
                 const int RS = kResizeHot;
@@ -1142,17 +1142,17 @@ namespace {
             return 0;
         }
 
-        // ------------------------------------------------------- 鼠标 ----
-        //
-        // 内容区鼠标转发：自绘控件（滑条 / 复选框 / 按钮）挂在
-        // Options::onContentMouse 上。坐标先换算成内容区坐标再给出去，
-        // 回调那边就不用再关心阴影和标题栏各占多高。
-        //
-        // 只转发落在内容区里的消息：
-        //   * 标题栏（y < kTitleH + 1）是拖动 / 双击最大化 / 系统菜单的地盘
-        //   * 阴影带（外面那 14px）本来就是透明区，点它等于点桌面
-        //
-        // 落在内容区之外的消息**不在这里吞掉**，继续往下走原有分支。
+
+
+
+
+
+
+
+
+
+
+
         case WM_LBUTTONDOWN:
         case WM_LBUTTONUP:
         case WM_LBUTTONDBLCLK:
@@ -1168,10 +1168,10 @@ namespace {
                 return 0;
             }
 
-            // ---- 以下只在「消息没被内容区接走」时才有意义 ----
+
             if (!a) break;
 
-            // 左键：标题栏按钮（关闭 / 最大化 / 最小化）
+
             if (msg == WM_LBUTTONDOWN)
             {
                 if (!a->opt.buttons) return 0;
@@ -1180,9 +1180,9 @@ namespace {
                 if (PtInRect(&a->rcClose, pt))
                 {
                     elog::Write(L"[aero] 关闭按钮被点击: '%s'", a->opt.title.c_str());
-                    // 先通知上层「这是玩家主动关的」，再发 WM_CLOSE。
-                    // 顺序不能反：WM_CLOSE 会一路走到 StartClose，中间可能
-                    // 触发别的处理，先把标志立起来才最可靠。
+
+
+
                     if (a->opt.onUserClose)
                         a->opt.onUserClose(hwnd, a->opt.onUserCloseUser);
                     SendMessageW(hwnd, WM_CLOSE, 0, 0);
@@ -1218,9 +1218,9 @@ namespace {
             if (a && a->hot != BTN_NONE) { a->hot = BTN_NONE; PaintWindow(a); }
             return 0;
 
-        // 滚轮：和内容区鼠标一样先换算坐标，再转成正负号给回调。
-        // 注意 WM_MOUSEWHEEL 的 lParam 是**屏幕坐标**（和别的鼠标消息不同），
-        // 所以这里要先 ScreenToClient。
+
+
+
         case WM_MOUSEWHEEL:
         {
             if (!a || !a->opt.onContentWheel) break;
@@ -1251,7 +1251,7 @@ namespace {
             }
             break;
 
-            // ------------------------------------------------------- 键盘 ----
+
         case WM_SYSKEYDOWN:
             if (wp == VK_SPACE && a)
             {
@@ -1266,7 +1266,7 @@ namespace {
             if (wp == VK_F11 && a) { ToggleMaximize(a); return 0; }
             break;
 
-            // ------------------------------------------------------- 焦点 ----
+
         case WM_ACTIVATE:
         case WM_ACTIVATEAPP:
             if (a)
@@ -1281,7 +1281,7 @@ namespace {
             }
             return 0;
 
-            // ------------------------------------------------------- 系统命令 ----
+
         case WM_SYSCOMMAND:
         {
             if (!a) break;
@@ -1292,13 +1292,13 @@ namespace {
                 if (a->anim.type == ANIM_CLOSE) return 0;
                 CancelAnim(a);
 
-                // 从系统菜单 / Alt+F4 走来的「关闭」也算玩家主动关。
-                // 注意：aero::AnimateClose() 走的是 WM_CLOSE，**不经过这里**，
-                // 所以「到寿命自动淡出」不会被误判。
+
+
+
                 if (a->opt.onUserClose)
                     a->opt.onUserClose(hwnd, a->opt.onUserCloseUser);
 
-                // 同 WM_CLOSE：先把最小化的窗口恢复出来，关闭动画才有东西可画。
+
                 RestoreFromMinimizedForClose(a);
 
                 StartClose(a);
@@ -1313,7 +1313,7 @@ namespace {
                     (int)a->anim.type, (int)a->anim.active,
                     (int)a->maximized, (int)a->minimized);
 
-                // 最小化动画进行中 -> 取消，回到正常
+
                 if (a->anim.type == ANIM_MINIMIZE)
                 {
                     CancelAnim(a);
@@ -1321,7 +1321,7 @@ namespace {
                     PaintWindow(a);
                     return 0;
                 }
-                // 已经最小化 -> 播放从任务栏恢复的动画
+
                 if (a->minimized && !a->anim.active)
                 {
                     a->minimized = false;
@@ -1338,7 +1338,7 @@ namespace {
                     StartTaskbarRestore(a);
                     return 0;
                 }
-                // 最大化动画进行中 -> 取消并跳到还原位置
+
                 if (a->anim.type == ANIM_MAXIMIZE)
                 {
                     CancelAnim(a);
@@ -1353,14 +1353,14 @@ namespace {
                     PaintWindow(a);
                     return 0;
                 }
-                // 已最大化 -> 走还原动画
+
                 if (a->maximized && !a->anim.active) { StartRestore(a); return 0; }
                 return 0;
             }
             break;
         }
 
-        // ------------------------------------------------------- 定时器 ----
+
         case WM_TIMER:
             if (wp != kTickId || !a) break;
 
@@ -1368,17 +1368,17 @@ namespace {
 
             if (a->anim.active) { OnAnimTick(a); return 0; }
 
-            // 静止时只重绘内容（尺寸没变）
+
             PaintWindow(a);
             return 0;
 
         case WM_SIZE:
             if (a && wp != SIZE_MINIMIZED)
             {
-                // 动画期间直接返回：那几帧的位置/尺寸本来就在动，
-                // OnAnimTick 下一帧会自己补上。在这里插一脚只会得到
-                // 一帧全透明 —— EnsureBuffer 若因尺寸变化重建了 DIB，
-                // 重建后的 bits 还没画过，直接呈现就是一片空白。
+
+
+
+
                 if (a->anim.active) return 0;
 
                 RECT wr; GetWindowRect(hwnd, &wr);
@@ -1394,9 +1394,9 @@ namespace {
                 if (a->anim.type == ANIM_CLOSE) return 0;
                 CancelAnim(a);
 
-                // 最小化状态下走关闭：先把窗口恢复出来再播关闭动画。
-                // 以前这里直接 DestroyWindow，所以最小化后关闭动画
-                // 一帧都播不出来 —— 这是用户报的「关闭动画失效」。
+
+
+
                 RestoreFromMinimizedForClose(a);
 
                 StartClose(a);
@@ -1438,7 +1438,7 @@ namespace {
         return DefWindowProcW(hwnd, msg, wp, lp);
     }
 
-} // namespace
+}
 
 namespace aero {
 
@@ -1454,7 +1454,7 @@ namespace aero {
             wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
             wc.hbrBackground = nullptr;
             wc.lpszClassName = kClassName;
-            wc.hIcon = g_iconBig;      // 任务栏 / Alt-Tab
+            wc.hIcon = g_iconBig;
             wc.hIconSm = g_iconSmall ? g_iconSmall : g_iconBig;
             if (!RegisterClassExW(&wc)) return nullptr;
             registered = true;
@@ -1472,11 +1472,11 @@ namespace aero {
         if (x == CW_USEDEFAULT || y == CW_USEDEFAULT) CenterOnScreen(W, H, x, y);
 
         DWORD ex = WS_EX_LAYERED;
-        // 有按钮的窗口（设置窗口 / 子窗口）加 WS_EX_APPWINDOW：
-        // 这类窗口用户可能点最小化，必须让它出现在任务栏，
-        // 否则最小化之后没有恢复入口，窗口就永远回不来了。
-        // 没按钮的（主勒索窗口）保持 WS_EX_TOOLWINDOW：不进任务栏、不进 Alt+Tab。
-        // 两者不能同时用 —— WS_EX_TOOLWINDOW 优先级更高，会盖掉 WS_EX_APPWINDOW。
+
+
+
+
+
         if (opt.buttons) ex |= WS_EX_APPWINDOW;
         else             ex |= WS_EX_TOOLWINDOW;
         if (opt.topmost) ex |= WS_EX_TOPMOST;
@@ -1492,14 +1492,14 @@ namespace aero {
             return nullptr;
         }
 
-        // 先按打开动画的初始状态画一帧，再显示，避免出现瞬间全尺寸的闪烁
-        // 先启动动画状态，再用动画起点画首帧，最后才显示窗口。
-        //
-        // 顺序很要紧：ShowWindow 可能触发 WM_SIZE，而 WM_SIZE 里会检查
-        // anim.active —— 如果此刻动画还没开始，它就会按「最终尺寸 + 全不透明」
-        // 重画一帧，于是先闪一下完整窗口、再缩回去重播打开动画。
-        // 把 StartOpen 提到 ShowWindow 之前，anim.active 已是 true，
-        // 那一帧误绘自然被跳过。
+
+
+
+
+
+
+
+
         if (opt.animate)
         {
             StartOpen(a);
@@ -1520,20 +1520,20 @@ namespace aero {
     {
         AeroWnd* a = hwnd ? From(hwnd) : nullptr;
         if (!a) return;
-        CancelAnim(a);          // 别让收尾时还在跑动画
+        CancelAnim(a);
         DestroyWindow(hwnd);
     }
 
-    // ---------------------------------------------------------------- 外观资源 ----
-    // 图标：直接用 exe 自己的图标资源。
-    // 素材早就编进去了（Ransom_dev.rc 里那条 `1 ICON`），所以单文件分发
-    // 什么都不缺，也不用 LoadImageW 去读磁盘上的 .ico。
+
+
+
+
     void SetAppIconFromSelf()
     {
         HMODULE self = GetModuleHandleW(nullptr);
 
-        // 指定尺寸让系统从图标组里挑最合适的那一张：
-        // 大图标给任务栏 / Alt+Tab，小图标给标题栏。
+
+
         HICON big = (HICON)LoadImageW(self, MAKEINTRESOURCEW(kAppIconResId), IMAGE_ICON,
             GetSystemMetrics(SM_CXICON),
             GetSystemMetrics(SM_CYICON), 0);
@@ -1569,7 +1569,7 @@ namespace aero {
     {
         if (!icoPath || !*icoPath) return;
 
-        // LR_LOADFROMFILE + 指定尺寸：大图标给任务栏，小图标给标题栏
+
         HICON big = (HICON)LoadImageW(nullptr, icoPath, IMAGE_ICON,
             GetSystemMetrics(SM_CXICON),
             GetSystemMetrics(SM_CYICON),
@@ -1587,9 +1587,9 @@ namespace aero {
         if (g_iconBig)   DestroyIcon(g_iconBig);
         if (g_iconSmall) DestroyIcon(g_iconSmall);
         g_iconBig = big;
-        g_iconSmall = sml ? sml : big;      // 只有一个也照用
+        g_iconSmall = sml ? sml : big;
 
-        // 标题栏要画的版本：HICON -> GDI+ Bitmap，缓存起来
+
         delete g_iconBmp;
         g_iconBmp = nullptr;
         if (Gdiplus::Bitmap* bmp = Gdiplus::Bitmap::FromHICON(g_iconSmall))
@@ -1608,12 +1608,12 @@ namespace aero {
         if (g_titleFamily) { delete g_titleFamily; g_titleFamily = nullptr; }
         if (!data || size == 0 || !family || !*family) return false;
 
-        // GDI+ 的 PrivateFontCollection::AddMemoryFont 和 GDI 的
-        // AddFontMemResourceEx 都**不拷贝**这块内存，必须在整个进程生命周期
-        // 内保持有效，所以留一份自己的拷贝。
+
+
+
         g_fontBytes.assign(data, data + size);
 
-        // GDI 层面注册（标题栏之外的 GDI 绘制也能用到）。
+
         DWORD installed = 0;
         AddFontMemResourceEx((void*)g_fontBytes.data(), (DWORD)g_fontBytes.size(),
                              nullptr, &installed);
@@ -1651,9 +1651,9 @@ namespace aero {
         if (g_titleFamily) { delete g_titleFamily; g_titleFamily = nullptr; }
         if (!fontFile || !*fontFile || !family || !*family) return false;
 
-        // FR_PRIVATE：只对本进程可见，不往系统里装字体。
-        // 这一句 GDI 层面就够了（标题栏以外的 GDI 绘制也能用），
-        // 但 GDI+ 还得单独喂一遍，见下面。
+
+
+
         const int gdiCount = AddFontResourceExW(fontFile, FR_PRIVATE, 0);
 
         if (!g_pfc) g_pfc = new PrivateFontCollection();
@@ -1674,7 +1674,7 @@ namespace aero {
             if (fams[i].GetFamilyName(nm) != Ok) continue;
             if (_wcsicmp(nm, family) != 0) continue;
 
-            // 用 Clone() 拿一个堆上的副本：fams 是局部 vector，出了函数就没了
+
             g_titleFamily = fams[i].Clone();
             break;
         }
@@ -1693,7 +1693,7 @@ namespace aero {
         if (!a) return;
 
         a->wobble = on;
-        // 每个窗口一个随机相位，否则所有子窗口会整齐划一地一起晃
+
         a->wobbleSeed = (float)(rand() % 628) / 100.0f;
     }
 
@@ -1705,8 +1705,8 @@ namespace aero {
         StartMove(a, x, y, w, h, ms);
     }
 
-    // 分帧 + 过冲版本：整段动画只走 steps 个离散位置，缓动用 back-out（过冲后弹回）。
-    // arc=false 关掉弧线走直线——过冲和弧线叠在一起会把落点甩得很难看。
+
+
     void AnimateMoveToStepped(HWND hwnd, int x, int y, DWORD ms, int w, int h,
         int steps, bool overshoot, bool arc)
     {
@@ -1716,8 +1716,8 @@ namespace aero {
         StartMove(a, x, y, w, h, ms, steps, overshoot, arc);
     }
 
-    // 原地短促抖动：真实窗口位移，振幅按 (1-t)^2 衰减。
-    // 和其它动画互斥，撞上时会排队等前面收完再抖（见 StartJolt）。
+
+
     void AnimateJolt(HWND hwnd, float amplitudePx, DWORD ms)
     {
         AeroWnd* a = hwnd ? From(hwnd) : nullptr;
@@ -1757,11 +1757,11 @@ namespace aero {
 
     int ShadowSize() { return kShadow; }
 
-    // 想让 paint 回调拿到的内容区**正好**是 cw x ch，Options 里该填多少？
-    //
-    // 这一步很容易漏：Options::height 是**含标题栏**的（内容区 = height - kTitleH - 2），
-    // 而 width/height 还各自要扣掉 1px 边框。直接把「内容尺寸」填进去，
-    // 得到的画面会被纵向压扁约 12%（设计 340 高实际只画到 306）。
+
+
+
+
+
     int OptionsWidthForContent(int cw) { return cw + 2; }
     int OptionsHeightForContent(int ch) { return ch + kTitleH + 2; }
 
@@ -1772,9 +1772,9 @@ namespace aero {
         return r;
     }
 
-    // 内容区相对**客户区**的左上角 = (kShadow + 1, kShadow + kTitleH + 1)。
-    // 这两个常量必须和 PaintWindow 里算 content 的那段保持一致：
-    //   那里是 rcMain.X + 1, rcMain.Y + kTitleH + 1，而 rcMain 从 kShadow 起。
+
+
+
     bool ClientToContent(HWND hwnd, POINT clientPt, POINT& out)
     {
         AeroWnd* a = hwnd ? From(hwnd) : nullptr;
@@ -1824,4 +1824,4 @@ namespace aero {
 
     int AliveCount() { return (int)g_windows.size(); }
 
-} // namespace aero
+}
