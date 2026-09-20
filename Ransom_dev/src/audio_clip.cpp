@@ -1,6 +1,6 @@
-
-
-
+// ============================================================================
+//  audio_clip.cpp
+// ============================================================================
 #include "audio_clip.h"
 
 #include "entity_log.h"
@@ -11,9 +11,9 @@
 #include <string>
 #include <vector>
 
-
-
-
+// ---- 内嵌的两个单文件解码器（公有领域）----
+// 注意：MINIMP3_FLOAT_OUTPUT 是 #ifdef 判断的，写成 0 也算「已定义」，
+// 输出会变成 float。所以这里**绝不能定义它**，保持默认的 short 输出。
 #define MINIMP3_IMPLEMENTATION
 
 #pragma warning(push)
@@ -28,8 +28,8 @@ namespace {
 
 const int kOutRate = 44100;
 
-
-
+// ------------------------------------------------------------ 重采样 ----
+// 任意声道 / 任意采样率 -> 44100 单声道（线性插值）
 void Normalize(const short* src, size_t frames, int channels, int rate,
                audio_clip::Clip& out)
 {
@@ -70,8 +70,8 @@ void Normalize(const short* src, size_t frames, int channels, int rate,
     }
 }
 
-
-
+// ------------------------------------------------------------ WAV ----
+// 在内存里扫 RIFF 块（原来用 FILE* 逐块 fread/fseek，现在换成指针 + 游标）。
 bool LoadWav(const unsigned char* data, size_t size, audio_clip::Clip& out)
 {
     if (!data || size < 12) return false;
@@ -96,7 +96,7 @@ bool LoadWav(const unsigned char* data, size_t size, audio_clip::Clip& out)
         p += 8;
 
         const size_t avail = (size_t)(end - p);
-        if (sz > avail) sz = (unsigned int)avail;
+        if (sz > avail) sz = (unsigned int)avail;      // 截断的文件也不至于越界
 
         if (memcmp(id, "fmt ", 4) == 0)
         {
@@ -108,8 +108,8 @@ bool LoadWav(const unsigned char* data, size_t size, audio_clip::Clip& out)
             channels = *(unsigned short*)(fmt + 2);
             rate     = *(unsigned int*) (fmt + 4);
             bits     = *(unsigned short*)(fmt + 14);
-            isFloat  = (tag == 3);
-            if (tag == 0xFFFE && take >= 26)
+            isFloat  = (tag == 3);                 // IEEE float
+            if (tag == 0xFFFE && take >= 26)       // WAVE_FORMAT_EXTENSIBLE
             {
                 const unsigned short sub = *(unsigned short*)(fmt + 24);
                 isFloat = (sub == 3);
@@ -117,7 +117,7 @@ bool LoadWav(const unsigned char* data, size_t size, audio_clip::Clip& out)
         }
         else if (memcmp(id, "data", 4) == 0)
         {
-            if (channels < 1 || rate < 1 || bits < 8) {                   }
+            if (channels < 1 || rate < 1 || bits < 8) { /* 还没读到 fmt，跳过 */ }
             else
             {
                 const long bytesPerSample = bits / 8;
@@ -180,12 +180,12 @@ bool LoadWav(const unsigned char* data, size_t size, audio_clip::Clip& out)
                 {
                     pcm.clear();
                 }
-                break;
+                break;   // data 之后不再需要别的块
             }
         }
 
         p += sz;
-        if (sz & 1) ++p;
+        if (sz & 1) ++p;                     // 块对齐填充
     }
 
     if (pcm.empty()) return false;
@@ -193,7 +193,7 @@ bool LoadWav(const unsigned char* data, size_t size, audio_clip::Clip& out)
     return out.Ok();
 }
 
-
+// ------------------------------------------------------------ OGG ----
 bool LoadOgg(const unsigned char* data, size_t size, audio_clip::Clip& out)
 {
     int   channels = 0, rate = 0;
@@ -211,7 +211,7 @@ bool LoadOgg(const unsigned char* data, size_t size, audio_clip::Clip& out)
     return out.Ok();
 }
 
-
+// ------------------------------------------------------------ MP3 ----
 bool LoadMp3(const unsigned char* data, size_t size, audio_clip::Clip& out)
 {
     mp3dec_t dec;
@@ -233,7 +233,7 @@ bool LoadMp3(const unsigned char* data, size_t size, audio_clip::Clip& out)
     return out.Ok();
 }
 
-}
+} // namespace
 
 namespace audio_clip {
 
@@ -266,27 +266,27 @@ bool Load(const wchar_t* name, const unsigned char* data, size_t size, Clip& out
     return ok;
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
+// ---------------------------------------------------------------- 时间拉伸 ----
+// 保持音高的时间拉伸（WSOLA）。
+//
+// 帧长 L 固定，合成步长 Hs 固定；分析步长 Ha = Hs / factor。
+// 每帧在 Ha*k 附近搜一个「和上一帧的自然延续最像」的位置，按 Hann 窗
+// 叠加到输出，最后按窗权重归一化。
+//
+// 因为叠加用的全是**原始波形片段**（没有任何重采样），所以音高不变，
+// 只有时间轴被拉长。这正是「慢放不变调」和「降速播放」的区别。
+//
+// 搜位置用的是归一化互相关（dot²/energy）而不是裸点积：
+// 裸点积会偏向能量大的区域，把段落接错。
 namespace {
 
-const int kSF    = 2048;
-const int kSHop  = 512;
-const int kSSrch = 80;
-const int kSCorr = 384;
-const int kSStep = 6;
+const int kSF    = 2048;   // 帧长（约 46ms @44.1k）
+const int kSHop  = 512;    // 合成步长（4 倍重叠）
+const int kSSrch = 80;     // 搜索半径，要盖住 |Ha-Hs|
+const int kSCorr = 384;    // 相关窗口长度
+const int kSStep = 6;      // 相关计算抽稀
 
-}
+} // namespace
 
 bool StretchPitchPreserving(const Clip& src, size_t inFrames,
                             double factor, Clip& out)
@@ -295,7 +295,7 @@ bool StretchPitchPreserving(const Clip& src, size_t inFrames,
 
     if (!src.Ok() || factor <= 0.0) return false;
     if (inFrames > src.Frames()) inFrames = src.Frames();
-    if (inFrames < (size_t)(kSF * 4)) return false;
+    if (inFrames < (size_t)(kSF * 4)) return false;          // 太短，不做
 
     const size_t outFrames = (size_t)((double)inFrames * factor);
     if (outFrames < (size_t)kSF) return false;
@@ -325,7 +325,7 @@ bool StretchPitchPreserving(const Clip& src, size_t inFrames,
         const size_t ideal = (size_t)(idealD + 0.5);
         size_t seg = ideal;
 
-
+        // ---- WSOLA：在 ideal 附近挑一个和「上一帧延续」最像的起点 ----
         if (havePrev && prevSeg + kSHop + kSCorr <= inFrames)
         {
             const short* ref = s + prevSeg + kSHop;
@@ -381,4 +381,4 @@ bool StretchPitchPreserving(const Clip& src, size_t inFrames,
     return true;
 }
 
-}
+} // namespace audio_clip

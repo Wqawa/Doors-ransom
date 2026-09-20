@@ -1,22 +1,22 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+// ============================================================================
+//  setup_ui.cpp
+//
+//  开场设置窗口 + 应急提示窗口。都建在 aero_window 上（逐像素透明的分层窗），
+//  内容全部自绘 —— 这样滑条的观感能和勒索窗口那套玻璃风格对上，
+//  也不需要在分层窗口里塞子控件（分层窗口本来就不支持子控件）。
+//
+//  ---- 为什么是阻塞式 ----
+//
+//  这两个窗口出现在**一切演出模块启动之前**：director、桌面覆盖层、双进程
+//  看守、声音都还没起来。所以直接在主线程上跑一个模态消息循环最省事，
+//  也不会出现「设置还开着，脸已经飘出来了」这种错位。
+//
+//  ---- 坐标约定 ----
+//
+//  aero 的 paint 回调把内容区矩形给过来，但鼠标回调给的是**换算过的
+//  内容区坐标**（见 aero_window.h）。两者同一套原点，所以下面所有控件
+//  矩形都是「相对内容区左上角」的裸坐标，调用时再加 rc.X / rc.Y。
+// ============================================================================
 #include "setup_ui.h"
 
 #include "aero_window.h"
@@ -37,8 +37,8 @@ using namespace Gdiplus;
 
 namespace {
 
-
-    const Color kPanelBg(120, 10, 12, 18);
+    // ---------------------------------------------------------------- 配色 ----
+    const Color kPanelBg(120, 10, 12, 18);        // 内容底板
     const Color kPanelEdge(70, 200, 40, 40);
     const Color kTextMain(238, 238, 242, 248);
     const Color kTextDim(190, 150, 152, 165);
@@ -50,23 +50,23 @@ namespace {
     const Color kKnob(255, 236, 236, 240);
     const Color kKnobActive(255, 255, 92, 92);
 
-
+    // ------------------------------------------------------------ 小工具 ----
 
     bool Hit(const RECT& r, const POINT& p)
     {
         return p.x >= r.left && p.x < r.right && p.y >= r.top && p.y < r.bottom;
     }
 
-
-
+    // 注意**不叫** Rect：windows.h 里已经有一个同名的 GDI 函数，
+    // 在这里再定义一个会把它遮住，以后谁想用 GDI 的 Rect 就会莫名其妙报错。
     void SetRectLocal(RECT& r, int x, int y, int w, int h)
     {
         r.left = x; r.top = y; r.right = x + w; r.bottom = y + h;
     }
 
-
-
-
+    // 字体族。
+    // 中文字**不能**用素材里的 Roboto Mono（没有汉字字形，会出豆腐块），
+    // 但数字和拉丁字母用它更贴近整套 UI 的调子。所以分两套用。
     FontFamily* MonoFamily()
     {
         static FontFamily* fam = nullptr;
@@ -74,18 +74,18 @@ namespace {
         if (!tried)
         {
             tried = true;
-            fam = aero::UiFontFamily();
+            fam = aero::UiFontFamily();     // 没注册成功就是 nullptr
         }
         return fam;
     }
 
-
+    // 中文标签用的字体族。雅黑在各版本 Windows 上都有。
     Font MakeCjkFont(float px, int style = FontStyleRegular)
     {
         return Font(L"Microsoft YaHei", px, style, UnitPixel);
     }
 
-
+    // 数值 / 拉丁字母。拿不到内嵌字体就退回 Consolas（等宽，观感接近）。
     Font MakeMonoFont(float px, int style = FontStyleRegular)
     {
         FontFamily* fam = MonoFamily();
@@ -150,36 +150,36 @@ namespace {
         g.DrawPath(&pen, &p);
     }
 
-
+    // 在内容区上垫一层底板，让控件别直接浮在桌面透出来的背景上。
     void DrawPanel(Graphics& g, const RectF& rc)
     {
         FillRound(g, rc, 10.0f, kPanelBg);
         StrokeRound(g, rc, 10.0f, kPanelEdge, 1.0f);
     }
 
-
-
+    // 把位图存成 PNG。定义在文件末尾（两个窗口的导出都要用），
+    // 这里先声明。
     bool SavePng(Bitmap& bmp, const wchar_t* path);
 
-
-
-
-
+    // ---- 安全阀热键的转接 ----
+    // 开场两屏拿不到 WM_HOTKEY（那条消息是投给 IPC 窗口的），
+    // 所以由 entity_main 里的 IPC 窗口收到之后转过来。这两个全局是那
+    // 一条转接路径的落点。
     setup_ui::HotkeyFn g_hotkeyFn = nullptr;
     void*              g_hotkeyUser = nullptr;
 
-    namespace setup { void Commit(setup_ui::Verdict v); }
+    namespace setup { void Commit(setup_ui::Verdict v); }   // 下面要用
 
-
+    // 设置窗口开着的时候按下安全阀热键 = 中止，不演出。
     void HotkeyWhileSetup(void*)
     {
         elog::Write(L"[setup] 设置窗口里按下了安全阀热键，直接退出");
         setup::Commit(setup_ui::VERDICT_ABORT);
     }
 
-
-
-
+    // ---- 调排版用的坐标网格 ----    // 和 ui_layout::Preview 的 --ui-grid 一个路子：每 20px 一条细线，
+    // 每 100px 一条亮线 + 标注。内容全是手算的绝对坐标，没有网格
+    // 就只能靠截图数像素（这正是本项目 --ui-preview 存在的原因）。
     void DrawGrid(Graphics& g, const RectF& rc)
     {
         Pen thin(Color(60, 120, 200, 240), 1.0f);
@@ -217,9 +217,9 @@ namespace {
         }
     }
 
-
-
-
+    // ---- 一个按钮 ----
+    // 放在匿名 namespace 的顶层（不是哪个子 namespace 里）：设置窗口和
+    // 应急提示窗口都要用它，塞进 setup 里的话 notice 那边就找不到了。
     void DrawButton(Graphics& g, const RectF& rc, const RECT& local,
                     const wchar_t* label, bool hot, bool primary)
     {
@@ -239,51 +239,51 @@ namespace {
             StringAlignmentCenter, FontStyleBold);
     }
 
-
-
-
+    // ==========================================================================
+    //  设置窗口
+    // ==========================================================================
     namespace setup {
 
-
+        // ---- 纯数据布局（相对内容区左上角）----
         const int kW = 520;
-        const int kH = 470;
-        const int kM = 22;
-        const int kLabelH = 18;
-        const int kTrackH = 18;
+        const int kH = 470;             // 从 430 提到 470，给新增的金币滑条腾地方
+        const int kM = 22;              // 左右页边距
+        const int kLabelH = 18;         // 标签行高
+        const int kTrackH = 18;         // 条带高度（视觉上的「槽」）
         const int kKnobR = 8;
 
-        const int kRow1Top = 64;
-        const int kRow2Top = 124;
-        const int kSafeTop = 184;
+        const int kRow1Top = 64;        // 背景音乐
+        const int kRow2Top = 124;       // 音效
+        const int kSafeTop = 184;       // 光敏安全（复选框，= kSafeRowH 高）
         const int kSafeRowH = 34;
-        const int kRow3Top = 236;
-        const int kRow4Top = 296;
+        const int kRow3Top = 236;       // 随机区间
+        const int kRow4Top = 296;       // 赎金目标金币  ← 新增
         const int kBtnTop = 356;
         const int kBtnH = 42;
         const int kBtnGap = 14;
         const int kBtnW = 150;
         const int kHintTop = 412;
 
-        const int kTrackLeft = kM + 18;
+        const int kTrackLeft = kM + 18;                 // 条带左右端
         const int kTrackRight = kW - kM - 18;
-        const int kTrackW = kTrackRight - kTrackLeft;
+        const int kTrackW = kTrackRight - kTrackLeft;   // 440
 
-
-
+        // 区间条的数值范围（毫秒）。和 settings 的边界保持一致，
+        // 改一边就得改另一边——所以这里直接从 settings 取。
         const int kLoMs = settings::kIntervalMinMs;
         const int kHiMs = settings::kIntervalMaxMs;
 
-
+        // 金币目标的数值范围。同样从 settings 取。
         const int kGoldLo = settings::kGoldMin;
         const int kGoldHi = settings::kGoldMax;
 
-        const int kVolStep = 5;
+        const int kVolStep = 5;         // 滚轮一格 5%
 
-
-
-
-
-
+        // 滚轮一格多少毫秒。
+        //
+        // 不能写死：区间上限现在是 90 秒，固定 20ms 一格的话从 20ms 调到
+        // 90000ms 要滚 4500 格。所以按「整条滑条大约 90 格」反推步长——
+        // 4 秒的区间是 20ms 一格（细调），90 秒的区间是 1 秒一格（快速粗调）。
         int MsStep()
         {
             const int span = kHiMs - kLoMs;
@@ -292,7 +292,7 @@ namespace {
             return step;
         }
 
-
+        // ---- 状态 ----
         HWND  g_hwnd = nullptr;
         bool  g_done = false;
         setup_ui::Verdict g_verdict = setup_ui::VERDICT_ERROR;
@@ -301,11 +301,11 @@ namespace {
         enum Hot { HOT_NONE = 0, HOT_RESET, HOT_START };
         int   g_hot = HOT_NONE;
 
-
+        // drag：0 没有，1 背景音乐，2 音效，3 区间下限，4 区间上限
         int   g_drag = 0;
 
-
-
+        // 编辑中的一份副本。拖滑条只改它 + 实时推给子系统，
+        // 点「开始」才写回 settings 并落盘。
         settings::Set g_edit;
 
         RECT BgmTrack() { RECT r; SetRectLocal(r, kTrackLeft, kRow1Top + kLabelH + 2, kTrackW, kTrackH); return r; }
@@ -320,8 +320,8 @@ namespace {
             return r;
         }
 
-
-
+        // 复选框的**可点区域**：框 + 后面那串文字，但不横跨整行——
+        // 整行可点的话，用户想在右边空白处拖动窗口就会误触。
         RECT SafeHit()
         {
             RECT r;
@@ -343,7 +343,7 @@ namespace {
             return r;
         }
 
-
+        // ---- 数值 <-> 像素 ----
         int VolFromX(int x)
         {
             const RECT t = BgmTrack();
@@ -375,8 +375,8 @@ namespace {
             return t.left + (int)std::lround(f * (t.right - t.left));
         }
 
-
-
+        // 金币目标：10-1000。吸到 10 的整数倍 —— 金币面额全是 10 的倍数，
+        // 目标也跟着取整，滑条上的读数看起来才整齐。
         int GoldFromX(int x)
         {
             const RECT t = GoldTrack();
@@ -398,15 +398,15 @@ namespace {
             return t.left + (int)std::lround(f * (t.right - t.left));
         }
 
-
+        // ---- 把编辑中的值推给子系统（实时生效）----
         void PushLive()
         {
             settings::SetCurrent(g_edit);
             settings::Apply();
         }
 
-
-
+        // ---- 画一条滑条 ----
+        // hotKnob：第几颗珠子要高亮（0 起）；-1 = 都不亮。
         void DrawTrack(Graphics& g, const RectF& rc, const RECT& local,
                        int knobCount, int x1, int x2, int fillL, int fillR,
                        int hotKnob)
@@ -415,18 +415,18 @@ namespace {
             const REAL x0 = rc.X + (REAL)local.left;
             const REAL xN = rc.X + (REAL)local.right;
 
-
+            // 槽
             {
                 RectF t(x0, cy - 3.0f, xN - x0, 6.0f);
                 FillRound(g, t, 3.0f, kTrackBg);
             }
-
+            // 已选段（两条音量条就是 0 -> 当前值；区间条是 下限 -> 上限）
             if (fillR > fillL)
             {
                 RectF f(rc.X + (REAL)fillL, cy - 3.0f, (REAL)(fillR - fillL), 6.0f);
                 FillRound(g, f, 3.0f, kTrackFill);
             }
-
+            // 端点刻度
             {
                 SolidBrush dim(kTextFaint);
                 g.FillRectangle(&dim, x0, cy - 6.0f, 1.0f, 12.0f);
@@ -447,7 +447,7 @@ namespace {
             }
         }
 
-
+        // ---- 一个复选框 ----
         void DrawCheckbox(Graphics& g, const RectF& rc, bool checked, bool hot)
         {
             const RECT b = SafeBox();
@@ -470,13 +470,13 @@ namespace {
             }
         }
 
+        // ---- 一个按钮 ----（定义在匿名 namespace 顶层，见文件上半部分）
 
-
-
-
-
-
-
+        // ---- 主绘制 ----
+        //
+        // 真正的绘制逻辑在 PaintContent 里，只认「内容区矩形」这一个几何输入。
+        // 活窗口的 aero 回调和 `--setup-ui` 离线导出都走它，
+        // 所以导出来的 PNG 就是窗口里长的那张，不存在两套排版跑偏的可能。
         void PaintContent(Graphics& g, const RectF& rc)
         {
             DrawPanel(g, rc);
@@ -485,7 +485,7 @@ namespace {
             const REAL xR = rc.X + (REAL)(kW - kM);
             const REAL w = xR - xL;
 
-
+            // ---- 标题 ----
             {
                 SolidBrush bar(kAccent);
                 g.FillRectangle(&bar, xL, rc.Y + 22.0f, 4.0f, 18.0f);
@@ -500,7 +500,7 @@ namespace {
 
             wchar_t buf[96];
 
-
+            // ---- 背景音乐 ----
             {
                 RectF t(xL, rc.Y + (REAL)kRow1Top, w, (REAL)kLabelH);
                 DrawTextCjk(g, L"背景音乐", t, 14.0f, kTextMain);
@@ -521,7 +521,7 @@ namespace {
                 DrawTextMono(g, L"200%", hi, 11.0f, kTextFaint, StringAlignmentFar);
             }
 
-
+            // ---- 音效 ----
             {
                 RectF t(xL, rc.Y + (REAL)kRow2Top, w, (REAL)kLabelH);
                 DrawTextCjk(g, L"音效", t, 14.0f, kTextMain);
@@ -537,7 +537,7 @@ namespace {
                           g_drag == 2 ? 0 : -1);
             }
 
-
+            // ---- 光敏安全（癫痫模式）----
             {
                 DrawCheckbox(g, rc, g_edit.photosensitiveSafe, false);
 
@@ -549,7 +549,7 @@ namespace {
                 DrawTextCjk(g, L"压低整屏亮度跳变与闪烁，光敏人群建议开启", d, 11.0f, kTextFaint);
             }
 
-
+            // ---- 遭遇战间隔（随机区间）----
             {
                 RectF t(xL, rc.Y + (REAL)kRow3Top, w, (REAL)kLabelH);
                 DrawTextCjk(g, L"每次跳杀间隔（随机区间）", t, 14.0f, kTextMain);
@@ -574,8 +574,8 @@ namespace {
                 RectF lo(xL, rc.Y + (REAL)(tr.bottom + 2), w, 14.0f);
                 DrawTextMono(g, L"20ms", lo, 11.0f, kTextFaint);
 
-
-
+                // 中间刻度。区间跨度到 90 秒之后，光有两端读数很难估出
+                // 「我这一拖大概落在多少秒」，加一个中点就够用了。
                 {
                     const REAL mx = rc.X + (REAL)((tr.left + tr.right) / 2);
                     const REAL my = rc.Y + (REAL)tr.top + (REAL)kTrackH * 0.5f;
@@ -591,7 +591,7 @@ namespace {
                 DrawTextMono(g, L"90s", hi, 11.0f, kTextFaint, StringAlignmentFar);
             }
 
-
+            // ---- 赎金目标金币 ----
             {
                 RectF t(xL, rc.Y + (REAL)kRow4Top, w, (REAL)kLabelH);
                 DrawTextCjk(g, L"赎金目标金币", t, 14.0f, kTextMain);
@@ -609,7 +609,7 @@ namespace {
                 RectF lo(xL, rc.Y + (REAL)(tr.bottom + 2), w, 14.0f);
                 DrawTextMono(g, L"10", lo, 11.0f, kTextFaint);
 
-
+                // 中点刻度标 500（原作默认值）—— 偏了之后好一眼找到原位
                 {
                     const REAL mx = rc.X + (REAL)GoldToX(500);
                     const REAL my = rc.Y + (REAL)tr.top + (REAL)kTrackH * 0.5f;
@@ -625,11 +625,11 @@ namespace {
                 DrawTextMono(g, L"1000", hi, 11.0f, kTextFaint, StringAlignmentFar);
             }
 
-
+            // ---- 按钮 ----
             DrawButton(g, rc, ResetBtn(), L"恢复默认", g_hot == HOT_RESET, false);
             DrawButton(g, rc, StartBtn(), L"开 始", g_hot == HOT_START, true);
 
-
+            // ---- 底部提示 ----
             {
                 wchar_t hint[192];
                 swprintf_s(hint,
@@ -645,7 +645,7 @@ namespace {
             PaintContent(g, rc);
         }
 
-
+        // ---- 拖拽 ----
         void ApplyDrag(POINT p)
         {
             switch (g_drag)
@@ -658,21 +658,21 @@ namespace {
                 g_edit.sfxVol = VolFromX(p.x);
                 audio::SetSfxLevel(g_edit.sfxVol);
                 break;
-            case 3:
+            case 3:     // 下限：不许越过上限
             {
                 int v = MsFromX(p.x);
                 if (v > g_edit.maxMs) v = g_edit.maxMs;
                 g_edit.minMs = v;
                 break;
             }
-            case 4:
+            case 4:     // 上限：不许越过下限
             {
                 int v = MsFromX(p.x);
                 if (v < g_edit.minMs) v = g_edit.minMs;
                 g_edit.maxMs = v;
                 break;
             }
-            case 5:
+            case 5:     // 赎金目标金币
                 g_edit.goldGoal = GoldFromX(p.x);
                 break;
             default:
@@ -702,9 +702,9 @@ namespace {
             g_drag = 0;
             g_hot = HOT_NONE;
 
-
-
-
+            // 把值交给 settings 并收场。
+            // 顺序：改全局 -> （只有「开始」才）落盘 -> 关窗。
+            // 中途关掉窗口（中止）不落盘 —— 用户没确认的东西不该被记住。
             settings::Set s = g_edit;
             s.save = (v == setup_ui::VERDICT_START);
             settings::SetCurrent(s);
@@ -770,7 +770,7 @@ namespace {
                 if (p.y >= it.top - 8 && p.y < it.bottom + 8 &&
                     p.x >= it.left - 10 && p.x < it.right + 10)
                 {
-
+                    // 两颗珠子重合时按距离选一颗，跟手的那颗才会动。
                     const int x1 = MsToX(g_edit.minMs);
                     const int x2 = MsToX(g_edit.maxMs);
                     const int d1 = (p.x > x1) ? (p.x - x1) : (x1 - p.x);
@@ -805,10 +805,10 @@ namespace {
             }
         }
 
-
-
-
-
+        // 滚轮微调：指针压在哪个控件上就调哪个。
+        // 改 1% 也要拖半天的话，这两条滑条就太难用了。
+        // 滚轮微调：指针压在哪个控件上就调哪个。
+        // 只靠拖动的话，想把 100% 改成 105% 得拖半天。
         void OnWheel(HWND hwnd, POINT p, int delta, void*)
         {
             const int step = (delta > 0) ? 1 : -1;
@@ -842,9 +842,9 @@ namespace {
             }
             else if (p.y >= it.top - 10 && p.y < it.bottom + 10)
             {
-
-
-
+                // 指针更靠近下限就调下限，否则调上限。两颗珠子重合时
+                // 走到 else 分支，也就是往「拉开区间」的方向走——
+                // 比卡在固定值上更符合直觉。
                 const int step = MsStep() * ((delta > 0) ? 1 : -1);
                 const int x1 = MsToX(g_edit.minMs);
                 const int x2 = MsToX(g_edit.maxMs);
@@ -863,11 +863,11 @@ namespace {
             }
             else if (p.y >= gt.top - 10 && p.y < gt.bottom + 10)
             {
-
+                // 一格 25：10-1000 跨度太大，一格 10 太慢、一格 100 太粗。
                 g_edit.goldGoal += step * 25;
                 if (g_edit.goldGoal < kGoldLo) g_edit.goldGoal = kGoldLo;
                 if (g_edit.goldGoal > kGoldHi) g_edit.goldGoal = kGoldHi;
-
+                // 吸到 10 的整倍数，和拖拽保持一致
                 g_edit.goldGoal = (g_edit.goldGoal / 10) * 10;
             }
             else
@@ -878,20 +878,20 @@ namespace {
             aero::Repaint(hwnd);
         }
 
+        // 安全阀热键在这个窗口里也要管用：用户还没开始演出就改主意的话，
+        // 按 Ctrl+Alt+Shift+Q 应该当场退出，而不是非要点那个 X。
+        //
+        // 真正的处理函数是上面的 HotkeyWhileSetup（匿名 namespace 顶层）：
+        // RegisterHotKey 绑的是隐藏的 IPC 窗口，那条消息**不会**投到本窗口，
+        // 只能由那边转一手（见 setup_ui.h 的 SetHotkeyHandler）。
 
-
-
-
-
-
-
-
-
-
-
-
-
-
+        // ---- 离线导出（`--setup-ui`）----
+        // 把这一屏按给定的一整套值渲染成 PNG 再退出。不建窗口、不碰设备。
+        //
+        // 为什么要它：这一屏有大半是**手算的绝对坐标**（哪一行在 y=124、
+        // 按钮从 x=184 起），而它是全屏上唯一一个没有桌面干扰的窗口吗？
+        // 不是——盖在桌面上截屏会掺进壁纸和别的窗口，量不准。
+        // 和 --ui-preview / --fx-demo 一个路子，宁可多一个开关。
         bool RenderPreview(const wchar_t* path, const settings::Set& s, bool grid)
         {
             const int CW = kW, CH = kH;
@@ -904,7 +904,7 @@ namespace {
                 g.SetSmoothingMode(SmoothingModeAntiAlias);
                 g.SetTextRenderingHint(TextRenderingHintAntiAliasGridFit);
 
-
+                // 铺一层和桌面无关的深底色，方便判断半透明够不够看
                 SolidBrush bg(Color(255, 26, 28, 34));
                 g.FillRectangle(&bg, 0, 0, CW, CH);
 
@@ -916,32 +916,32 @@ namespace {
                 if (grid) DrawGrid(g, RectF(0.0f, 0.0f, (REAL)CW, (REAL)CH));
             }
 
-
+            // PNG 编码器查找 + 存盘在下面共用的 SavePng 里
             return SavePng(bmp, path);
         }
 
-    }
+    } // namespace setup
 
-
-
-
-
-
-
-
-
-
+    // ==========================================================================
+    //  应急提示窗口
+    //
+    //  设置确认之后、演出开始之前必弹一次。目的很单纯：**在动用户的东西之前，
+    //  让他知道会动什么、以及怎么喊停**。
+    //
+    //  这一屏刻意不做任何花哨效果：它出现在演出之前，本身不该吓人，
+    //  否则「应急说明」就变成了第一场 jumpscare。
+    // ==========================================================================
     namespace notice {
 
         const int kW = 520;
         const int kH = 400;
         const int kM = 26;
-        const int kTextW = kW - kM * 2;
+        const int kTextW = kW - kM * 2;      // 468
 
         const int kTitleTop = 20;
         const int kLede1Top = 74;
-        const int kLede2Top = 104;
-        const int kExitTop = 210;
+        const int kLede2Top = 104;           // 三行 13px 正文，往后错开
+        const int kExitTop = 210;            // 高亮框：退出快捷键
         const int kFootTop = 296;
         const int kBtnTop = 336;
         const int kBtnH = 42;
@@ -950,8 +950,8 @@ namespace {
         HWND  g_hwnd = nullptr;
         bool  g_done = false;
         bool  g_hotBtn = false;
-        bool  g_armed = false;
-        bool  g_confirm = false;
+        bool  g_armed = false;              // 在本按钮上按下过左键
+        bool  g_confirm = false;            // 点了「我知道了」（区别于关窗口）
         setup_ui::Verdict g_verdict = setup_ui::VERDICT_ABORT;
         int   g_panicVk = 'Q';
 
@@ -962,8 +962,8 @@ namespace {
             return r;
         }
 
-
-
+        // 和设置窗口一样：绘制逻辑单独一个 PaintContent，活窗口和
+        // `--notice-ui` 离线导出共用同一份。
         void PaintContent(Graphics& g, const RectF& rc)
         {
             DrawPanel(g, rc);
@@ -971,7 +971,7 @@ namespace {
             const REAL xL = rc.X + (REAL)kM;
             const REAL w = (REAL)kTextW;
 
-
+            // ---- 标题 ----
             {
                 SolidBrush bar(Color(255, 236, 92, 92));
                 g.FillRectangle(&bar, xL, rc.Y + 22.0f, 4.0f, 20.0f);
@@ -1000,7 +1000,7 @@ namespace {
                     t, 13.0f, kTextDim);
             }
 
-
+            // ---- 更要紧的：怎么退 ----
             {
                 const REAL top = rc.Y + (REAL)kExitTop;
                 RectF box(xL, top, w, 68.0f);
@@ -1019,7 +1019,7 @@ namespace {
                     t2, 12.0f, kTextDim);
             }
 
-
+            // ---- 收尾说明 ----
             {
                 RectF t(xL, rc.Y + (REAL)kFootTop, w, 18.0f);
                 DrawTextCjk(g, L"万一被任务管理器强杀没还原：Ransom_dev.exe --restore 放回快捷方式，",
@@ -1052,13 +1052,13 @@ namespace {
                 return;
             }
 
-
-
-
-
-
-
-
+            // ---- 按下 + 抬起才算一次点击 ----
+            //
+            // **必须**成对判定，不能只看按下（原本就是只看按下，实测踩到）：
+            // 这一屏是在用户刚点完设置窗口的「开始」之后弹出来的，那一瞬间
+            // 左键可能还被按着。窗口在按下的状态下出现时，系统会把抬起事件
+            // 补给新窗口 —— 于是「一弹出来就自己确认了」，日志里表现为
+            // 应急提示刚弹出 32ms 就成了「结果 0」。
             if (msg == WM_LBUTTONDOWN)
             {
                 g_armed = Hit(OkBtn(), p);
@@ -1073,10 +1073,10 @@ namespace {
                     g_confirm = true;
                     g_done = true;
 
-
-
-
-
+                    // 这里以前**只**置了标志，没请求关闭动画 ——
+                    // 于是窗口被模态循环后面那句 aero::Destroy() 直接销毁，
+                    // 玩家点「我知道了」看到的是一下子消失。补上这一句，
+                    // 让窗口走和其它路径一致的 180ms 淡出。
                     aero::AnimateClose(hwnd);
                 }
                 g_armed = false;
@@ -1084,9 +1084,9 @@ namespace {
             }
         }
 
-
-
-
+        // 在这一屏上按安全阀热键 = 当场退出。
+        // 能走到这里说明热键**已经注册成功**了，否则 entity_main
+        // 根本不会弹这一屏（见那边的说明）。
         void OnHotkey(void*)
         {
             elog::Write(L"[setup] 应急提示窗口里按下了安全阀热键，直接退出");
@@ -1099,9 +1099,9 @@ namespace {
             }
         }
 
-    }
+    } // namespace notice
 
-
+    // 应急提示的离线导出。和 setup::RenderPreview 同一套做法。
     bool RenderNoticePreview(const wchar_t* path, bool grid)
     {
         using namespace notice;
@@ -1124,7 +1124,7 @@ namespace {
         return SavePng(bmp, path);
     }
 
-
+    // 两个窗口的 PNG 导出共用这一段（找编码器 + 存盘）。
     bool SavePng(Bitmap& bmp, const wchar_t* path)
     {
         UINT num = 0, size = 0;
@@ -1142,7 +1142,7 @@ namespace {
         return false;
     }
 
-}
+} // namespace
 
 namespace setup_ui {
 
@@ -1156,24 +1156,24 @@ namespace setup_ui {
         g_drag = 0;
         g_hot = HOT_NONE;
         g_panicVk = panicVk;
-        g_edit = settings::Current();
+        g_edit = settings::Current();     // 从当前设置起手（含 ini 读回来的值）
 
         aero::Options opt;
         opt.title = L"Ransom_dev — 启动设置";
         opt.width = aero::OptionsWidthForContent(kW);
         opt.height = aero::OptionsHeightForContent(kH);
-        opt.buttons = true;
+        opt.buttons = true;               // 有关闭按钮：关掉 = 不演了
         opt.topmost = true;
         opt.resizable = false;
         opt.animate = true;
-        opt.tickMs = 80;
+        opt.tickMs = 80;                  // 内容基本静止，不必按 33ms 重绘
         opt.onContentMouse = OnMouse;
         opt.onContentMouseUser = nullptr;
         opt.onContentWheel = OnWheel;
         opt.onContentWheelUser = nullptr;
         SetHotkeyHandler(HotkeyWhileSetup, nullptr);
         opt.onUserClose = [](HWND, void*) {
-
+            // 点右上角 X / Alt+F4：中止，不演出。
             Commit(VERDICT_ABORT);
         };
         opt.onUserCloseUser = nullptr;
@@ -1192,14 +1192,14 @@ namespace setup_ui {
             g_edit.photosensitiveSafe ? L"开" : L"关",
             g_edit.minMs, g_edit.maxMs);
 
-
-
-
-
-
-
-
-
+        // ---- 模态循环 ----
+        // 退出条件是「窗口真的没了」，**不是** g_done。
+        //
+        // Commit() 在**开始**播放关闭动画的那一刻就把 g_done 置位了；
+        // 如果循环以 g_done 为条件，下面那句 aero::Destroy() 会立刻
+        // 销毁窗口，180ms 的淡出动画一帧都播不出来 —— 这正是
+        // 「关闭动画失效」的根因。窗口由 aero 在关闭动画播完后自己
+        // 销毁，让循环跑到那一刻为止就对了。
         MSG msg;
         while (aero::IsAlive(h) && GetMessageW(&msg, h, 0, 0) > 0)
         {
@@ -1207,7 +1207,7 @@ namespace setup_ui {
             DispatchMessageW(&msg);
         }
 
-
+        // 兜底：只有异常路径才会走到这里（正常路径窗口已被 aero 销毁）。
         if (aero::IsAlive(h)) aero::Destroy(h);
         g_hwnd = nullptr;
         ClearHotkeyHandler();
@@ -1224,14 +1224,14 @@ namespace setup_ui {
         g_done = false;
         g_hotBtn = false;
         g_confirm = false;
-        g_verdict = VERDICT_ABORT;
+        g_verdict = VERDICT_ABORT;      // 默认「不演」——只有明确点了按钮才继续
         g_panicVk = panicVk;
 
         aero::Options opt;
         opt.title = L"Ransom_dev — 开始前请读这里";
         opt.width = aero::OptionsWidthForContent(kW);
         opt.height = aero::OptionsHeightForContent(kH);
-        opt.buttons = true;
+        opt.buttons = true;             // 关掉 = 不演了
         opt.topmost = true;
         opt.resizable = false;
         opt.animate = true;
@@ -1240,7 +1240,7 @@ namespace setup_ui {
         opt.onContentMouseUser = nullptr;
         SetHotkeyHandler(OnHotkey, nullptr);
         opt.onUserClose = [](HWND, void*) {
-
+            // 关掉这一屏 = 用户决定不玩了。整个程序干净退出。
             if (!g_done)
             {
                 g_done = true;
@@ -1261,9 +1261,9 @@ namespace setup_ui {
 
         elog::Write(L"[setup] 应急提示已弹出（安全阀 Ctrl+Alt+Shift+%c）", (wchar_t)panicVk);
 
-
-
-
+        // 同上：跑到窗口消失为止，让关闭动画播完。
+        // 这里有两处会把 g_done 置位（点按钮 / 点 X / 按热键），
+        // 都以 g_done 为循环条件的话，关闭动画全都会被跳过去。
         MSG msg;
         while (aero::IsAlive(h) && GetMessageW(&msg, h, 0, 0) > 0)
         {
@@ -1271,7 +1271,7 @@ namespace setup_ui {
             DispatchMessageW(&msg);
         }
 
-        if (g_confirm) g_verdict = VERDICT_START;
+        if (g_confirm) g_verdict = VERDICT_START;   // 明确点了「我知道了」才继续
 
         if (aero::IsAlive(h)) aero::Destroy(h);
         g_hwnd = nullptr;
@@ -1310,4 +1310,4 @@ namespace setup_ui {
         return true;
     }
 
-}
+} // namespace setup_ui

