@@ -1,0 +1,265 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|Win32">
+      <Configuration>Debug</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|Win32">
+      <Configuration>Release</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <VCProjectVersion>18.0</VCProjectVersion>
+    <Keyword>Win32Proj</Keyword>
+    <ProjectGuid>{8ed320a8-8f75-49b9-9b1f-53a0eb1f8c77}</ProjectGuid>
+    <RootNamespace>Ransomdev</RootNamespace>
+    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>true</UseDebugLibraries>
+    <PlatformToolset>v145</PlatformToolset>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <PlatformToolset>v145</PlatformToolset>
+    <WholeProgramOptimization>true</WholeProgramOptimization>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>true</UseDebugLibraries>
+    <PlatformToolset>v145</PlatformToolset>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <PlatformToolset>v145</PlatformToolset>
+    <WholeProgramOptimization>true</WholeProgramOptimization>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="ExtensionSettings">
+  </ImportGroup>
+  <ImportGroup Label="Shared">
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <PropertyGroup Label="UserMacros" />
+  <!-- ======================================================================
+       输出目录：**显式钉死**，不依赖 $(SolutionDir)
+
+       默认值是 $(SolutionDir)$(Platform)\$(Configuration)\，也就是
+       「解决方案放哪儿产物就在哪儿」——同一个工程换个地方开，产物和中间
+       文件就跟着到处跑（本工程就被这么坑过：中间文件散在 Ransom_dev\
+       Ransom_dev\x64\ 里）。这里统一固定到仓库根的 build\ 下面：
+           build\x64\Release\       <- 直接可分发（exe + assets\）
+           build\x64\Debug\
+           build\obj\x64\Release\   <- 中间文件单独一层
+
+       用 $(MSBuildThisFileDirectory)（= 本 vcxproj 所在目录）而不是
+       $(SolutionDir)：后者在直接编译 vcxproj 时会被上层预设成工程目录，
+       条件判断根本不生效，锚在工程文件自己身上才跟解决方案放哪儿无关。
+       ====================================================================== -->
+  <PropertyGroup Label="OutputLayout">
+    <OutDir>$(MSBuildThisFileDirectory)..\build\$(Platform)\$(Configuration)\</OutDir>
+    <IntDir>$(MSBuildThisFileDirectory)..\build\obj\$(Platform)\$(Configuration)\</IntDir>
+    <TargetName>Ransom_dev</TargetName>
+  </PropertyGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <SDLCheck>true</SDLCheck>
+      <PreprocessorDefinitions>WIN32;_DEBUG;_CRT_SECURE_NO_WARNINGS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <ConformanceMode>true</ConformanceMode>
+      <LanguageStandard>stdcpp20</LanguageStandard>
+      <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
+      <!-- 静态 CRT（/MTd）：产物不依赖 VC++ 运行库，拷走就能跑 -->
+      <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
+      <MultiProcessorCompilation>true</MultiProcessorCompilation>
+    </ClCompile>
+    <Link>
+      <SubSystem>Windows</SubSystem>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+    </Link>
+    <Manifest>
+      <EnableSegmentHeap>true</EnableSegmentHeap>
+    </Manifest>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <FunctionLevelLinking>true</FunctionLevelLinking>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+      <SDLCheck>true</SDLCheck>
+      <PreprocessorDefinitions>WIN32;NDEBUG;_CRT_SECURE_NO_WARNINGS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <ConformanceMode>true</ConformanceMode>
+      <LanguageStandard>stdcpp20</LanguageStandard>
+      <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
+      <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
+      <MultiProcessorCompilation>true</MultiProcessorCompilation>
+    </ClCompile>
+    <Link>
+      <SubSystem>Windows</SubSystem>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+    </Link>
+    <Manifest>
+      <EnableSegmentHeap>true</EnableSegmentHeap>
+    </Manifest>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <SDLCheck>true</SDLCheck>
+      <PreprocessorDefinitions>_DEBUG;_CRT_SECURE_NO_WARNINGS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <ConformanceMode>true</ConformanceMode>
+      <LanguageStandard>stdcpp20</LanguageStandard>
+      <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
+      <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
+      <MultiProcessorCompilation>true</MultiProcessorCompilation>
+    </ClCompile>
+    <Link>
+      <SubSystem>Windows</SubSystem>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+    </Link>
+    <Manifest>
+      <EnableSegmentHeap>true</EnableSegmentHeap>
+    </Manifest>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <FunctionLevelLinking>true</FunctionLevelLinking>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+      <SDLCheck>true</SDLCheck>
+      <PreprocessorDefinitions>NDEBUG;_CRT_SECURE_NO_WARNINGS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <ConformanceMode>true</ConformanceMode>
+      <LanguageStandard>stdcpp20</LanguageStandard>
+      <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
+      <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
+      <MultiProcessorCompilation>true</MultiProcessorCompilation>
+    </ClCompile>
+    <Link>
+      <SubSystem>Windows</SubSystem>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+    </Link>
+    <Manifest>
+      <EnableSegmentHeap>true</EnableSegmentHeap>
+    </Manifest>
+  </ItemDefinitionGroup>
+  <!-- ======================================================================
+       源码
+       ====================================================================== -->
+  <ItemGroup>
+    <ClCompile Include="src\entity_main.cpp" />
+    <ClCompile Include="src\aero_window.cpp" />
+    <ClCompile Include="src\director.cpp" />
+    <ClCompile Include="src\face.cpp" />
+    <ClCompile Include="src\guardian.cpp" />
+    <ClCompile Include="src\motion.cpp" />
+    <ClCompile Include="src\popup.cpp" />
+    <ClCompile Include="src\gold.cpp" />
+    <ClCompile Include="src\lockdown.cpp" />
+    <ClCompile Include="src\recycle.cpp" />
+    <ClCompile Include="src\desktop_overlay.cpp" />
+    <ClCompile Include="src\fx.cpp" />
+    <ClCompile Include="src\audio.cpp" />
+    <ClCompile Include="src\audio_clip.cpp" />
+    <ClCompile Include="src\entity_log.cpp" />
+    <ClCompile Include="src\assets.cpp" />
+    <ClCompile Include="src\image_blob.cpp" />
+    <ClCompile Include="src\ui_layout.cpp" />
+    <ClCompile Include="src\settings.cpp" />
+    <ClCompile Include="src\setup_ui.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="src\aero_window.h" />
+    <ClInclude Include="src\assets.h" />
+    <ClInclude Include="src\guardian.h" />
+    <ClInclude Include="src\image_blob.h" />
+    <ClInclude Include="src\audio.h" />
+    <ClInclude Include="src\audio_clip.h" />
+    <ClInclude Include="src\desktop_overlay.h" />
+    <ClInclude Include="src\director.h" />
+    <ClInclude Include="src\entity_log.h" />
+    <ClInclude Include="src\face.h" />
+    <ClInclude Include="src\fx.h" />
+    <ClInclude Include="src\gold.h" />
+    <ClInclude Include="src\lockdown.h" />
+    <ClInclude Include="src\motion.h" />
+    <ClInclude Include="src\popup.h" />
+    <ClInclude Include="src\recycle.h" />
+    <ClInclude Include="src\ui_layout.h" />
+    <ClInclude Include="src\settings.h" />
+    <ClInclude Include="src\setup_ui.h" />
+  </ItemGroup>
+  <!-- 第三方解码器是**源码内联**的：audio_clip.cpp 直接 #include 进来，
+       所以只能当普通文件看，绝不能加成 ClCompile（会重复定义符号）。 -->
+  <ItemGroup>
+    <ClInclude Include="src\third_party\stb_vorbis.c" />
+    <ClInclude Include="src\third_party\minimp3.h" />
+    <ClInclude Include="src\third_party\minimp3_ex.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="Ransom_dev.rc" />
+  </ItemGroup>
+  <!-- ======================================================================
+       素材打包：assets\ 整个目录编成 exe 里的 RCDATA 资源
+
+       assets_gen.rc / assets_gen.txt 由 tools\gen_assets.ps1 生成，
+       Ransom_dev.rc 里 #include 前者。
+
+       这个目标**每次构建都跑**，但生成脚本只在内容真的变了才写文件。
+       为什么不用 Inputs/Outputs 做增量：MSBuild 比的是时间戳，而新素材
+       完全可能是旧时间戳（Copy-Item 和 unzip 都会保留原时间），
+       那样增量判断会安静地跳过新文件——实测踩到过。
+       比内容则任何情况都对，而且「没变就不写」意味着 .rc 时间戳不动，
+       rc.exe 和链接器都不会被惊动，构建不会变慢。
+
+       生成失败不挡构建：继续用上一版清单（只有连 .rc 都没有才报错）。
+       ====================================================================== -->
+  <Target Name="GenerateAssetResources" BeforeTargets="ResourceCompile">
+    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildThisFileDirectory)..\tools\gen_assets.ps1&quot;" ContinueOnError="true" />
+    <Error Condition="!Exists('$(MSBuildThisFileDirectory)assets_gen.rc')" Text="assets_gen.rc 不存在，且自动生成失败。手动跑： powershell -ExecutionPolicy Bypass -File tools\gen_assets.ps1" />
+  </Target>
+  <!-- 素材只作为**打包输入**存在，不再复制到产物目录：
+       全部内嵌进 exe 之后，产物就该是干干净净一个文件。
+       挂在 None 上只是为了在解决方案资源管理器里看得到。 -->
+  <ItemGroup>
+    <None Include="..\assets\**\*.*">
+      <Link>assets\%(RecursiveDir)%(Filename)%(Extension)</Link>
+    </None>
+    <None Include="assets_gen.rc" />
+    <None Include="assets_gen.txt" />
+    <None Include="..\tools\gen_assets.ps1">
+      <Link>tools\gen_assets.ps1</Link>
+    </None>
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ImportGroup Label="ExtensionTargets">
+  </ImportGroup>
+</Project>
