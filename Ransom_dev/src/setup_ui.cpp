@@ -277,16 +277,23 @@ namespace {
         const int kCheckH = 34;         // 复选框行的高度
 
         // 各行在**内容坐标系**里的 y。内容坐标 = 从视口顶部往下算（会滚）。
-        const int kRowBgm = 0;          // 背景音乐
-        const int kRowSfx = 56;         // 音效
-        const int kRowIdle = 112;       // 遭遇战间隔（双滑块）
-        const int kRowGold = 168;       // 赎金目标（范围随模式变）
-        const int kRowClose = 224;      // 关窗惩罚时长（范围随模式变）
-        const int kRowFakePct = 280;    // 假金币比例（仅硬核）
-        const int kRowFakeMix = 336;    // 假币三种形态的配比（**三滑块**，仅硬核）
-        const int kRowSafe = 392;       // 光敏安全（复选框）
-        const int kRowHard = 426;       // 硬核模式（复选框）
-        const int kContentH = 480;      // 内容总高度（> kViewH，所以要滚）
+        //
+        // 顺序（从上到下）：光敏安全 → 背景音乐 → 音效 → 硬核模式 →
+        //                    遭遇战间隔 → 赎金目标 → 关窗惩罚 → 假金币比例 → 假币形态配比
+        //
+        //   * 光敏安全提到最上面：它是"看不看得下去"的前置开关。
+        //   * 硬核模式紧跟在音效下面：它是个总闸，下面的假金币那两条
+        //     都由它解锁，所以排在它们**上面**比排在最底下顺手。
+        const int kRowSafe = 0;         // 光敏安全（复选框）
+        const int kRowBgm = 40;         // 背景音乐
+        const int kRowSfx = 96;         // 音效
+        const int kRowHard = 152;       // 硬核模式（复选框，下面还有一行说明）
+        const int kRowIdle = 194;       // 遭遇战间隔（双滑块）
+        const int kRowGold = 250;       // 赎金目标（范围随模式变）
+        const int kRowClose = 306;      // 关窗惩罚时长（范围随模式变）
+        const int kRowFakePct = 362;    // 假金币比例（仅硬核）
+        const int kRowFakeMix = 418;    // 假币形态配比（**双滑块**，仅硬核）
+        const int kContentH = 474;      // 内容总高度（> kViewH，所以要滚）
 
         const int kTrackLeft = kM + 18;                 // 条带左右端
         const int kTrackRight = kContentW - kM - 18;
@@ -560,30 +567,29 @@ namespace {
             return v;
         }
 
-        // ---- 假币三种形态：**一条滑条三颗珠子** ----
+        // ---- 假币三种形态：**一条滑条两颗珠子** ----
         //
-        // 存储仍然是三个**独立权重**（前缀 / 后缀 / 两个都改），生成时按权重
-        // 比例分配（见 gold.cpp）。界面上把它们画成一条 0-100 的轨道上的
-        // 三个**累计分界点**，像"遭遇战间隔"那样一个条上多个珠子：
+        // 存储仍然是三个权重（前缀 / 后缀 / 两个都改），生成时按权重比例分配
+        // （见 gold.cpp）。界面上把它们画成一条 0-100 轨道上的**两个分界点**：
         //
-        //     [0 .. b1)  前缀形态
-        //     [b1 .. b2) 后缀形态
-        //     [b2 .. b3) 两个都改
-        //     [b3 .. 100] 什么都不改 —— 这一部分等于没选中，生成时是"真金币"
+        //     [0 .. b1)   前缀形态（Gold → G01d）
+        //     [b1 .. b2)  后缀形态（50 → 5o）
+        //     [b2 .. 100] 两个都改（G01d_5o）—— **剩下多少全归它**
         //
-        // 这样一眼能看出三者的配比，也不会出现三颗珠子各自乱跑对不上号的情况。
-        // 代价是三个权重之和被限制在 100 以内（以前是各自独立的）。
+        // 关键：第三段是"吃掉剩下的"，没有第三颗珠子。原来三颗珠子可以一起
+        // 滑到 0，三种比例全变 0 —— 那会让假币"选不出形态"，是个不可控的坑。
+        // 现在两颗珠子怎么滑都至少有一段是非零的：b1=b2=0 时全部落进"都改"。
+        //
+        // 于是三个权重**恒等于 100**，gold.cpp 那边的归一化照旧能用。
         const int kMixMin = 0;
         const int kMixMax = 100;
 
-        // 三个权重 -> 三个累计分界点
-        void FakeMixBounds(int& b1, int& b2, int& b3)
+        // 两个权重 -> 两个分界点（b1 = 前缀，b2 = 前缀+后缀）
+        void FakeMixBounds(int& b1, int& b2)
         {
             b1 = ClampI(g_edit.fakePrefixPct, kMixMin, kMixMax);
             b2 = b1 + ClampI(g_edit.fakeSuffixPct, kMixMin, kMixMax);
-            b3 = b2 + ClampI(g_edit.fakeBothPct, kMixMin, kMixMax);
             if (b2 > kMixMax) b2 = kMixMax;
-            if (b3 > kMixMax) b3 = kMixMax;
         }
 
         int MixToX(int v)
@@ -596,19 +602,19 @@ namespace {
             return ValueFromX(x, FakeMixTrack(), kMixMin, kMixMax);
         }
 
-        // 第 idx 颗珠子（0=前缀 1=后缀 2=都改）的 x
+        // 第 idx 颗珠子（0=前缀边界 1=后缀边界）的 x
         int MixKnobX(int idx)
         {
-            int b1, b2, b3;
-            FakeMixBounds(b1, b2, b3);
-            return MixToX(idx == 0 ? b1 : (idx == 1 ? b2 : b3));
+            int b1, b2;
+            FakeMixBounds(b1, b2);
+            return MixToX(idx == 0 ? b1 : b2);
         }
 
         // 离光标最近的是哪一颗珠子（拖的时候按它算）
         int MixNearestKnob(int x)
         {
             int best = 0, bestD = -1;
-            for (int i = 0; i < 3; ++i)
+            for (int i = 0; i < 2; ++i)
             {
                 const int d = MixKnobX(i) - x;
                 const int ad = (d < 0) ? -d : d;
@@ -617,12 +623,11 @@ namespace {
             return best;
         }
 
-        // 拖动第 idx 个分界点。三颗珠子互相不能越过（b1 <= b2 <= b3），
-        // 所以每次都要夹在邻居之间。
+        // 拖动第 idx 个分界点。两颗珠子互相不能越过（b1 <= b2）。
         void SetFakeMixBound(int idx, int v)
         {
-            int b1, b2, b3;
-            FakeMixBounds(b1, b2, b3);
+            int b1, b2;
+            FakeMixBounds(b1, b2);
 
             v = ClampI(v, kMixMin, kMixMax);
 
@@ -631,23 +636,16 @@ namespace {
                 b1 = v;
                 if (b1 > b2) b1 = b2;
             }
-            else if (idx == 1)
+            else
             {
                 b2 = v;
                 if (b2 < b1) b2 = b1;
-                if (b2 > b3) b2 = b3;
-            }
-            else
-            {
-                b3 = v;
-                if (b3 < b2) b3 = b2;
             }
 
-            // 反算回三个权重。注意三个字段仍然是"权重"语义，
-            // 只是被这条滑条约束成加起来 <= 100。
+            // 反算回三个权重：第三段吃掉剩余，所以三者恒和为 100
             g_edit.fakePrefixPct = b1;
             g_edit.fakeSuffixPct = b2 - b1;
-            g_edit.fakeBothPct = b3 - b2;
+            g_edit.fakeBothPct = kMixMax - b2;
         }
 
         // 切换硬核开关时，把"还是另一套默认值"的项换成这一套的默认值。
@@ -767,29 +765,36 @@ namespace {
             }
         }
 
-        // ---- 假币三种形态的配比：一条轨道 + 三颗珠子 ----
+        // ---- 假币形态配比：一条轨道 + **两颗珠子** ----
         //
-        // 画法和"遭遇战间隔"那条双珠条一个路子，只是珠子变成三颗：
-        // 每颗珠子是一个**累计分界点**，两珠之间那一段就是一种形态的占比。
-        // 段与段用不同颜色区分（前缀橙 / 后缀青 / 都改红），最后剩下的
-        // 那截留空 = "这枚币没被改成假币"。
+        // 和"遭遇战间隔"那条双珠条一个路子。两颗珠子是两个分界点，
+        // 划出三段：
+        //
+        //     [0 .. b1)   前缀改        —— 红
+        //     [b1 .. b2)  后缀改        —— 绿（两颗珠子之间）
+        //     [b2 .. 100] 两个都改      —— 红（吃掉剩下的，没有第三颗珠子）
+        //
+        // 配色是用户指定的：**中间那段绿、两边红**。
+        // 第三段吃掉剩余这一条很关键 —— 它保证三种形态不可能同时为 0。
         void DrawFakeMixRow(Graphics& g, const RectF& rc, bool enabled)
         {
             const REAL xL = rc.X + (REAL)kM;
             const REAL w = (REAL)(kContentW - kM * 2);
             const REAL y = rc.Y + (REAL)(ViewOffset() + kRowFakeMix);
 
-            int b1, b2, b3;
-            FakeMixBounds(b1, b2, b3);
+            int b1, b2;
+            FakeMixBounds(b1, b2);
+
+            const int bothPct = kMixMax - b2;
 
             // 标签
             RectF t(xL, y, w, (REAL)kLabelH);
             DrawTextCjk(g, L"假币形态配比（前缀 / 后缀 / 都改）", t, 14.0f,
                 enabled ? kTextMain : kTextFaint);
 
-            // 右侧读数：三个权重一起报，一眼对得上
+            // 右侧读数：三个比例一起报，一眼对得上
             wchar_t val[64];
-            swprintf_s(val, L"%d / %d / %d", b1, b2 - b1, b3 - b2);
+            swprintf_s(val, L"%d / %d / %d", b1, b2 - b1, bothPct);
             RectF v(xL, y, w, (REAL)kLabelH);
             DrawTextMono(g, val, v, 14.0f, enabled ? kTextDim : kTextFaint, StringAlignmentFar);
 
@@ -798,33 +803,29 @@ namespace {
             const REAL x0 = rc.X + (REAL)tr.left;
             const REAL xN = rc.X + (REAL)tr.right;
 
-            // 槽（空白那截就是"没被选中的比例"）
+            // 槽
             {
                 RectF track(x0, cy - 3.0f, xN - x0, 6.0f);
                 FillRound(g, track, 3.0f, enabled ? kTrackBg : Color(120, 34, 36, 42));
             }
 
-            // 三段
-            if (enabled && b3 > 0)
+            // 三段：红 / 绿 / 红
+            if (enabled)
             {
-                const REAL xs[4] = {
-                    x0,
-                    rc.X + (REAL)MixToX(b1),
-                    rc.X + (REAL)MixToX(b2),
-                    rc.X + (REAL)MixToX(b3),
-                };
+                const REAL xb1 = rc.X + (REAL)MixToX(b1);
+                const REAL xb2 = rc.X + (REAL)MixToX(b2);
 
-                const Color seg[3] = {
-                    Color(255, 216, 138, 40),    // 前缀：橙
-                    Color(255, 60, 190, 190),    // 后缀：青
-                    Color(255, 220, 60, 60),     // 都改：红
-                };
+                const Color kRed(255, 220, 60, 60);
+                const Color kGreen(255, 60, 200, 90);
+
+                const REAL seg[4] = { x0, xb1, xb2, xN };
+                const Color segC[3] = { kRed, kGreen, kRed };
 
                 for (int i = 0; i < 3; ++i)
                 {
-                    if (xs[i + 1] - xs[i] < 0.5f) continue;
-                    RectF f(xs[i], cy - 3.0f, xs[i + 1] - xs[i], 6.0f);
-                    FillRound(g, f, 3.0f, seg[i]);
+                    if (seg[i + 1] - seg[i] < 0.5f) continue;
+                    RectF f(seg[i], cy - 3.0f, seg[i + 1] - seg[i], 6.0f);
+                    FillRound(g, f, 3.0f, segC[i]);
                 }
             }
 
@@ -835,8 +836,8 @@ namespace {
                 g.FillRectangle(&dim, xN - 1.0f, cy - 6.0f, 1.0f, 12.0f);
             }
 
-            // 三颗珠子
-            for (int i = 0; i < 3; ++i)
+            // 两颗珠子
+            for (int i = 0; i < 2; ++i)
             {
                 const REAL kx = rc.X + (REAL)MixKnobX(i);
                 const bool hot = enabled && g_drag == DRAG_FAKE_MIX && g_dragMixIdx == i;
@@ -854,7 +855,7 @@ namespace {
             RectF lo(xL, rc.Y + (REAL)(tr.bottom + 2), w, 14.0f);
             DrawTextMono(g, L"0", lo, 11.0f, kTextFaint);
             RectF hi(xL, rc.Y + (REAL)(tr.bottom + 2), w, 14.0f);
-            DrawTextMono(g, L"100（剩下的算真金币）", hi, 11.0f, kTextFaint, StringAlignmentFar);
+            DrawTextMono(g, L"100（右段=都改）", hi, 11.0f, kTextFaint, StringAlignmentFar);
         }
 
         // ---- 一个复选框 ----
@@ -916,6 +917,20 @@ namespace {
             // 裁到视口范围再画：不然滚出去的行会糊到头部和底部上去。
             g.SetClip(RectF(rc.X, rc.Y + (REAL)kViewTop, (REAL)kContentW, (REAL)kViewH));
 
+            // ---- 光敏安全（癫痫模式）—— 排在最上面 ----
+            {
+                DrawCheckbox(g, rc, SafeBox(), g_edit.photosensitiveSafe, false);
+
+                const RECT b = SafeBox();
+                RectF t(rc.X + (REAL)(b.right + 10),
+                    rc.Y + (REAL)(ViewOffset() + kRowSafe), 300.0f, (REAL)kCheckH);
+                DrawTextCjk(g, L"光敏安全模式（癫痫模式）", t, 14.0f, kTextMain);
+
+                RectF d(rc.X + (REAL)(b.right + 10),
+                    rc.Y + (REAL)(ViewOffset() + kRowSafe + 18), 420.0f, 16.0f);
+                DrawTextCjk(g, L"压低整屏亮度跳变与闪烁，光敏人群建议开启", d, 11.0f, kTextHint);
+            }
+
             // ---- 背景音乐 ----
             {
                 const RECT tr = BgmTrack();
@@ -936,6 +951,25 @@ namespace {
                     g_edit.sfxVol > 100 ? kAccent : kTextDim, tr,
                     1, kx, kx, tr.left, kx,
                     g_drag == DRAG_SFX ? 0 : -1, true, L"0", L"200%", nullptr, 0);
+            }
+
+            // ---- 硬核模式 —— 紧跟音效，因为它是下面那两条假金币滑条的总闸 ----
+            {
+                DrawCheckbox(g, rc, HardBox(), g_edit.hardcore, false);
+
+                const RECT hb = HardBox();
+                RectF t(rc.X + (REAL)(hb.right + 10),
+                    rc.Y + (REAL)(ViewOffset() + kRowHard), 300.0f, (REAL)kCheckH);
+                DrawTextCjk(g, L"硬核模式", t, 14.0f,
+                    g_edit.hardcore ? kAccent : kTextMain, StringAlignmentNear, FontStyleBold);
+
+                RectF d(rc.X + (REAL)(hb.right + 10),
+                    rc.Y + (REAL)(ViewOffset() + kRowHard + 20), 440.0f, 16.0f);
+                DrawTextCjk(g,
+                    g_edit.hardcore
+                    ? L"已开启：3 分钟 / 解锁下面两条假金币滑条 / 弹窗更多 / 锁桌面项 / 金币撒磁盘"
+                    : L"开启后：3 分钟倒计时、并解锁下面那两条假金币滑条",
+                    d, 11.0f, kTextHint);
             }
 
             // ---- 遭遇战间隔（随机区间，双滑块）----
@@ -1024,41 +1058,8 @@ namespace {
                         L"0%", L"100%", nullptr, 0);
                 }
 
-                // 三颗珠子一条道：见 FakeMixBounds 那一带的说明
+                // 两颗珠子一条道：见 FakeMixBounds 那一带的说明
                 DrawFakeMixRow(g, rc, on);
-            }
-
-            // ---- 光敏安全（癫痫模式）----
-            {
-                DrawCheckbox(g, rc, SafeBox(), g_edit.photosensitiveSafe, false);
-
-                const RECT b = SafeBox();
-                RectF t(rc.X + (REAL)(b.right + 10),
-                    rc.Y + (REAL)(ViewOffset() + kRowSafe), 260.0f, (REAL)kCheckH);
-                DrawTextCjk(g, L"光敏安全模式（癫痫模式）", t, 14.0f, kTextMain);
-
-                RectF d(rc.X + (REAL)(b.right + 10),
-                    rc.Y + (REAL)(ViewOffset() + kRowSafe + 18), 380.0f, 16.0f);
-                DrawTextCjk(g, L"压低整屏亮度跳变与闪烁，光敏人群建议开启", d, 11.0f, kTextHint);
-            }
-
-            // ---- 硬核模式 ----
-            {
-                DrawCheckbox(g, rc, HardBox(), g_edit.hardcore, false);
-
-                const RECT hb = HardBox();
-                RectF t(rc.X + (REAL)(hb.right + 10),
-                    rc.Y + (REAL)(ViewOffset() + kRowHard), 300.0f, (REAL)kCheckH);
-                DrawTextCjk(g, L"硬核模式", t, 14.0f,
-                    g_edit.hardcore ? kAccent : kTextMain, StringAlignmentNear, FontStyleBold);
-
-                RectF d(rc.X + (REAL)(hb.right + 10),
-                    rc.Y + (REAL)(ViewOffset() + kRowHard + 20), 440.0f, 16.0f);
-                DrawTextCjk(g,
-                    g_edit.hardcore
-                    ? L"已开启：3 分钟 / 假金币滑条解锁 / 弹窗更多 / 锁桌面项 / 金币撒磁盘"
-                    : L"开启后：3 分钟倒计时、解锁上面那两条假金币滑条",
-                    d, 11.0f, kTextHint);
             }
 
             g.ResetClip();
@@ -1154,7 +1155,7 @@ namespace {
 
             case DRAG_FAKE_MIX:
                 if (!FakeEnabled()) return;
-                if (g_dragMixIdx < 0 || g_dragMixIdx > 2) return;
+                if (g_dragMixIdx < 0 || g_dragMixIdx > 1) return;   // 只有两颗珠子
                 SetFakeMixBound(g_dragMixIdx, MixFromX(p.x));
                 break;
 
@@ -1545,9 +1546,12 @@ namespace {
 
         HWND  g_hwnd = nullptr;
         bool  g_done = false;
-        bool  g_hotBtn = false;
+        bool  g_hotBtn = false;             // 「确认」按钮高亮
+        bool  g_hotBack = false;            // 「返回上一级」按钮高亮
         bool  g_armed = false;              // 在本按钮上按下过左键
+        bool  g_armedBack = false;          // 在「返回」上按下过左键
         bool  g_confirm = false;            // 点了「我知道了」（区别于关窗口）
+        bool  g_back = false;               // 点了「返回上一级」-> 回设置界面
         setup_ui::Verdict g_verdict = setup_ui::VERDICT_ABORT;
         int   g_panicVk = 'Q';
 
@@ -1563,6 +1567,15 @@ namespace {
         {
             RECT r;
             SetRectLocal(r, kW - kM - kBtnW, kBtnTop, kBtnW, kBtnH);
+            return r;
+        }
+
+        // 「返回上一级」：摆在「开始」左边。点它 = 回到设置界面改设置重来，
+        // 不是退出程序（那是关窗口那条路）。
+        RECT BackBtn()
+        {
+            RECT r;
+            SetRectLocal(r, kW - kM - kBtnW * 2 - 14, kBtnTop, kBtnW, kBtnH);
             return r;
         }
 
@@ -1602,13 +1615,28 @@ namespace {
 
                 // 要点行。用亮色（kTextHint）而不是灰字：这一屏是要人**读**的，
                 // 不是装饰。
-                static const wchar_t* kLines[] = {
-                    L"· 倒计时 3 分钟；赎金、关窗惩罚、假币比例都在设置里可调",
+                //
+                // **内容要跟着用户在上一屏选的值走** —— 这一屏是最后一道
+                // "确认你真的知道会发生什么"，写死数字就等于骗人。
+                const settings::Set& s = settings::Current();
+
+                wchar_t l1[160], l4[160], l6[160];
+                swprintf_s(l1, L"· 倒计时 3 分钟；赎金 %d Gold、关窗惩罚 %.1f 秒都是你刚选的",
+                    settings::GoldGoal(), settings::ChildCloseMs() / 1000.0);
+
+                swprintf_s(l4, L"· 假币占真币的 %d%%：前缀改 %d / 后缀改 %d / 两个都改 %d",
+                    settings::FakePercent(),
+                    s.fakePrefixPct, s.fakeSuffixPct, s.fakeBothPct);
+
+                swprintf_s(l6, L"· 桌面文件夹/文件会被随机锁 0.9~9 秒；中途不能切回普通模式");
+
+                const wchar_t* kLines[] = {
+                    l1,
                     L"· 桌面上的文件夹和文件会被随机锁住 0.9~9 秒，期间点不开也拖不动",
                     L"· 金币会撒到 C:\\ D:\\ 这类固定盘的顶层目录，还会混进假金币",
-                    L"· 假币双击不给钱：前缀被改的扣时间，数字被改的加赎金，两个都改的吃两样",
+                    l4,
                     L"· 弹窗最多 22 个，还会贴着你的鼠标生成，专门挡你点击",
-                    L"· 关窗惩罚按你设的来（最多 30 秒/个），中途不能切回普通模式",
+                    l6,
                 };
                 const int n = (int)(sizeof(kLines) / sizeof(kLines[0]));
 
@@ -1648,6 +1676,19 @@ namespace {
                     DrawTextCjk(g, L"桌面快捷方式会被丢进回收站（可以还原）。",
                         t, 13.0f, kTextDim);
                 }
+
+                // 把用户刚在设置里定的关键数值回声一遍：这一屏除了讲后果，
+                // 也该让人确认"我选的确实是这个"。
+                {
+                    wchar_t line[192];
+                    swprintf_s(line,
+                        L"本轮：赎金 %d Gold ／ 跳杀间隔 %d-%dms ／ 关窗惩罚 %.1f 秒。",
+                        settings::GoldGoal(), settings::MinMs(), settings::MaxMs(),
+                        settings::ChildCloseMs() / 1000.0);
+
+                    RectF t(xL, rc.Y + (REAL)(kLede2Top + 66), w, 20.0f);
+                    DrawTextCjk(g, line, t, 12.0f, kTextHint);
+                }
             }
 
             // ---- 更要紧的：怎么退 ----
@@ -1681,6 +1722,8 @@ namespace {
                     t, 12.0f, kTextFaint);
             }
 
+            // 两个按钮：「返回上一级」（次要样式）在左，「开始」在右。
+            DrawButton(g, rc, BackBtn(), L"← 返回上一级", g_hotBack, false);
             DrawButton(g, rc, OkBtn(),
                 g_mode == 1 ? L"我明白，开始" : L"我知道了，开始", g_hotBtn, true);
         }
@@ -1694,10 +1737,12 @@ namespace {
         {
             if (msg == WM_MOUSEMOVE)
             {
-                const bool hot = Hit(OkBtn(), p);
-                if (hot != g_hotBtn)
+                const bool hotOk = Hit(OkBtn(), p);
+                const bool hotBack = Hit(BackBtn(), p);
+                if (hotOk != g_hotBtn || hotBack != g_hotBack)
                 {
-                    g_hotBtn = hot;
+                    g_hotBtn = hotOk;
+                    g_hotBack = hotBack;
                     aero::Repaint(hwnd);
                 }
                 return;
@@ -1713,13 +1758,16 @@ namespace {
             if (msg == WM_LBUTTONDOWN)
             {
                 g_armed = Hit(OkBtn(), p);
+                g_armedBack = Hit(BackBtn(), p);
                 return;
             }
 
             if (msg == WM_LBUTTONUP)
             {
-                const bool hit = Hit(OkBtn(), p);
-                if (g_armed && hit && !g_done)
+                const bool hitOk = Hit(OkBtn(), p);
+                const bool hitBack = Hit(BackBtn(), p);
+
+                if (g_armed && hitOk && !g_done)
                 {
                     g_confirm = true;
                     g_done = true;
@@ -1730,7 +1778,16 @@ namespace {
                     // 让窗口走和其它路径一致的 180ms 淡出。
                     aero::AnimateClose(hwnd);
                 }
+                else if (g_armedBack && hitBack && !g_done)
+                {
+                    // 返回上一级：回设置界面重来（不是退出程序）。
+                    g_back = true;
+                    g_done = true;
+                    aero::AnimateClose(hwnd);
+                }
+
                 g_armed = false;
+                g_armedBack = false;
                 return;
             }
         }
@@ -1883,7 +1940,11 @@ namespace setup_ui {
         g_hwnd = nullptr;
         g_done = false;
         g_hotBtn = false;
+        g_hotBack = false;
+        g_armed = false;
+        g_armedBack = false;
         g_confirm = false;
+        g_back = false;
         g_verdict = VERDICT_ABORT;      // 默认「不演」——只有明确点了按钮才继续
         g_panicVk = panicVk;
 
@@ -1934,7 +1995,9 @@ namespace setup_ui {
             DispatchMessageW(&msg);
         }
 
-        if (g_confirm) g_verdict = VERDICT_START;   // 明确点了按钮才继续
+        // 返回优先：点了「返回上一级」就回设置界面（调用方按 VERDICT_BACK 重新弹设置）。
+        if (g_back)         g_verdict = VERDICT_BACK;
+        else if (g_confirm) g_verdict = VERDICT_START;   // 明确点了按钮才继续
 
         if (aero::IsAlive(h)) aero::Destroy(h);
         g_hwnd = nullptr;

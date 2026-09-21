@@ -50,6 +50,7 @@ namespace setup_ui {
 		VERDICT_START = 0,   // 用户点了「开始」
 		VERDICT_ABORT,       // 用户关掉了窗口 —— 整个程序退出，不演出
 		VERDICT_ERROR,       // 窗口建不出来（极罕见）—— 调用方应该直接开始演出
+		VERDICT_BACK,        // 二级警告界面点了「返回上一级」—— 回到设置界面重来
 	};
 
 	// 弹出设置窗口，阻塞到用户点「开始」或关掉它。

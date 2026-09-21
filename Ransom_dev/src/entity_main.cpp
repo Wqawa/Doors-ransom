@@ -525,28 +525,39 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int)
 
         if (wantSetup)
         {
-            const setup_ui::Verdict v =
-                setup_ui::ShowSettings(hInst, kPanicVK);
-
-            if (v == setup_ui::VERDICT_ABORT)
-            {
-                elog::Write(L"[main] 用户在设置窗口里取消了，不演出");
-                audio::Stop();
-                UnregisterHotKey(hIpc, kHotkeyPanic);
-                DestroyWindow(hIpc);
-                if (SUCCEEDED(hrCom)) CoUninitialize();
-                GdiplusShutdown(gdipToken);
-                elog::Close();
-                return 0;
-            }
-
-            // 热键没注册成功的话，应急提示里那句「按这个键立刻停」
-            // 就是假的。宁可少弹一屏，也不给一个空头承诺。
+            // ---- 设置 <-> 二级警告 的小循环 ----
             //
-            // 这一屏按模式分流：硬核走**专用警告**（内容、配色、按钮文案都不一样），
-            // 普通模式走原来那一屏。两屏共用同一套窗口实现，只是 g_mode 不同。
-            if (panicHotkeyOk)
+            // 二级警告屏上有个「← 返回上一级」：点了就回到设置界面重来。
+            // 所以这里必须是个循环，不能只弹一次 —— 否则返回按钮就成了摆设。
+            // 退出循环只有两条路：设置里点「开始」并过了警告屏，任何一步中止。
+            for (;;)
             {
+                const setup_ui::Verdict v =
+                    setup_ui::ShowSettings(hInst, kPanicVK);
+
+                if (v == setup_ui::VERDICT_ABORT)
+                {
+                    elog::Write(L"[main] 用户在设置窗口里取消了，不演出");
+                    audio::Stop();
+                    UnregisterHotKey(hIpc, kHotkeyPanic);
+                    DestroyWindow(hIpc);
+                    if (SUCCEEDED(hrCom)) CoUninitialize();
+                    GdiplusShutdown(gdipToken);
+                    elog::Close();
+                    return 0;
+                }
+
+                // 热键没注册成功的话，警告屏里那句「按这个键立刻停」
+                // 就是假的。宁可少弹一屏，也不给一个空头承诺。
+                if (!panicHotkeyOk)
+                {
+                    elog::Write(L"[main] 安全阀热键不可用，跳过警告屏（免得承诺一个假快捷键）");
+                    break;
+                }
+
+                // 这一屏按模式分流：硬核走**专用警告**（内容、配色、按钮文案都不一样），
+                // 普通模式走原来那一屏。两屏共用同一套窗口实现，只是 g_mode 不同。
+                // 注意模式要在**每次**弹之前重新读 —— 用户可能刚在设置里把它翻掉。
                 const bool hc = settings::Hardcore();
 
                 const setup_ui::Verdict v2 = hc
@@ -565,10 +576,14 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int)
                     elog::Close();
                     return 0;
                 }
-            }
-            else
-            {
-                elog::Write(L"[main] 安全阀热键不可用，跳过应急提示（免得承诺一个假快捷键）");
+
+                if (v2 == setup_ui::VERDICT_BACK)
+                {
+                    elog::Write(L"[main] 用户点了「返回上一级」，回到设置界面");
+                    continue;                 // 重新弹设置窗口
+                }
+
+                break;                        // 确认了，继续往下走
             }
 
             // 设置窗口里改过的值在这里正式生效（光敏安全 + 音量）。
