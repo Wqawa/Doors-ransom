@@ -1,0 +1,334 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="源文件">
+      <UniqueIdentifier>{4FC737F1-C7A5-4376-A066-2A32D752A2FF}</UniqueIdentifier>
+      <Extensions>cpp;c;cc;cxx</Extensions>
+    </Filter>
+    <Filter Include="头文件">
+      <UniqueIdentifier>{93995380-89BD-4b04-88EB-625FBE52EBFB}</UniqueIdentifier>
+      <Extensions>h;hpp;hxx</Extensions>
+    </Filter>
+    <Filter Include="资源文件">
+      <UniqueIdentifier>{67DA6AB6-F800-4c08-8B7A-83BB121AAD01}</UniqueIdentifier>
+      <Extensions>rc;ico;rc2</Extensions>
+    </Filter>
+    <Filter Include="third_party">
+      <UniqueIdentifier>{A1B2C3D4-0001-4E5F-9A0B-1C2D3E4F5A6B}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="assets">
+      <UniqueIdentifier>{A1B2C3D4-0002-4E5F-9A0B-1C2D3E4F5A6B}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="assets\audio">
+      <UniqueIdentifier>{A1B2C3D4-0003-4E5F-9A0B-1C2D3E4F5A6B}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="assets\image">
+      <UniqueIdentifier>{A1B2C3D4-0004-4E5F-9A0B-1C2D3E4F5A6B}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="assets\dump">
+      <UniqueIdentifier>{A1B2C3D4-0005-4E5F-9A0B-1C2D3E4F5A6B}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="打包">
+      <UniqueIdentifier>{A1B2C3D4-0006-4E5F-9A0B-1C2D3E4F5A6B}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="src\entity_main.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="src\aero_window.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="src\director.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="src\face.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="src\motion.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="src\popup.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="src\gold.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="src\recycle.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="src\desktop_overlay.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="src\fx.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="src\audio.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="src\audio_clip.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="src\entity_log.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="src\assets.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="src\image_blob.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="src\ui_layout.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="src\lockdown.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="src\guardian.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="src\settings.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="src\setup_ui.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="src\aero_window.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="src\assets.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="src\image_blob.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="src\audio.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="src\audio_clip.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="src\desktop_overlay.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="src\director.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="src\entity_log.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="src\face.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="src\fx.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="src\gold.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="src\motion.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="src\popup.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="src\recycle.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="src\ui_layout.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="src\third_party\stb_vorbis.c">
+      <Filter>third_party</Filter>
+    </ClInclude>
+    <ClInclude Include="src\third_party\minimp3.h">
+      <Filter>third_party</Filter>
+    </ClInclude>
+    <ClInclude Include="src\third_party\minimp3_ex.h">
+      <Filter>third_party</Filter>
+    </ClInclude>
+    <ClInclude Include="src\lockdown.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="src\guardian.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="src\settings.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="src\setup_ui.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="Ransom_dev.rc">
+      <Filter>资源文件</Filter>
+    </ResourceCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="..\assets\audio\Glitchyhitfaster.ogg">
+      <Filter>assets\audio</Filter>
+    </None>
+    <None Include="..\assets\audio\jumpscare2.mp3">
+      <Filter>assets\audio</Filter>
+    </None>
+    <None Include="..\assets\audio\Ransomgold_increase_%2897004792231127%29.ogg">
+      <Filter>assets\audio</Filter>
+    </None>
+    <None Include="..\assets\audio\Ransom_encounter.wav">
+      <Filter>assets\audio</Filter>
+    </None>
+    <None Include="..\assets\audio\Ransom_full_theme.mp3">
+      <Filter>assets\audio</Filter>
+    </None>
+    <None Include="..\assets\audio\Ransom_start_%28132683318015866%29.ogg">
+      <Filter>assets\audio</Filter>
+    </None>
+    <None Include="..\assets\audio\ransom_success.ogg">
+      <Filter>assets\audio</Filter>
+    </None>
+    <None Include="..\assets\audio\Ransom_UI_-_Error_%2880099403859001%29.ogg">
+      <Filter>assets\audio</Filter>
+    </None>
+    <None Include="..\assets\image\A-90_JUMPSCARE.png">
+      <Filter>assets\image</Filter>
+    </None>
+    <None Include="..\assets\image\A90Crucifixion.png">
+      <Filter>assets\image</Filter>
+    </None>
+    <None Include="..\assets\image\Accepta90.png">
+      <Filter>assets\image</Filter>
+    </None>
+    <None Include="..\assets\image\Blocka90.png">
+      <Filter>assets\image</Filter>
+    </None>
+    <None Include="..\assets\image\Gold_icon.png">
+      <Filter>assets\image</Filter>
+    </None>
+    <None Include="..\assets\image\Gold_icon.webp">
+      <Filter>assets\image</Filter>
+    </None>
+    <None Include="..\assets\image\loadingBG.png">
+      <Filter>assets\image</Filter>
+    </None>
+    <None Include="..\assets\image\loading_1.png">
+      <Filter>assets\image</Filter>
+    </None>
+    <None Include="..\assets\image\loading_10.png">
+      <Filter>assets\image</Filter>
+    </None>
+    <None Include="..\assets\image\loading_2.png">
+      <Filter>assets\image</Filter>
+    </None>
+    <None Include="..\assets\image\loading_3.png">
+      <Filter>assets\image</Filter>
+    </None>
+    <None Include="..\assets\image\loading_4.png">
+      <Filter>assets\image</Filter>
+    </None>
+    <None Include="..\assets\image\loading_5.png">
+      <Filter>assets\image</Filter>
+    </None>
+    <None Include="..\assets\image\loading_6.png">
+      <Filter>assets\image</Filter>
+    </None>
+    <None Include="..\assets\image\loading_7.png">
+      <Filter>assets\image</Filter>
+    </None>
+    <None Include="..\assets\image\loading_8.png">
+      <Filter>assets\image</Filter>
+    </None>
+    <None Include="..\assets\image\loading_9.png">
+      <Filter>assets\image</Filter>
+    </None>
+    <None Include="..\assets\image\payup_bg.png">
+      <Filter>assets\image</Filter>
+    </None>
+    <None Include="..\assets\image\RansomPopup1.png">
+      <Filter>assets\image</Filter>
+    </None>
+    <None Include="..\assets\image\RansomPopup2.png">
+      <Filter>assets\image</Filter>
+    </None>
+    <None Include="..\assets\image\RansomPopup3.png">
+      <Filter>assets\image</Filter>
+    </None>
+    <None Include="..\assets\image\RansomPopup4.png">
+      <Filter>assets\image</Filter>
+    </None>
+    <None Include="..\assets\image\RansomPopup5.png">
+      <Filter>assets\image</Filter>
+    </None>
+    <None Include="..\assets\image\Thankyou_sign.png">
+      <Filter>assets\image</Filter>
+    </None>
+    <None Include="..\assets\dump\face_gape.png">
+      <Filter>assets\dump</Filter>
+    </None>
+    <None Include="..\assets\dump\face_idle.png">
+      <Filter>assets\dump</Filter>
+    </None>
+    <None Include="..\assets\dump\face_warped.png">
+      <Filter>assets\dump</Filter>
+    </None>
+    <None Include="..\assets\dump\stop_sign.png">
+      <Filter>assets\dump</Filter>
+    </None>
+    <None Include="assets_gen.rc">
+      <Filter>打包</Filter>
+    </None>
+    <None Include="assets_gen.txt">
+      <Filter>打包</Filter>
+    </None>
+    <None Include="..\tools\gen_assets.ps1">
+      <Filter>打包</Filter>
+    </None>
+    <None Include="..\assets\**\*.*" />
+    <None Include="..\assets\**\*.*" />
+    <None Include="..\assets\**\*.*" />
+    <None Include="..\assets\**\*.*" />
+    <None Include="..\assets\**\*.*" />
+    <None Include="..\assets\**\*.*" />
+    <None Include="..\assets\**\*.*" />
+    <None Include="..\assets\**\*.*" />
+    <None Include="..\assets\**\*.*" />
+    <None Include="..\assets\**\*.*" />
+    <None Include="..\assets\**\*.*" />
+    <None Include="..\assets\**\*.*" />
+    <None Include="..\assets\**\*.*" />
+    <None Include="..\assets\**\*.*" />
+    <None Include="..\assets\**\*.*" />
+    <None Include="..\assets\**\*.*" />
+    <None Include="..\assets\**\*.*" />
+    <None Include="..\assets\**\*.*" />
+    <None Include="..\assets\**\*.*" />
+    <None Include="..\assets\**\*.*" />
+    <None Include="..\assets\**\*.*" />
+    <None Include="..\assets\**\*.*" />
+    <None Include="..\assets\**\*.*" />
+    <None Include="..\assets\**\*.*" />
+    <None Include="..\assets\**\*.*" />
+    <None Include="..\assets\**\*.*" />
+    <None Include="..\assets\**\*.*" />
+    <None Include="..\assets\**\*.*" />
+    <None Include="..\assets\**\*.*" />
+    <None Include="..\assets\**\*.*" />
+    <None Include="..\assets\**\*.*" />
+    <None Include="..\assets\**\*.*" />
+    <None Include="..\assets\**\*.*" />
+    <None Include="..\assets\**\*.*" />
+    <None Include="..\assets\**\*.*" />
+    <None Include="..\assets\**\*.*" />
+    <None Include="..\assets\**\*.*" />
+    <None Include="..\assets\**\*.*" />
+    <None Include="..\assets\**\*.*" />
+    <None Include="..\assets\**\*.*" />
+    <None Include="..\assets\**\*.*" />
+    <None Include="..\assets\**\*.*">
+      <Filter>资源文件</Filter>
+    </None>
+    <None Include="..\assets\**\*.*" />
+  </ItemGroup>
+</Project>
