@@ -1,6 +1,6 @@
-
-
-
+// ============================================================================
+//  recycle.cpp
+// ============================================================================
 #include "recycle.h"
 
 #include "entity_log.h"
@@ -14,8 +14,8 @@
 #include <shlobj.h>
 #include <shlguid.h>
 #include <shobjidl.h>
-#include <shellapi.h>
-#include <shlwapi.h>
+#include <shellapi.h>      // SHFILEOPSTRUCTW / FO_DELETE / FOF_ALLOWUNDO / SEE_MASK_ASYNCOK
+#include <shlwapi.h>       // StrRetToBufW
 
 #pragma comment(lib, "shell32.lib")
 #pragma comment(lib, "ole32.lib")
@@ -23,8 +23,8 @@
 
 namespace {
 
-
-
+// ------------------------------------------------------------ 清单 ----
+// 优先 %LOCALAPPDATA%，写不进去就退回本体所在目录。
 std::wstring ManifestPath()
 {
     wchar_t buf[MAX_PATH] = { 0 };
@@ -82,8 +82,8 @@ void LoadManifest(std::vector<std::wstring>& out)
     fclose(f);
 }
 
-
-
+// ------------------------------------------------------------ 收集 ----
+// 只扫桌面（用户 + 公共）**顶层**的 .lnk / .url
 void ScanDesktopShortcuts(int csidl, std::vector<std::wstring>& out)
 {
     wchar_t desk[MAX_PATH] = { 0 };
@@ -115,8 +115,8 @@ void CollectLocked(std::vector<std::wstring>& out)
     ScanDesktopShortcuts(CSIDL_DESKTOPDIRECTORY,       out);
     ScanDesktopShortcuts(CSIDL_COMMON_DESKTOPDIRECTORY, out);
 
-
-
+    // 排除本程序自己生成的金币——这是我们造的东西，不该被当成「被锁定的图标」。
+    // 判据在 gold 模块里：目标是本程序 + 参数含 --pay/--token。
     std::vector<std::wstring> keep;
     keep.reserve(out.size());
     for (size_t i = 0; i < out.size(); ++i)
@@ -131,16 +131,16 @@ void CollectLocked(std::vector<std::wstring>& out)
     out.swap(keep);
 }
 
-
-
-
-
-
-
-
-
-
-
+// ------------------------------------------------------------ 还原 ----
+// 对回收站里的一个条目调用它的「还原」动词，然后**核对文件是否真的回到原位**。
+//
+// 注意两点：
+//  1. 不要用 CMIC_MASK_ASYNCOK。带上它 InvokeCommand 会立刻返回 S_OK，
+//     但那只表示「已排队」，操作可能根本没执行——返回成功是假象。
+//  2. 即使同步调用，Shell 有时也在后台线程里完成还原，
+//     所以这里做一小段重试核对，而不是盲信返回值。
+//
+// 不解析回收站的内部格式（$I 文件那套是非公开的），走 Shell 的正规接口。
 bool InvokeRestoreVerb(IShellFolder* bin, LPCITEMIDLIST pidl, const std::wstring& expectPath)
 {
     IContextMenu* cm = nullptr;
@@ -165,12 +165,12 @@ bool InvokeRestoreVerb(IShellFolder* bin, LPCITEMIDLIST pidl, const std::wstring
 
             if (!GetMenuItemInfoW(hMenu, i, TRUE, &mii)) continue;
 
-
-
+            // 中英文都认，另外兜一手 "estore"
+            // （回收站还原动词的规范名历史上是 "ESTORE"，不能只认 "restore"）
             if (wcsstr(text, L"还原") || wcsstr(text, L"Restore") || wcsstr(text, L"estore"))
             {
                 CMINVOKECOMMANDINFO ici = { sizeof(CMINVOKECOMMANDINFO) };
-                ici.fMask  = 0;
+                ici.fMask  = 0;                    // 同步执行，不要 ASYNCOK
                 ici.hwnd   = nullptr;
                 ici.lpVerb = MAKEINTRESOURCEA(mii.wID - 1);
                 ici.nShow  = SW_SHOWNORMAL;
@@ -186,7 +186,7 @@ bool InvokeRestoreVerb(IShellFolder* bin, LPCITEMIDLIST pidl, const std::wstring
 
     if (!invoked) return false;
 
-
+    // 核对：文件真的回到原路径了吗
     for (int t = 0; t < 20; ++t)
     {
         if (GetFileAttributesW(expectPath.c_str()) != INVALID_FILE_ATTRIBUTES)
@@ -196,9 +196,9 @@ bool InvokeRestoreVerb(IShellFolder* bin, LPCITEMIDLIST pidl, const std::wstring
     return false;
 }
 
-
-
-
+// 取回收站条目的「名称」列（0）和「原始位置」列（1）。
+// 注意：名称列**不含扩展名**（显示为 "QQ" 而不是 "QQ.lnk"），
+// 所以这里分开返回，匹配时再跟清单条目去掉扩展名后比较。
 bool GetRecycleItemInfo(IShellFolder2* bin2, LPCITEMIDLIST pidl,
                         std::wstring& name, std::wstring& folder)
 {
@@ -220,7 +220,7 @@ bool GetRecycleItemInfo(IShellFolder2* bin2, LPCITEMIDLIST pidl,
         }
         else if (sd.str.uType == STRRET_OFFSET)
         {
-
+            // 偏移相对条目自己的短 pidl
             MultiByteToWideChar(CP_ACP, 0, (const char*)pidl + sd.str.uOffset,
                                 -1, buf, _countof(buf));
         }
@@ -236,8 +236,8 @@ bool GetRecycleItemInfo(IShellFolder2* bin2, LPCITEMIDLIST pidl,
     return !name.empty() && !folder.empty();
 }
 
-
-
+// 把清单里的完整路径拆成「目录」和「不含扩展名的文件名」，
+// 好跟回收站暴露的两列对上。
 bool SplitStem(const std::wstring& full, std::wstring& dir, std::wstring& stem)
 {
     const size_t slash = full.find_last_of(L'\\');
@@ -253,8 +253,8 @@ bool SplitStem(const std::wstring& full, std::wstring& dir, std::wstring& stem)
     return true;
 }
 
-
-
+// 回收站条目的物理文件保留了扩展名（形如 $R1K4LM3.lnk）。
+// 清单缺失时靠它判断「这是不是快捷方式」，而不是普通文件。
 bool GetPhysicalExt(IShellFolder2* bin2, LPCITEMIDLIST pidl, std::wstring& ext)
 {
     ext.clear();
@@ -292,11 +292,11 @@ bool IsDesktopFolder(const std::wstring& folder)
     return false;
 }
 
-}
+} // namespace
 
 namespace recycle {
 
-bool Start(HINSTANCE          )
+bool Start(HINSTANCE /*hInst*/)
 {
     elog::Write(L"[recycle] 已就绪（清单 %s）", ManifestPath().c_str());
     return true;
@@ -304,7 +304,7 @@ bool Start(HINSTANCE          )
 
 void Stop()
 {
-
+    // 有意**不自动还原**：惩罚就得有代价，还原靠 `--restore`。
     elog::Write(L"[recycle] 已停止（还原请用 --restore）");
 }
 
@@ -333,7 +333,7 @@ int SendToBin()
         return 0;
     }
 
-
+    // SHFileOperation 要的是「双空字符结尾」的多字符串
     std::wstring list;
     for (size_t i = 0; i < items.size(); ++i)
     {
@@ -346,7 +346,7 @@ int SendToBin()
     op.hwnd   = nullptr;
     op.wFunc  = FO_DELETE;
     op.pFrom  = list.c_str();
-
+    // FOF_ALLOWUNDO = 进回收站（可还原），这是本模块唯一的删改动作
     op.fFlags = FOF_ALLOWUNDO | FOF_NOCONFIRMATION | FOF_NOERRORUI | FOF_SILENT;
 
     const int rc = SHFileOperationW(&op);
@@ -375,9 +375,9 @@ int Restore()
     const bool haveManifest = !want.empty();
     if (!haveManifest)
     {
-
-
-
+        // 清单可能因为各种原因没写成（受限环境）或已被消费掉。
+        // 兜底：还原回收站里「原始目录是桌面 + 物理文件是 .lnk/.url」的条目。
+        // 这个判据足够窄，不会误碰用户自己删的普通文件。
         elog::Write(L"[recycle] 清单为空 —— 启用兜底模式（还原回收站里位于桌面的快捷方式）");
     }
 
@@ -433,8 +433,8 @@ int Restore()
 
             if (haveManifest)
             {
-
-
+                // 指令清单：回收站给的是「不含扩展名的名字 + 原始目录」，
+                // 所以拿清单条目去掉扩展名后再比。
                 for (size_t i = 0; i < want.size(); ++i)
                 {
                     std::wstring wdir, wstem;
@@ -444,14 +444,14 @@ int Restore()
                         _wcsicmp(wstem.c_str(), rname.c_str())   == 0)
                     {
                         hit = true;
-                        expect = want[i];
+                        expect = want[i];      // 用清单里的完整路径（带扩展名）去核对
                         break;
                     }
                 }
             }
             else
             {
-
+                // 兜底：原始目录是桌面，且物理文件是 .lnk/.url
                 std::wstring ext;
                 if (IsDesktopFolder(rfolder) &&
                     GetPhysicalExt(bin2, pidl, ext) &&
@@ -493,8 +493,8 @@ int Restore()
     elog::Write(L"[recycle] 枚举 %d 项，取列失败 %d，命中 %d，动词失败 %d，成功还原 %d（清单 %d 条）",
                 seen, infoFail, matched, verbFail, restored, (int)want.size());
 
-
-
+    // 只有「清单条数 == 成功还原数」才消费清单。
+    // 早先按 restored>0 就删，结果一次假成功把清单误删了，剩下 27 个文件困在回收站里。
     if (haveManifest && restored >= (int)want.size() && !want.empty())
     {
         const std::wstring p = ManifestPath();
@@ -505,4 +505,4 @@ int Restore()
     return restored;
 }
 
-}
+} // namespace recycle

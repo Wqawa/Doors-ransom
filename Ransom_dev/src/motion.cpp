@@ -1,6 +1,6 @@
-
-
-
+// ============================================================================
+//  motion.cpp
+// ============================================================================
 #include "motion.h"
 
 #include "entity_log.h"
@@ -12,7 +12,7 @@ namespace {
 
 const wchar_t* kDriverClass = L"RansomMotionDriver";
 const UINT_PTR kTickId = 1;
-const UINT     kTickMs = 16;
+const UINT     kTickMs = 16;      // 鼠标轮询要够密
 
 HHOOK     g_hook    = nullptr;
 HWND      g_driver  = nullptr;
@@ -22,20 +22,20 @@ bool      g_byMouse = false;
 bool      g_byKb    = false;
 int       g_drift   = 0;
 UINT      g_lastKey = 0;
-
-
+// 容差不能太紧：桌面上鼠标会被手碰、被别的程序挪，实测 10px 会误判。
+// 20px 是「明显动过」和「手抖」之间的合理界。
 int       g_tol     = 20;
 
 POINT     g_anchor  = { 0, 0 };
 
-
+// 安全阀
 UINT      g_panicVK    = 'Q';
 bool      g_panicCtrl  = true;
 bool      g_panicAlt   = true;
 bool      g_panicShift = true;
 
-
-
+// 修饰键：不计入移动。
+// 低层钩子上报的是左右分开的虚拟键码，所以两套都要认。
 bool IsModifierKey(DWORD vk)
 {
     switch (vk)
@@ -49,7 +49,7 @@ bool IsModifierKey(DWORD vk)
     }
 }
 
-
+// 当前按住的修饰键是否满足安全阀要求
 bool PanicModifiersHeld()
 {
     if (g_panicCtrl  && !(GetAsyncKeyState(VK_CONTROL) & 0x8000)) return false;
@@ -72,18 +72,18 @@ LRESULT CALLBACK LowLevelKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam)
     if (!g_armed)
         return CallNextHookEx(nullptr, nCode, wParam, lParam);
 
-
+    // ---- 安全阀豁免 ----
     if (IsModifierKey(k->vkCode))
-        return CallNextHookEx(nullptr, nCode, wParam, lParam);
+        return CallNextHookEx(nullptr, nCode, wParam, lParam);      // 修饰键不算
 
     if (k->vkCode == g_panicVK && PanicModifiersHeld())
-        return CallNextHookEx(nullptr, nCode, wParam, lParam);
+        return CallNextHookEx(nullptr, nCode, wParam, lParam);      // 逃生组合键不算
 
-
+    // ---- 其余按键都算「动了」 ----
     g_byKb    = true;
     g_lastKey = k->vkCode;
 
-    return CallNextHookEx(nullptr, nCode, wParam, lParam);
+    return CallNextHookEx(nullptr, nCode, wParam, lParam);          // 只观察，不拦截
 }
 
 void PollMouse()
@@ -116,7 +116,7 @@ LRESULT CALLBACK DriverProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
     return DefWindowProcW(hwnd, msg, wp, lp);
 }
 
-}
+} // namespace
 
 namespace motion {
 
@@ -219,4 +219,4 @@ void SetTolerance(int px)
 
 int Tolerance() { return g_tol; }
 
-}
+} // namespace motion
