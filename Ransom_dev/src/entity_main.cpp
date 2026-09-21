@@ -283,6 +283,18 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int)
     elog::Open(diagPath);
     elog::Write(L"===== Ransom_dev 启动 =====");
 
+    // ---- 设置：尽早读回来 ----
+    //
+    // 必须排在下面前面那几个"看一眼就退出"的开发用模式之前
+    // （--clean-gold / --audio-dump / --theme-dump / --restore，见下面几段）。
+    // 它们是会读设置的：尤其是 --theme-dump，要按硬核开关决定导哪一轨主题曲。
+    // 读晚了那些路径里拿到的全是默认值，日志和导出的东西都会误导人
+    // （实测过一次：硬核开着导出来的还是原版那一轨）。
+    //
+    // 真正把设置**推给子系统**（音量 + 光敏安全）仍要等 GDI+ 起来之后
+    // （fx::SetPhotosensitiveSafe 会碰覆盖层），所以文件后面还有一次 Apply。
+    settings::Load();
+
     // ---- 手动清理模式：扫掉所有遗留的金币快捷方式然后退出 ----
     if (cleanGold)
     {
@@ -331,14 +343,13 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int)
         return 0;
     }
 
-    // ---- 设置：在这一刻读回来 ----
+    // ---- 设置已经在文件上方读过了 ----
     //
-    // 位置很讲究：要早于下面所有"看一眼就退出"的开发用模式
-    // （face-dump / fx-demo / audio-dump / theme-dump / ui-preview），
-    // 否则那些路径里的日志会显示一套没读过的默认值，排错时非常误导。
-    // 真正推给子系统（音量 + 光敏安全）则要等 GDI+ 起来之后
-    // （fx::SetPhotosensitiveSafe 会碰覆盖层），所以那边还有一次 Apply。
-    settings::Load();
+    // 那里的注释解释了为什么它必须排在 --audio-dump / --theme-dump 这些
+    // "看一眼就退出"的模式之前（它们会读设置）。
+    // 把设置**推给子系统**（音量 + 光敏安全）仍然在下面主流程里做
+    // （搜 settings::Apply），要等 GDI+ 和各个模块起来之后才行，
+    // 因为 fx::SetPhotosensitiveSafe 会碰覆盖层。
 
     // ---- GDI+ ----
     // 进程级只需初始化一次。face / fx / overlay 都靠它，

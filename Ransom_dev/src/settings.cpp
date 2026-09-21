@@ -133,7 +133,19 @@ namespace {
             pool += n;
         }
 
-        wchar_t buf[1024];
+        // ini 全文的缓冲区。
+        //
+        // 大小**必须留足**，而且不能靠"大概够了"：swprintf_s 的数组重载
+        // 在放不下时会去调 invalid-parameter handler，默认 handler 在
+        // Release 里是 fast-fail（0xC0000409，进程当场死），**不是**静默截断。
+        // 表现就是：设置界面点「开始」的那一瞬整个程序消失/中断到调试器 ——
+        // 因为 Save() 正是在 Commit() 里被调的。
+        //
+        // 实测踩过一次：给 [game] 加了一段 hardcore 的注释之后，文本从
+        // 约 900 个字符涨到 1261，1024 就不够了，点「开始」当场挂。
+        // 现在留 4096：面额池满 16 项时还要再多 100 来个字符，也够。
+        // **改格式串的人注意：加完自己数一下长度。**
+        wchar_t buf[4096];
         swprintf_s(buf,
             L"; Ransom_dev startup settings\n"
             L"; Written by the program itself; hand-editing works too (restart to apply).\n"
@@ -159,6 +171,12 @@ namespace {
             L"; ransom goal in gold, 10-1000. Affects both the win condition\n"
             L"; and how much gold gets scattered across the desktop.\n"
             L"gold_goal=%d\n"
+            L"; hardcore mode: 1 = 3-minute timer, 5000 gold goal, fake coins,\n"
+            L"; more and stickier popups, gold in disk folders, random locks on\n"
+            L"; non-shortcut desktop items, panic hotkey needs two presses.\n"
+            L"; 0 = the original show. While this is 1, gold_goal above is\n"
+            L"; IGNORED (5000 is forced) but kept as-is for when you turn it off.\n"
+            L"hardcore=%d\n"
             L"; gold face values, comma-separated. Any positive integers.\n"
             L"; Duplicates and order are normalized on load (sorted, deduped).\n"
             L"; e.g. 10,50,75,100,125,150,325,500\n"
@@ -167,6 +185,7 @@ namespace {
             s.photosensitiveSafe ? 1 : 0,
             s.minMs, s.maxMs,
             s.goldGoal,
+            s.hardcore ? 1 : 0,
             pool.c_str());
 
         FILE* f = nullptr;
@@ -212,6 +231,9 @@ namespace settings {
             // 新增：赎金目标金币
             g_set.goldGoal = ReadInt(path, L"game", L"gold_goal", kDefaultGoldGoal);
 
+            // 新增：硬核模式开关
+            g_set.hardcore = ReadInt(path, L"game", L"hardcore", 0) != 0;
+
             // 新增：金币面额池（逗号分隔的整数串）
             {
                 wchar_t raw[512] = { 0 };
@@ -252,11 +274,12 @@ namespace settings {
         Sanitize(g_set);
         g_idleMs = PickIdleMs();
 
-        elog::Write(L"[settings] bgm %d%% / sfx %d%% / master %d%% / safe %s / idle %d-%dms / gold %d",
+        elog::Write(L"[settings] bgm %d%% / sfx %d%% / master %d%% / safe %s / idle %d-%dms / gold %d / hardcore %s",
             g_set.bgmVol, g_set.sfxVol, g_set.masterVol,
             g_set.photosensitiveSafe ? L"on" : L"off",
             g_set.minMs, g_set.maxMs,
-            g_set.goldGoal);
+            g_set.goldGoal,
+            g_set.hardcore ? L"ON" : L"off");
 
         // 面额池一行单独打：条数不定，拼成一个短串更直观
         {
@@ -330,7 +353,14 @@ namespace settings {
     bool PhotosensitiveSafe() { return g_set.photosensitiveSafe; }
     int MinMs() { return g_set.minMs; }
     int MaxMs() { return g_set.maxMs; }
-    int GoldGoal() { return g_set.goldGoal; }
+    int GoldGoal()
+    {
+        // 硬核直接把赎金顶到 5000，**但不改写** g_set.goldGoal ——
+        // 用户自己调的那个值原样留着，关掉硬核就回到它。
+        return g_set.hardcore ? kHardcoreGoldGoal : g_set.goldGoal;
+    }
+
+    bool Hardcore() { return g_set.hardcore; }
 
     const std::vector<int>& CoinAmounts() { return g_set.coinAmounts; }
 

@@ -35,5 +35,6 @@ AUD	Ransom_encounter.wav	1034
 AUD	Ransom_full_theme.mp3	1035
 AUD	Ransom_start_(132683318015866).ogg	1036
 AUD	ransom_success.ogg	1037
-AUD	Ransom_UI_-_Error_(80099403859001).ogg	1038
-AUD	Ransomgold_increase_(97004792231127).ogg	1039
+AUD	Ransom_theme_remix.ogg	1038
+AUD	Ransom_UI_-_Error_(80099403859001).ogg	1039
+AUD	Ransomgold_increase_(97004792231127).ogg	1040

@@ -56,6 +56,40 @@ namespace settings {
 	// 面额池的项数上限。超过就截断 —— 防止 ini 里塞进来几百个值。
 	const int kCoinAmountMax = 16;
 
+	// ---- 硬核模式 ----
+	//
+	// 开着硬核时的赎金目标。注意：GoldGoal() 会**直接覆盖**成这个值，
+	// 但**不改写** Set::goldGoal —— 用户自己调的那个数原样留着，
+	// 关掉硬核就回到它。
+	const int kHardcoreGoldGoal = 5000;
+
+	// 硬核的面额池：全部 <= 100（"金币面额减少"）。
+	// 池子收窄到 50/75/100，是为了让凑 5000 大约需要 74 枚金币
+	// （面额再小就得往桌面上撒一百多枚 .lnk，翻找和清理都受不了）。
+	const int kHardcoreCoinAmounts[] = { 50, 75, 100 };
+	const int kHardcoreCoinAmountCount = 3;
+
+	// 硬核的勒索倒计时（3 分钟）与"关掉一个勒索子窗口扣多少"（30 秒），单位毫秒。
+	// 倒计时必须和硬核主题曲处理后的长度严格一致，见 audio.cpp 的 EditTheme。
+	const int kHardcoreRansomMs = 180000;
+	const int kHardcoreCloseCreditMs = 30000;
+
+	// 假金币：占每轮生成总数的百分比，以及三种污染形态的比例
+	// （前缀 / 后缀 / 两个都污染）。三个百分比加起来必须是 100。
+	const int kHardcoreFakePercent = 35;
+	const int kFakePrefixOnlyPct = 40;
+	const int kFakeSuffixOnlyPct = 40;
+	const int kFakeBothPct = 20;
+
+	// 随机锁定桌面上的**非快捷方式**项：同时最多几个、时长范围、释放后的冷却。
+	const int kExtraLockMax = 9;
+	const int kExtraLockMinMs = 900;
+	const int kExtraLockMaxMs = 9000;
+	const int kExtraLockCooldownMs = 9000;
+
+	// 硬核下安全阀"按两次"的有效窗口：两次之间超过它就要重新计数。
+	const int kPanicArmWindowMs = 9000;
+
 	// ---- 默认值 ----
 	const int kDefaultBgmVol = 100;
 	const int kDefaultSfxVol = 100;
@@ -85,6 +119,12 @@ namespace settings {
 
 		// 赎金目标金币数，10-1000。桌面散布的总额与面额池都跟着它走。
 		int  goldGoal = kDefaultGoldGoal;
+
+		// 硬核模式。开着的时候下面这些全都换一套：
+		//   3 分钟倒计时 / 赎金 5000 / 面额 <=100 / 假金币 / 弹窗更多更黏人 /
+		//   往磁盘顶层目录撒金币 / 随机锁非快捷方式 / 安全阀按两次才退出。
+		// 所有子系统都只读 settings::Hardcore() 这一个来源（见 settings.cpp）。
+		bool hardcore = false;
 
 		// 金币面额池。**空 = 用 kDefaultCoinAmounts 里的默认**。
 		// 从 ini 的 [game] coin_amounts= 读（逗号分隔，如 "10,50,325,500"）。
@@ -132,7 +172,10 @@ namespace settings {
 	bool PhotosensitiveSafe();
 	int  MinMs();
 	int  MaxMs();
+	// 硬核下返回 kHardcoreGoldGoal，否则返回用户自己调的那个值。
 	int  GoldGoal();
+	// 硬核模式开关。
+	bool Hardcore();
 	// 当前生效的面额池。**永远非空**：ini 没配、或配了空串时，
 	// 里面就是 kDefaultCoinAmounts 那一份。已排序去重。
 	const std::vector<int>& CoinAmounts();

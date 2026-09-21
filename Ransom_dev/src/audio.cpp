@@ -6,6 +6,7 @@
 #include "assets.h"
 #include "audio_clip.h"
 #include "entity_log.h"
+#include "settings.h"
 
 #include <atomic>
 #include <cmath>
@@ -40,7 +41,8 @@ namespace {
         C_SUCCESS,       // ransom_success.ogg           付清赎金
         C_ERROR,         // Ransom_UI_-_Error_(...).ogg  UI 错误
         C_COIN,          // Ransomgold_increase_(...).ogg 金币
-        C_THEME,         // Ransom_full_theme.mp3        主题曲（已裁到 1:30）
+        C_THEME,         // Ransom_full_theme.mp3        原版主题曲（已裁到 1:30）
+        C_THEME_HC,      // Ransom_theme_remix.ogg       硬核主题曲（已压到 3:00）
         C_GLITCHLOOP,    // GEN_GLITCH_LOOP_(...).ogg    故障底噪
         C_COUNT
     };
@@ -54,6 +56,7 @@ namespace {
         L"Ransom_UI_-_Error_(80099403859001).ogg",
         L"Ransomgold_increase_(97004792231127).ogg",
         L"Ransom_full_theme.mp3",
+        L"Ransom_theme_remix.ogg",
         L"GEN_GLITCH_LOOP_(135402425939071).ogg",
     };
 
@@ -62,7 +65,7 @@ namespace {
     // 停牌出现的瞬间直接切进它炸开的高潮点，冲击力才对。
     // 顺序必须和 ClipId 严格对应，加音效时别忘了同步这张表。
     //
-    // C_THEME / C_GLITCHLOOP 是常驻循环层，不经过 SpawnOneShot，
+    // C_THEME / C_THEME_HC / C_GLITCHLOOP 是常驻循环层，不经过 SpawnOneShot，
     // 这里的 0 只是占位——它们的位置由 SetTheme / SetGlitchBed 自己控制。
     const double kOneShotStartSec[C_COUNT] = {
         0.4,   // C_SPAWN       jumpscare2      —— 跳过前 0.4 秒铺垫
@@ -73,6 +76,7 @@ namespace {
         0.0,   // C_ERROR       Ransom_UI_-_Error
         0.0,   // C_COIN        Ransomgold_increase
         0.0,   // C_THEME       Ransom_full_theme   （循环层，不走这里）
+        0.0,   // C_THEME_HC    Ransom_theme_remix  （循环层，不走这里）
         0.0,   // C_GLITCHLOOP  GEN_GLITCH_LOOP     （循环层，不走这里）
     };
 
@@ -80,12 +84,11 @@ namespace {
     int              g_loaded = 0;
 
     // ---- 主题曲后期处理 ----
-    // 原始 Ransom_full_theme.mp3 是 82.2 秒。按演出要求：
-    //   1:20（80 秒）之后的**不要**（截断）；
-    //   前 1:20 **保持音高**慢放到 1:30（90 秒）。
-    // 90 秒正好等于勒索倒计时长度，所以每轮从 0 秒起播就自动和倒计时对齐。
-    const double kThemeKeepSec = 80.0;
-    const double kThemeOutSec = 90.0;
+    // 两条轨道各自的加工参数在 Start() 里给（见 EditTheme 的注释）：
+    //   原版 Ransom_full_theme.mp3 是 82.2 秒 —— 保留前 1:20，保持音高慢放到 1:30；
+    //   硬核 Ransom_theme_remix.ogg 是 3:38 —— 保留前 3:30，保持音高**快进**到 3:00。
+    // 处理后的长度必须正好等于各自的勒索倒计时（90 秒 / 180 秒），
+    // 这样每轮从 0 秒起播就自动和倒计时对齐。
 
     // SetTheme(true) 时的满音量。最后 15 秒的渐隐就是在这条线上按比例往下压。
     const double kThemeFullGain = 0.55;
@@ -391,35 +394,45 @@ namespace {
         return 0;
     }
 
-    // 主题曲后期：截到 kThemeKeepSec，再用 WSOLA 保持音高拉到 kThemeOutSec。
+    // 主题曲后期：只保留前 keepSec 秒，再用 WSOLA **保持音高**地变速到 outSec 秒。
+    //
+    //   keepSec > outSec -> 快进（硬核 remix：210 -> 180）
+    //   keepSec < outSec -> 慢放（原版主题曲：80 -> 90）
+    //
     // 素材缺失或太短就原样保留——**不致命**，不该因为这一步失败就没了主题曲。
-    void EditTheme()
+    void EditTheme(ClipId id, double keepSec, double outSec, const wchar_t* tag)
     {
-        audio_clip::Clip& c = g_clips[C_THEME];
-        if (!c.Ok()) return;
-
-        const size_t keep = (size_t)(kThemeKeepSec * kSampleRate);
-        if (c.Frames() <= keep)
+        audio_clip::Clip& c = g_clips[id];
+        if (!c.Ok())
         {
-            elog::Write(L"[audio] 主题曲 %.2f 秒，不长于 %.0f 秒，跳过裁剪与慢放",
-                c.Seconds(), kThemeKeepSec);
+            elog::Write(L"[audio] %s 没载入，跳过加工", tag);
             return;
         }
 
-        const double factor = kThemeOutSec / kThemeKeepSec;
+        const size_t keep = (size_t)(keepSec * kSampleRate);
+        if (c.Frames() <= keep)
+        {
+            elog::Write(L"[audio] %s %.2f 秒，不长于 %.0f 秒，跳过裁剪与变速",
+                tag, c.Seconds(), keepSec);
+            return;
+        }
+
+        const double factor = outSec / keepSec;
         const double before = c.Seconds();
 
         audio_clip::Clip out;
         const DWORD t0 = GetTickCount();
         if (!audio_clip::StretchPitchPreserving(c, keep, factor, out))
         {
-            elog::Write(L"[audio] 主题曲慢放失败，退回未处理版本（%.2f 秒）", before);
+            elog::Write(L"[audio] %s 变速失败，退回未处理版本（%.2f 秒）", tag, before);
             return;
         }
         const DWORD ms = GetTickCount() - t0;
 
-        elog::Write(L"[audio] 主题曲已处理：原 %.2f 秒 -> 保留前 %.1f 秒 -> 慢放 x%.4f -> %.2f 秒（耗时 %lums）",
-            before, kThemeKeepSec, factor, out.Seconds(), (unsigned long)ms);
+        elog::Write(L"[audio] %s 已加工：原 %.2f 秒 -> 保留前 %.1f 秒 -> x%.4f（%s）-> %.2f 秒（耗时 %lums）",
+            tag, before, keepSec, factor,
+            (factor < 1.0) ? L"快进不变调" : L"慢放不变调",
+            out.Seconds(), (unsigned long)ms);
 
         c = out;
     }
@@ -460,8 +473,12 @@ namespace audio {
                 elog::Write(L"[audio]   起播偏移: %s -> %.2f 秒",
                     kFileNames[i], kOneShotStartSec[i]);
 
-        // ---- 主题曲：裁到 1:20，再保持音高慢放到 1:30 ----
-        EditTheme();
+        // ---- 主题曲：两条轨道各自加工 ----
+        //   原版：保留前 1:20（80 秒），保持音高**慢放**到 1:30（90 秒）
+        //   硬核：remix 保留前 3:30（210 秒），保持音高**快进**到 3:00（180 秒）
+        // 两条的处理后长度分别等于 90 秒 / 180 秒的勒索倒计时。
+        EditTheme(C_THEME, 80.0, 90.0, L"主题曲（原版）");
+        EditTheme(C_THEME_HC, 210.0, 180.0, L"主题曲（硬核 remix）");
 
         if (g_hwo) return true;
 
@@ -565,19 +582,26 @@ namespace audio {
 
     void SetTheme(bool on)
     {
+        // 硬核换 remix 那一轨。两条轨道加工后的长度分别是 90 秒 / 180 秒，
+        // 和各自的勒索倒计时严格等长，所以在这里换轨不会造成音画错位。
+        // SeekThemeBy 内部按 g_theme.clipId 取素材，换轨后自动跟着走。
+        g_theme.clipId = settings::Hardcore() ? C_THEME_HC : C_THEME;
+
         g_theme.target = on ? kThemeFullGain : 0.0;
 
-        // 每一轮开场都从 0 秒起：主题曲处理完正好是 90 秒，
-        // 和勒索倒计时等长，从头播就能对齐。
+        // 每一轮开场都从 0 秒起：主题曲加工完正好等于倒计时长度，
+        // 从头播就能对齐。
         // 只递增计数，真正的 pos 归零在合成线程里做（无锁约定）。
         if (on) ++g_themeRestart;
 
         // 注意：没 Start 过（--no-audio）时素材本来就没加载，
         // 这时候报「素材缺失」是误导，所以分开说。
         const wchar_t* why = !g_hwo ? L"（音频未启动）"
-            : (g_clips[C_THEME].Ok() ? L"" : L"（素材缺失）");
-        elog::Write(L"[audio] 主题曲 %s%s（%.2f 秒，从头起播）",
-            on ? L"开启" : L"关闭", why, g_clips[C_THEME].Seconds());
+            : (g_clips[g_theme.clipId].Ok() ? L"" : L"（素材缺失）");
+        elog::Write(L"[audio] 主题曲 %s%s（%s，%.2f 秒，从头起播）",
+            on ? L"开启" : L"关闭", why,
+            settings::Hardcore() ? L"硬核 remix" : L"原版",
+            g_clips[g_theme.clipId].Seconds());
     }
 
     void SetThemeLevel(int percent)
@@ -618,6 +642,10 @@ namespace audio {
         // 音频没起来（--no-audio / 没声卡）就什么都不做，静默降级是设计的一部分。
         if (!g_hwo) return;
         if (previewMs < 200) previewMs = 200;
+
+        // 硬核开着就试听 remix 那一轨 —— 用户在设置界面听到的，
+        // 就是他接下来真的会听到的那一首。
+        g_theme.clipId = settings::Hardcore() ? C_THEME_HC : C_THEME;
 
         ++g_themeRestart;             // 从 0 秒起播，试听听到的就是开场那段
         g_theme.target = kThemeFullGain;
@@ -744,17 +772,21 @@ namespace audio {
 
     bool DumpTheme(const wchar_t* path)
     {
-        const audio_clip::Clip& c = g_clips[C_THEME];
+        // 导的是**当前硬核开关对应的那一轨**，而且是已经加工过的版本
+        // （原版裁到 1:20 + 慢放到 1:30 / 硬核 remix 取前 3:30 快进到 3:00），
+        // 不是磁盘上那个原始文件。加工参数是主观的，试听得靠这个文件。
+        const bool hc = settings::Hardcore();
+        const int  id = hc ? C_THEME_HC : C_THEME;
+        const audio_clip::Clip& c = g_clips[id];
         if (!c.Ok())
         {
-            elog::Write(L"[audio] 主题曲未载入，无法导出");
+            elog::Write(L"[audio] 主题曲%s未载入，无法导出", hc ? L"（硬核 remix）" : L"");
             return false;
         }
 
-        // 导出的是**已经处理过**的主题曲（裁到 1:20 + 慢放到 1:30），
-        // 不是磁盘上那个原始 mp3。加工参数是主观的，试听得靠这个文件。
         const bool ok = WriteWav16(path, c.pcm.data(), (int)c.pcm.size());
-        elog::Write(L"[audio] 主题曲导出%s（%.2f 秒，%zu 帧）",
+        elog::Write(L"[audio] 主题曲%s导出%s（%.2f 秒，%zu 帧）",
+            hc ? L"（硬核 remix）" : L"",
             ok ? L"成功" : L"失败", c.Seconds(), c.Frames());
         return ok;
     }

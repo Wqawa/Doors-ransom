@@ -246,7 +246,7 @@ namespace {
 
         // ---- 纯数据布局（相对内容区左上角）----
         const int kW = 520;
-        const int kH = 470;             // 从 430 提到 470，给新增的金币滑条腾地方
+        const int kH = 530;             // 470 -> 530：给"硬核模式"那一行腾地方
         const int kM = 22;              // 左右页边距
         const int kLabelH = 18;         // 标签行高
         const int kTrackH = 18;         // 条带高度（视觉上的「槽」）
@@ -257,12 +257,13 @@ namespace {
         const int kSafeTop = 184;       // 光敏安全（复选框，= kSafeRowH 高）
         const int kSafeRowH = 34;
         const int kRow3Top = 236;       // 随机区间
-        const int kRow4Top = 296;       // 赎金目标金币  ← 新增
-        const int kBtnTop = 356;
+        const int kRow4Top = 296;       // 赎金目标金币
+        const int kHardTop = 356;       // 硬核模式（复选框，行高同 kSafeRowH）
+        const int kBtnTop = 416;        // 356 -> 416
         const int kBtnH = 42;
         const int kBtnGap = 14;
         const int kBtnW = 150;
-        const int kHintTop = 412;
+        const int kHintTop = 472;       // 412 -> 472
 
         const int kTrackLeft = kM + 18;                 // 条带左右端
         const int kTrackRight = kW - kM - 18;
@@ -326,6 +327,21 @@ namespace {
         {
             RECT r;
             SetRectLocal(r, kM - 4, kSafeTop, 430, kSafeRowH);
+            return r;
+        }
+
+        RECT HardBox()
+        {
+            RECT r;
+            SetRectLocal(r, kM, kHardTop + (kSafeRowH - 20) / 2, 20, 20);
+            return r;
+        }
+
+        // 和光敏那条一样：框 + 文字可点，但不横跨整行。
+        RECT HardHit()
+        {
+            RECT r;
+            SetRectLocal(r, kM - 4, kHardTop, 430, kSafeRowH);
             return r;
         }
 
@@ -448,9 +464,11 @@ namespace {
         }
 
         // ---- 一个复选框 ----
-        void DrawCheckbox(Graphics& g, const RectF& rc, bool checked, bool hot)
+        // box：这个复选框方框的本地区域（由调用方给，SafeBox() / HardBox()）。
+        // 以前这里写死用 SafeBox()，加了第二个复选框之后两个会画在同一个位置。
+        void DrawCheckbox(Graphics& g, const RectF& rc, const RECT& b,
+                          bool checked, bool hot)
         {
-            const RECT b = SafeBox();
             RectF box(rc.X + (REAL)b.left, rc.Y + (REAL)b.top, 20.0f, 20.0f);
 
             FillRound(g, box, 4.0f, checked ? kAccentSoft : kTrackBg);
@@ -539,7 +557,7 @@ namespace {
 
             // ---- 光敏安全（癫痫模式）----
             {
-                DrawCheckbox(g, rc, g_edit.photosensitiveSafe, false);
+                DrawCheckbox(g, rc, SafeBox(), g_edit.photosensitiveSafe, false);
 
                 const RECT b = SafeBox();
                 RectF t(rc.X + (REAL)(b.right + 10), rc.Y + (REAL)kSafeTop, 260.0f, (REAL)kSafeRowH);
@@ -592,19 +610,29 @@ namespace {
             }
 
             // ---- 赎金目标金币 ----
+            //
+            // 硬核开着的时候这一行是**锁死的**：读数强行显示 5000，
+            // 珠子停在最右端，整体转成灰字。settings::GoldGoal() 那边
+            // 也是直接覆盖成 kHardcoreGoldGoal，不改写用户存的自定义值，
+            // 所以关掉硬核之后他自己调的那个数会原样回来。
+            const bool goldLocked = g_edit.hardcore;
+            const int  shownGoal = goldLocked ? settings::kHardcoreGoldGoal : g_edit.goldGoal;
             {
                 RectF t(xL, rc.Y + (REAL)kRow4Top, w, (REAL)kLabelH);
-                DrawTextCjk(g, L"赎金目标金币", t, 14.0f, kTextMain);
+                DrawTextCjk(g, L"赎金目标金币", t, 14.0f,
+                    goldLocked ? kTextFaint : kTextMain);
 
-                swprintf_s(buf, L"%d", g_edit.goldGoal);
+                swprintf_s(buf, goldLocked ? L"%d（硬核锁定）" : L"%d", shownGoal);
                 RectF v(xL, rc.Y + (REAL)kRow4Top, w, (REAL)kLabelH);
                 DrawTextMono(g, buf, v, 14.0f,
-                    g_edit.goldGoal > 500 ? kAccent : kTextDim, StringAlignmentFar);
+                    goldLocked ? kTextFaint : (g_edit.goldGoal > 500 ? kAccent : kTextDim),
+                    StringAlignmentFar);
 
                 const RECT tr = GoldTrack();
-                const int kx = GoldToX(g_edit.goldGoal);
+                // 锁定态把珠子顶到最右端，一眼就能看出"这条不是你在控"
+                const int kx = goldLocked ? tr.right : GoldToX(shownGoal);
                 DrawTrack(g, rc, tr, 1, kx, kx, tr.left, kx,
-                    g_drag == 5 ? 0 : -1);
+                    goldLocked ? -1 : (g_drag == 5 ? 0 : -1));
 
                 RectF lo(xL, rc.Y + (REAL)(tr.bottom + 2), w, 14.0f);
                 DrawTextMono(g, L"10", lo, 11.0f, kTextFaint);
@@ -625,16 +653,39 @@ namespace {
                 DrawTextMono(g, L"1000", hi, 11.0f, kTextFaint, StringAlignmentFar);
             }
 
+            // ---- 硬核模式 ----
+            {
+                DrawCheckbox(g, rc, HardBox(), g_edit.hardcore, false);
+
+                const RECT hb = HardBox();
+                RectF t(rc.X + (REAL)(hb.right + 10), rc.Y + (REAL)kHardTop, 300.0f, (REAL)kSafeRowH);
+                DrawTextCjk(g, L"硬核模式", t, 14.0f,
+                    g_edit.hardcore ? kAccent : kTextMain, StringAlignmentNear, FontStyleBold);
+
+                RectF d(rc.X + (REAL)(hb.right + 10), rc.Y + (REAL)(kHardTop + 28), 440.0f, 16.0f);
+                DrawTextCjk(g,
+                    g_edit.hardcore
+                    ? L"已开启：3 分钟 / 赎金 5000 / 假金币 / 弹窗更多 / 随机锁桌面项 / 退出要按两次安全阀"
+                    : L"3 分钟倒计时、赎金 5000、假金币、随机锁桌面项，退出要按两次安全阀",
+                    d, 11.0f, kTextFaint);
+            }
+
             // ---- 按钮 ----
             DrawButton(g, rc, ResetBtn(), L"恢复默认", g_hot == HOT_RESET, false);
             DrawButton(g, rc, StartBtn(), L"开 始", g_hot == HOT_START, true);
 
             // ---- 底部提示 ----
+            // 硬核下必须**如实**写"要连按两次"：这是安全阀，文案骗人就是骗命。
             {
                 wchar_t hint[192];
-                swprintf_s(hint,
-                    L"开始后随时可以按 Ctrl + Alt + Shift + %c 立刻停下并全部还原。",
-                    (wchar_t)g_panicVk);
+                if (g_edit.hardcore)
+                    swprintf_s(hint,
+                        L"硬核模式：开始后要连按两次 Ctrl + Alt + Shift + %c（%d 秒内）才会停下。",
+                        (wchar_t)g_panicVk, settings::kPanicArmWindowMs / 1000);
+                else
+                    swprintf_s(hint,
+                        L"开始后随时可以按 Ctrl + Alt + Shift + %c 立刻停下并全部还原。",
+                        (wchar_t)g_panicVk);
                 RectF t(xL, rc.Y + (REAL)kHintTop, w, 16.0f);
                 DrawTextCjk(g, hint, t, 12.0f, kTextFaint);
             }
@@ -672,7 +723,8 @@ namespace {
                 g_edit.maxMs = v;
                 break;
             }
-            case 5:     // 赎金目标金币
+            case 5:     // 赎金目标金币（硬核下锁死 5000，拖不动）
+                if (g_edit.hardcore) break;
                 g_edit.goldGoal = GoldFromX(p.x);
                 break;
             default:
@@ -746,6 +798,25 @@ namespace {
                     return;
                 }
 
+                if (Hit(HardHit(), p))
+                {
+                    g_edit.hardcore = !g_edit.hardcore;
+                    PushLive();
+
+                    // 打开开关时整扇窗抖一下，给个"这东西很重"的反馈。
+                    // AnimateJolt 走的是真实窗口位移（SetWindowPos），
+                    // 和 SetWobble 那种绘制层微抖不是一回事；有动画在跑时
+                    // 它会排队，不会把别的动画掐掉。
+                    aero::AnimateJolt(hwnd, 9.0f, 380);
+
+                    elog::Write(L"[setup] 硬核模式 %s（赎金 %d，倒计时 %d 秒）",
+                        g_edit.hardcore ? L"开" : L"关",
+                        g_edit.hardcore ? settings::kHardcoreGoldGoal : g_edit.goldGoal,
+                        g_edit.hardcore ? settings::kHardcoreRansomMs / 1000 : 90);
+                    aero::Repaint(hwnd);
+                    return;
+                }
+
                 const RECT bt = BgmTrack();
                 const RECT st = SfxTrack();
                 const RECT it = IntTrack();
@@ -783,6 +854,7 @@ namespace {
                 if (p.y >= gt.top - 8 && p.y < gt.bottom + 8 &&
                     p.x >= gt.left - 10 && p.x < gt.right + 10)
                 {
+                    if (g_edit.hardcore) return;   // 硬核：赎金锁死 5000
                     g_drag = 5;
                     SetCapture(hwnd);
                     ApplyDrag(p);
@@ -820,6 +892,10 @@ namespace {
                 aero::Repaint(hwnd);
                 return;
             }
+
+            // 硬核开关**不接受滚轮**：这么重的开关被滚轮误触翻掉太容易了，
+            // 想开就老老实实点一下。
+            if (Hit(HardHit(), p)) return;
 
             const RECT bt = BgmTrack();
             const RECT st = SfxTrack();
@@ -863,6 +939,7 @@ namespace {
             }
             else if (p.y >= gt.top - 10 && p.y < gt.bottom + 10)
             {
+                if (g_edit.hardcore) return;   // 硬核：赎金锁死 5000
                 // 一格 25：10-1000 跨度太大，一格 10 太慢、一格 100 太粗。
                 g_edit.goldGoal += step * 25;
                 if (g_edit.goldGoal < kGoldLo) g_edit.goldGoal = kGoldLo;

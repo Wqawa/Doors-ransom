@@ -51,7 +51,8 @@ namespace {
     const DWORD kLoadMs = 1300;
     const DWORD kFinishMs = 200;
     const DWORD kCatchLeadMs = kJumpscareMs + kLoadMs + kFinishMs;
-    const DWORD kCaughtMs = 90000;   // 原作就是 90 秒
+    const DWORD kCaughtMsNormal = 90000;    // 原作就是 90 秒
+    const DWORD kCaughtMsHard = 180000;   // 硬核：3 分钟（和硬核主题曲等长）
     const DWORD kPaidMs = 4800;    // 要盖住 popup 那套付钱演出的全长（约 4.4 秒）
     const DWORD kPunishMs = 2200;
 
@@ -64,7 +65,8 @@ namespace {
 
     // 玩家每主动关掉一个勒索子窗口，勒索倒计时往前扣这么多。
     // 这是给玩家的一条「别干等着」的出路 —— 也可以主动关窗口拖到超时，
-    // 关 9 个就直接触发没付清的跳杀。
+    // 关 9 个就直接触发没付清的跳杀。硬核下这个值换成 30 秒，
+    // 也就是关 6 个就必死（见 PHASE_CAUGHT 里的取值）。
     const DWORD kChildCloseCreditMs = 10000;
 
     // 全屏纯色底的配色
@@ -99,6 +101,11 @@ namespace {
     // 时间上，所以倒计时、渐隐、riser、超时判定全都自动跟着走。
     // 每一轮被抓（PHASE_CAUGHT 进入）时清零。
     DWORD        g_timeCreditMs = 0;
+
+    // 本轮勒索的总时长与"关一个子窗口扣多少"。
+    // 以前是编译期常量，硬核要按设置切换，所以在进 PHASE_CAUGHT 时定下来。
+    DWORD        g_ransomTotalMs = kCaughtMsNormal;
+    DWORD        g_childCreditMs = kChildCloseCreditMs;
 
     DWORD        g_idleMs = kIdleMs;
     DWORD        g_pendingIdleMs = kIdleMs;
@@ -233,6 +240,18 @@ namespace {
             g_ransomBegun = false;
             g_loadShown = false;
             g_timeCreditMs = 0;            // 每一轮从头攒
+
+            // 硬核：3 分钟倒计时 + 关一个子窗口扣 30 秒。
+            // 在这里定下来（而不是每帧读设置）是因为整场演出中途不允许切换模式，
+            // 定一次之后倒计时、渐隐、riser、超时判定全都读这两个变量。
+            g_ransomTotalMs = settings::Hardcore() ? kCaughtMsHard : kCaughtMsNormal;
+            g_childCreditMs = settings::Hardcore() ? (DWORD)settings::kHardcoreCloseCreditMs
+                : kChildCloseCreditMs;
+            elog::Write(L"[director] 本轮倒计时 %lu 秒，关一个子窗口扣 %lu 秒（硬核 %s）",
+                (unsigned long)(g_ransomTotalMs / 1000),
+                (unsigned long)(g_childCreditMs / 1000),
+                settings::Hardcore() ? L"开" : L"关");
+
             face::ShowAttackStill(kJumpscareMs);
             audio::PlayCaught();
             break;
@@ -336,7 +355,7 @@ namespace {
             elog::Write(L"[director] 加载结束，进入勒索阶段");
         }
 
-        // 玩家关掉了子窗口？每关一个，倒计时往前扣 10 秒。
+        // 玩家关掉了子窗口？每关一个，倒计时往前扣（普通 10 秒 / 硬核 30 秒）。
         // 放在 SetStatus 之前：这样同一帧里 SetStatus 看到的 remain
         // 就已经减过了，窗口上的时间显示不会慢一拍。
         if (g_phase == director::PHASE_CAUGHT && g_ransomBegun)
@@ -344,7 +363,7 @@ namespace {
             const int n = popup::ConsumePlayerClosedCount();
             if (n > 0)
             {
-                const DWORD credit = (DWORD)n * kChildCloseCreditMs;
+                const DWORD credit = (DWORD)n * g_childCreditMs;
                 g_timeCreditMs += credit;
 
                 // 音乐也跟着往前跳，维持和倒计时的同步。
@@ -353,13 +372,13 @@ namespace {
                 audio::SeekThemeBy((double)credit / 1000.0);
 
                 elog::Write(L"[director] 玩家关闭 %d 个子窗口，倒计时提前 %d 秒（累计提前 %.1f 秒）",
-                    n, n * (int)(kChildCloseCreditMs / 1000),
+                    n, n * (int)(g_childCreditMs / 1000),
                     g_timeCreditMs / 1000.0);
             }
         }
         if (g_phase == director::PHASE_CAUGHT && g_ransomBegun)
             popup::SetStatus(g_gold, settings::GoldGoal(),
-                director::RansomRemainMs(), kCaughtMs);
+                director::RansomRemainMs(), g_ransomTotalMs);
 
         if (g_phase == director::PHASE_CAUGHT && g_gold >= settings::GoldGoal())
         {
@@ -398,7 +417,7 @@ namespace {
         if (g_phase == director::PHASE_CAUGHT)
         {
             if (!g_ransomBegun) return;
-            if (RansomElapsedMs() < kCaughtMs) return;
+            if (RansomElapsedMs() < g_ransomTotalMs) return;
             EnterPhase(director::PHASE_PUNISH);
             return;
         }
@@ -572,7 +591,7 @@ namespace director {
     {
         if (g_phase != PHASE_CAUGHT || !g_ransomBegun) return 0;
         const DWORD el = RansomElapsedMs();
-        return (el >= kCaughtMs) ? 0 : (kCaughtMs - el);
+        return (el >= g_ransomTotalMs) ? 0 : (g_ransomTotalMs - el);
     }
 
     bool CaughtThisRound() { return g_caught; }
