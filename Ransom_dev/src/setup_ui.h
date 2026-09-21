@@ -65,6 +65,17 @@ namespace setup_ui {
 	// 返回 VERDICT_START（继续演出）或 VERDICT_ABORT。
 	Verdict ShowSafetyNotice(HINSTANCE hInst, int panicVk);
 
+	// **硬核模式专用**的警告窗口。
+	//
+	// 和上面那一屏共用窗口管道和版面尺寸，但内容、配色、标题栏文字、
+	// 按钮文案都换一套：整圈红边框 + 一条条列出硬核到底改了什么
+	// （3 分钟 / 5000 / 假金币 / 弹窗贴鼠标 / 锁非快捷方式 / 金币撒磁盘）。
+	// 目的是让用户在**开始之前**就知道这一轮不是平时那个难度，
+	// 而不是进去之后才发现。
+	//
+	// 调用方按 settings::Hardcore() 决定弹哪一个（见 entity_main）。
+	Verdict ShowHardcoreNotice(HINSTANCE hInst, int panicVk);
+
 	// ---- 开发用：离线导出排版 ----
 	//
 	// 把两个窗口按给定设置渲染成 PNG 后退出。和 --ui-preview / --fx-demo
@@ -75,5 +86,6 @@ namespace setup_ui {
 	// grid = true 会叠一层 20px 网格 + 每 100px 的坐标标注。
 	bool DumpSettingsPreview(const wchar_t* path, const settings::Set& s, bool grid);
 	bool DumpNoticePreview(const wchar_t* path, bool grid);
+	bool DumpHardcoreNoticePreview(const wchar_t* path, bool grid);
 
 } // namespace setup_ui

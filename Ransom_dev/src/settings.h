@@ -40,11 +40,43 @@ namespace settings {
 	const int kIntervalMaxMs = 90000;   // 最长 90s
 
 	// ---- 赎金目标金币数 ----
-	// 上到 1000、下到 10。原作是 500。这个值同时决定两件事：
+	// 这个值同时决定两件事：
 	//   * 付清赎金的判定阈值（director）
 	//   * 桌面散布金币的总额与面额分布（gold）
+	//
+	// 取值范围**按模式分两段**，但界面上共用同一条滑条：
+	//   普通：10 ~ 1000（原作 500）
+	//   硬核：1000 ~ 9999（硬核要付得多）
+	// 超过 9999 的部分一律砍掉 —— 夹在 GoldGoal() 里（唯一出口）。
 	const int kGoldMin = 10;
 	const int kGoldMax = 1000;
+	const int kGoldHardMin = 1000;
+	const int kGoldHardMax = 9999;
+
+	// ---- 关掉一个勒索子窗口的惩罚时长（毫秒）----
+	// 也是共用一条滑条、范围按模式分：
+	//   普通：0 ~ 18000（18 秒）
+	//   硬核：0 ~ 30000（30 秒）
+	// 0 = 关窗口完全不扣时间。夹在 ChildCloseMs() 里。
+	const int kCloseMin = 0;
+	const int kCloseNormalMax = 18000;
+	const int kCloseHardMax = 30000;
+	// 两种模式各自的默认值：切换开关时如果这一项还是"另一套的默认"，
+	// 就跟着换成这一套的（用户手调过的不动，见 setup_ui 的 ApplyModeDefaults）。
+	const int kCloseNormalDefault = 10000;
+	const int kCloseHardDefault = 30000;
+
+	// ---- 假金币 ----
+	// fakePercent：每个金币生成时"是假币"的概率，0-100（%）。
+	// 后面三个是**假币内部**的形态权重（前缀 / 后缀 / 两个都改），各自 0-100，
+	// 按权重比例分配 —— **不要求加起来等于 100**，三个都是 0 就干脆不出假币。
+	// 这四项都只在硬核模式下生效（界面上的滑条也只在硬核下能拖）。
+	const int kFakePctMin = 0;
+	const int kFakePctMax = 100;
+	const int kDefaultFakePercent = 35;
+	const int kDefaultFakePrefixPct = 40;
+	const int kDefaultFakeSuffixPct = 40;
+	const int kDefaultFakeBothPct = 20;
 
 	// ---- 金币面额池 ----
 	// 桌面散布的每一个金币，面额都从这个池里随机挑一个。
@@ -58,9 +90,9 @@ namespace settings {
 
 	// ---- 硬核模式 ----
 	//
-	// 开着硬核时的赎金目标。注意：GoldGoal() 会**直接覆盖**成这个值，
-	// 但**不改写** Set::goldGoal —— 用户自己调的那个数原样留着，
-	// 关掉硬核就回到它。
+	// 硬核下赎金滑条的默认值（不是"强制值"）。
+	// 打开硬核开关时，如果用户原来的赎金还在普通区间里（<=1000），
+	// 就把它顶到这个数；之后用户想拖到 1000~9999 之间的任何值都行。
 	const int kHardcoreGoldGoal = 5000;
 
 	// 硬核的面额池：全部 <= 100（"金币面额减少"）。
@@ -69,17 +101,9 @@ namespace settings {
 	const int kHardcoreCoinAmounts[] = { 50, 75, 100 };
 	const int kHardcoreCoinAmountCount = 3;
 
-	// 硬核的勒索倒计时（3 分钟）与"关掉一个勒索子窗口扣多少"（30 秒），单位毫秒。
-	// 倒计时必须和硬核主题曲处理后的长度严格一致，见 audio.cpp 的 EditTheme。
+	// 硬核的勒索倒计时（3 分钟），单位毫秒。
+	// 必须和硬核主题曲处理后的长度严格一致，见 audio.cpp 的 EditTheme。
 	const int kHardcoreRansomMs = 180000;
-	const int kHardcoreCloseCreditMs = 30000;
-
-	// 假金币：占每轮生成总数的百分比，以及三种污染形态的比例
-	// （前缀 / 后缀 / 两个都污染）。三个百分比加起来必须是 100。
-	const int kHardcoreFakePercent = 35;
-	const int kFakePrefixOnlyPct = 40;
-	const int kFakeSuffixOnlyPct = 40;
-	const int kFakeBothPct = 20;
 
 	// 随机锁定桌面上的**非快捷方式**项：同时最多几个、时长范围、释放后的冷却。
 	const int kExtraLockMax = 9;
@@ -118,12 +142,24 @@ namespace settings {
 		int  minMs = kDefaultMinMs;
 		int  maxMs = kDefaultMaxMs;
 
-		// 赎金目标金币数，10-1000。桌面散布的总额与面额池都跟着它走。
+		// 赎金目标金币数。存的是"原始值"，实际生效范围按模式夹
+		// （普通 10-1000 / 硬核 1000-9999），见 GoldGoal()。
 		int  goldGoal = kDefaultGoldGoal;
 
+		// 关掉一个勒索子窗口时倒计时往前扣多少毫秒（0 = 不扣）。
+		// 同样按模式夹上限：普通 <=18000，硬核 <=30000，见 ChildCloseMs()。
+		int  childCloseMs = kCloseNormalDefault;
+
+		// 假金币比例（0-100，%），以及假币内部三种形态的权重。
+		// **只有硬核模式会用到**；普通模式下这些值原样存着、不生效。
+		int  fakePercent = kDefaultFakePercent;
+		int  fakePrefixPct = kDefaultFakePrefixPct;
+		int  fakeSuffixPct = kDefaultFakeSuffixPct;
+		int  fakeBothPct = kDefaultFakeBothPct;
+
 		// 硬核模式。开着的时候下面这些全都换一套：
-		//   3 分钟倒计时 / 赎金 5000 / 面额 <=100 / 假金币 / 弹窗更多更黏人 /
-		//   往磁盘顶层目录撒金币 / 随机锁非快捷方式。
+		//   3 分钟倒计时 / 赎金 1000-9999（默认 5000）/ 面额 <=100 / 假金币 /
+		//   弹窗更多更黏人 / 往磁盘顶层目录撒金币 / 随机锁非快捷方式。
 		// 所有子系统都只读 settings::Hardcore() 这一个来源（见 settings.cpp）。
 		bool hardcore = false;
 
@@ -173,8 +209,21 @@ namespace settings {
 	bool PhotosensitiveSafe();
 	int  MinMs();
 	int  MaxMs();
-	// 硬核下返回 kHardcoreGoldGoal，否则返回用户自己调的那个值。
+	// 赎金目标。**按模式夹过的最终值，也是唯一出口**：
+	//   普通 -> [10, 1000]，硬核 -> [1000, 9999]（超过 9999 的部分砍掉）。
+	// 所有判定和显示都必须读这个，别直接读 Set::goldGoal。
 	int  GoldGoal();
+
+	// 关掉一个勒索子窗口的惩罚时长（毫秒），按模式夹过：
+	// 普通 -> [0, 18000]，硬核 -> [0, 30000]。
+	int  ChildCloseMs();
+
+	// 假金币比例与三种形态权重（0-100）。只在硬核下有意义。
+	int  FakePercent();
+	int  FakePrefixPct();
+	int  FakeSuffixPct();
+	int  FakeBothPct();
+
 	// 硬核模式开关。
 	bool Hardcore();
 	// 当前生效的面额池。**永远非空**：ini 没配、或配了空串时，

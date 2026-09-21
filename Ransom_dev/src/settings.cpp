@@ -77,8 +77,21 @@ namespace {
             s.maxMs = t;
         }
 
-        // 金币目标：10-1000
-        s.goldGoal = ClampInt(s.goldGoal, settings::kGoldMin, settings::kGoldMax);
+        // 赎金目标：存在 [10, 9999] 这个**并集**里。
+        // 具体生效范围按模式夹（普通 / 硬核各一段），那一步在 GoldGoal() 里做 ——
+        // 这里只挡住明显越界的手改 ini（比如有人写 99999）。
+        s.goldGoal = ClampInt(s.goldGoal, settings::kGoldMin, settings::kGoldHardMax);
+
+        // 关窗惩罚：同样存在并集 [0, 30000] 里，模式上限在 ChildCloseMs() 里夹。
+        s.childCloseMs = ClampInt(s.childCloseMs, settings::kCloseMin, settings::kCloseHardMax);
+
+        // 假金币四项都是百分比，各自夹到 0-100。
+        // 注意三个形态权重**不要求加起来等于 100**：生成时按权重比例分配，
+        // 三个全是 0 就不出假币（见 gold.cpp 的 Spawn）。
+        s.fakePercent   = ClampInt(s.fakePercent,   settings::kFakePctMin, settings::kFakePctMax);
+        s.fakePrefixPct = ClampInt(s.fakePrefixPct, settings::kFakePctMin, settings::kFakePctMax);
+        s.fakeSuffixPct = ClampInt(s.fakeSuffixPct, settings::kFakePctMin, settings::kFakePctMax);
+        s.fakeBothPct   = ClampInt(s.fakeBothPct,   settings::kFakePctMin, settings::kFakePctMax);
 
         // ---- 面额池 ----
         // 空 -> 填默认。非空 -> 逐项夹到 [1, 100000]、排序、去重、截断。
@@ -168,15 +181,28 @@ namespace {
             L"idle_max=%d\n"
             L"\n"
             L"[game]\n"
-            L"; ransom goal in gold, 10-1000. Affects both the win condition\n"
+            L"; ransom goal in gold. Normal mode: 10-1000. Hardcore: 1000-9999\n"
+            L"; (values above 9999 are clamped). Affects both the win condition\n"
             L"; and how much gold gets scattered across the desktop.\n"
             L"gold_goal=%d\n"
-            L"; hardcore mode: 1 = 3-minute timer, 5000 gold goal, fake coins,\n"
-            L"; more and stickier popups, gold in disk folders, random locks on\n"
-            L"; non-shortcut desktop items, panic hotkey needs two presses.\n"
-            L"; 0 = the original show. While this is 1, gold_goal above is\n"
-            L"; IGNORED (5000 is forced) but kept as-is for when you turn it off.\n"
+            L"; penalty for closing one ransom child window, in milliseconds.\n"
+            L"; 0 = closing windows costs no time. Normal caps at 18000,\n"
+            L"; hardcore at 30000.\n"
+            L"close_penalty_ms=%d\n"
+            L"; hardcore mode: 1 = 3-minute timer, gold in disk folders, more and\n"
+            L"; stickier popups, random locks on non-shortcut desktop items.\n"
+            L"; 0 = the original show. gold_goal above stays in use either way,\n"
+            L"; only its allowed range changes (see above).\n"
             L"hardcore=%d\n"
+            L"; fake coins (hardcore only). percent = chance a generated coin is\n"
+            L"; fake, 0-100. The three weights below decide what gets corrupted:\n"
+            L"; prefix \"Gold\", the amount digits, or both. They are weights, not\n"
+            L"; percentages that must sum to 100 - they are normalized together,\n"
+            L"; and all three at 0 means no fake coins at all.\n"
+            L"fake_percent=%d\n"
+            L"fake_prefix_pct=%d\n"
+            L"fake_suffix_pct=%d\n"
+            L"fake_both_pct=%d\n"
             L"; gold face values, comma-separated. Any positive integers.\n"
             L"; Duplicates and order are normalized on load (sorted, deduped).\n"
             L"; e.g. 10,50,75,100,125,150,325,500\n"
@@ -185,7 +211,9 @@ namespace {
             s.photosensitiveSafe ? 1 : 0,
             s.minMs, s.maxMs,
             s.goldGoal,
+            s.childCloseMs,
             s.hardcore ? 1 : 0,
+            s.fakePercent, s.fakePrefixPct, s.fakeSuffixPct, s.fakeBothPct,
             pool.c_str());
 
         FILE* f = nullptr;
@@ -231,8 +259,17 @@ namespace settings {
             // 新增：赎金目标金币
             g_set.goldGoal = ReadInt(path, L"game", L"gold_goal", kDefaultGoldGoal);
 
+            // 新增：关窗惩罚时长（毫秒）
+            g_set.childCloseMs = ReadInt(path, L"game", L"close_penalty_ms", kCloseNormalDefault);
+
             // 新增：硬核模式开关
             g_set.hardcore = ReadInt(path, L"game", L"hardcore", 0) != 0;
+
+            // 新增：假金币比例与三种形态权重
+            g_set.fakePercent   = ReadInt(path, L"game", L"fake_percent",    kDefaultFakePercent);
+            g_set.fakePrefixPct = ReadInt(path, L"game", L"fake_prefix_pct", kDefaultFakePrefixPct);
+            g_set.fakeSuffixPct = ReadInt(path, L"game", L"fake_suffix_pct", kDefaultFakeSuffixPct);
+            g_set.fakeBothPct   = ReadInt(path, L"game", L"fake_both_pct",   kDefaultFakeBothPct);
 
             // 新增：金币面额池（逗号分隔的整数串）
             {
@@ -274,12 +311,18 @@ namespace settings {
         Sanitize(g_set);
         g_idleMs = PickIdleMs();
 
-        elog::Write(L"[settings] bgm %d%% / sfx %d%% / master %d%% / safe %s / idle %d-%dms / gold %d / hardcore %s",
+        elog::Write(L"[settings] bgm %d%% / sfx %d%% / master %d%% / safe %s / idle %d-%dms / hardcore %s",
             g_set.bgmVol, g_set.sfxVol, g_set.masterVol,
             g_set.photosensitiveSafe ? L"on" : L"off",
             g_set.minMs, g_set.maxMs,
-            g_set.goldGoal,
             g_set.hardcore ? L"ON" : L"off");
+
+        // 赎金 / 关窗惩罚 / 假币那几项按**实际生效值**打（也就是夹过之后的），
+        // 手改 ini 写了个越界的数时，一眼就能看出程序实际用的是多少。
+        elog::Write(L"[settings] 赎金 %d（滑条值 %d，%s区间）/ 关窗惩罚 %dms（滑条值 %d）/ 假币 %d%%（前缀 %d / 后缀 %d / 都改 %d）",
+            GoldGoal(), g_set.goldGoal, g_set.hardcore ? L"硬核" : L"普通",
+            ChildCloseMs(), g_set.childCloseMs,
+            FakePercent(), FakePrefixPct(), FakeSuffixPct(), FakeBothPct());
 
         // 面额池一行单独打：条数不定，拼成一个短串更直观
         {
@@ -355,10 +398,30 @@ namespace settings {
     int MaxMs() { return g_set.maxMs; }
     int GoldGoal()
     {
-        // 硬核直接把赎金顶到 5000，**但不改写** g_set.goldGoal ——
-        // 用户自己调的那个值原样留着，关掉硬核就回到它。
-        return g_set.hardcore ? kHardcoreGoldGoal : g_set.goldGoal;
+        // 赎金目标**按模式夹**，而且这是唯一出口：
+        //   普通 -> [10, 1000]
+        //   硬核 -> [1000, 9999]（超过 9999 的部分直接砍掉）
+        //
+        // 不再像以前那样"硬核无视用户值强行 5000" —— 现在硬核也由用户调，
+        // 只是可选区间整段上移（见 setup_ui 里那条共用滑条）。
+        return g_set.hardcore
+            ? ClampInt(g_set.goldGoal, kGoldHardMin, kGoldHardMax)
+            : ClampInt(g_set.goldGoal, kGoldMin, kGoldMax);
     }
+
+    int ChildCloseMs()
+    {
+        // 同上，按模式夹上限：普通最多 18 秒，硬核最多 30 秒。0 是合法的
+        //（关窗口完全不扣时间）。
+        return g_set.hardcore
+            ? ClampInt(g_set.childCloseMs, kCloseMin, kCloseHardMax)
+            : ClampInt(g_set.childCloseMs, kCloseMin, kCloseNormalMax);
+    }
+
+    int FakePercent()   { return ClampInt(g_set.fakePercent,   kFakePctMin, kFakePctMax); }
+    int FakePrefixPct() { return ClampInt(g_set.fakePrefixPct, kFakePctMin, kFakePctMax); }
+    int FakeSuffixPct() { return ClampInt(g_set.fakeSuffixPct, kFakePctMin, kFakePctMax); }
+    int FakeBothPct()   { return ClampInt(g_set.fakeBothPct,   kFakePctMin, kFakePctMax); }
 
     bool Hardcore() { return g_set.hardcore; }
 

@@ -820,8 +820,19 @@ int Spawn(int goal)
     // 一开始我把两者算在同一个 made 上限里，结果是 90 个名额里被假币吃掉 31 个，
     // 真币只剩 59 枚 × 均值 75 ≈ 4425 < 5000 —— 整场根本付不清。
     // 假币是"混进来的陷阱"，不是"替代真币"，所以它另有预算、额外生成。
+    //
+    // 比例由设置里的「假金币比例」滑条控制：它**对标真金币**（maxCoins 的百分比），
+    // 所以拉满就是"真币多少枚、假币也多少枚"。
+    const int fakePct = settings::FakePercent();
     int fakeMade = 0;
-    const int fakeBudget = hc ? (maxCoins * settings::kHardcoreFakePercent / 100) : 0;
+    const int fakeBudget = hc ? (maxCoins * fakePct / 100) : 0;
+
+    // 假币内部三种形态的**权重**（不是必须凑 100 的百分比）：
+    // 按权重比例随机分配，三个全是 0 就干脆不出假币。
+    const int wPre = settings::FakePrefixPct();
+    const int wSuf = settings::FakeSuffixPct();
+    const int wBoth = settings::FakeBothPct();
+    const int wTotal = wPre + wSuf + wBoth;
 
     while (roundSum < target && made < maxCoins && guard < 900)
     {
@@ -841,14 +852,17 @@ int Spawn(int goal)
         const int token = g_nextTok++;
 
         // ---- 是不是假金币 ----
+        //   先按「假金币比例」掷一次；
+        //   中了再按三种形态的**权重**分配（权重和可以是任意值，
+        //   三个全是 0 就一枚假币都不出）。
         int fakeMask = 0;
-        if (fakeBudget > 0 && fakeMade < fakeBudget &&
-            (rand() % 100) < settings::kHardcoreFakePercent)
+        if (fakeBudget > 0 && fakeMade < fakeBudget && wTotal > 0 &&
+            (rand() % 100) < fakePct)
         {
-            const int r = rand() % 100;
-            if (r < settings::kFakePrefixOnlyPct)
+            const int r = rand() % wTotal;
+            if (r < wPre)
                 fakeMask = kFakePrefix;
-            else if (r < settings::kFakePrefixOnlyPct + settings::kFakeSuffixOnlyPct)
+            else if (r < wPre + wSuf)
                 fakeMask = kFakeSuffix;
             else
                 fakeMask = kFakePrefix | kFakeSuffix;   // 两个都污染，两种效果叠加

@@ -63,11 +63,11 @@ namespace {
     // **同时**主题曲开始线性渐隐。
     const DWORD kRiserLeadMs = 15000;
 
-    // 玩家每主动关掉一个勒索子窗口，勒索倒计时往前扣这么多。
-    // 这是给玩家的一条「别干等着」的出路 —— 也可以主动关窗口拖到超时，
-    // 关 9 个就直接触发没付清的跳杀。硬核下这个值换成 30 秒，
-    // 也就是关 6 个就必死（见 PHASE_CAUGHT 里的取值）。
-    const DWORD kChildCloseCreditMs = 10000;
+    // 玩家每主动关掉一个勒索子窗口，勒索倒计时往前扣多少 ——
+    // 现在是**可配置项**（settings 里那条「关窗惩罚时长」滑条）：
+    //   普通最多 18 秒，硬核最多 30 秒，0 = 不扣。
+    // 取值统一走 settings::ChildCloseMs()，在 PHASE_CAUGHT 里读一次定死。
+    // （原来这里写死 10 秒 / 硬核 30 秒。）
 
     // 全屏纯色底的配色
     const COLORREF kCenterVeil = RGB(0, 0, 0);
@@ -105,7 +105,7 @@ namespace {
     // 本轮勒索的总时长与"关一个子窗口扣多少"。
     // 以前是编译期常量，硬核要按设置切换，所以在进 PHASE_CAUGHT 时定下来。
     DWORD        g_ransomTotalMs = kCaughtMsNormal;
-    DWORD        g_childCreditMs = kChildCloseCreditMs;
+    DWORD        g_childCreditMs = 10000;   // 每轮在 PHASE_CAUGHT 里按设置定值
 
     // ---- 赎金目标的动态部分 ----
     // 假金币（面额数字被污染的那种）会把"未付的赎金"顶上去，
@@ -259,8 +259,7 @@ namespace {
             // 在这里定下来（而不是每帧读设置）是因为整场演出中途不允许切换模式，
             // 定一次之后倒计时、渐隐、riser、超时判定全都读这两个变量。
             g_ransomTotalMs = settings::Hardcore() ? kCaughtMsHard : kCaughtMsNormal;
-            g_childCreditMs = settings::Hardcore() ? (DWORD)settings::kHardcoreCloseCreditMs
-                : kChildCloseCreditMs;
+            g_childCreditMs = (DWORD)settings::ChildCloseMs();
             elog::Write(L"[director] 本轮倒计时 %lu 秒，关一个子窗口扣 %lu 秒，赎金目标 %d（硬核 %s）",
                 (unsigned long)(g_ransomTotalMs / 1000),
                 (unsigned long)(g_childCreditMs / 1000),

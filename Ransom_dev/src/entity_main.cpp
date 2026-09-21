@@ -421,17 +421,25 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int)
             demo.minMs = 800;
             demo.maxMs = 3600;
             demo.photosensitiveSafe = true;
-            demo.goldGoal = 750;      // 非默认值，让预览里能看到新滑条的位置
 
-            // 硬核开着的那一套（赎金滑块灰化锁死 5000 + 那行提示）。
-            // 想看普通态的排版就把这行改成 false —— 硬核这一屏才是
-            // 需要按像素核对的状态（灰化、读数被顶到 5000、珠子在最右端）。
+            // 硬核开着的那一套：赎金滑块的可选区间整段上移（1000-9999）、
+            // 关窗惩罚滑条到 30 秒上限、那四条假金币滑条解锁。
+            // 想看普通态的排版就把 hardcore 改成 false。
             demo.hardcore = true;
+            demo.goldGoal = 5000;             // 硬核段的中点附近
+            demo.childCloseMs = 30000;        // 顶到硬核上限
+            demo.fakePercent = 35;
+            demo.fakePrefixPct = 40;
+            demo.fakeSuffixPct = 40;
+            demo.fakeBothPct = 20;
             ok = setup_ui::DumpSettingsPreview(setupUi, demo, setupUiGrid) && ok;
         }
         if (noticeUi)
         {
-            ok = setup_ui::DumpNoticePreview(noticeUi, setupUiGrid) && ok;
+            // 同样按模式分流：硬核开着就导硬核那一屏（和实际演出会弹的一致）
+            ok = (settings::Hardcore()
+                    ? setup_ui::DumpHardcoreNoticePreview(noticeUi, setupUiGrid)
+                    : setup_ui::DumpNoticePreview(noticeUi, setupUiGrid)) && ok;
         }
 
         elog::Write(L"开场界面预览结束，成功=%d", (int)ok);
@@ -534,14 +542,21 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int)
 
             // 热键没注册成功的话，应急提示里那句「按这个键立刻停」
             // 就是假的。宁可少弹一屏，也不给一个空头承诺。
+            //
+            // 这一屏按模式分流：硬核走**专用警告**（内容、配色、按钮文案都不一样），
+            // 普通模式走原来那一屏。两屏共用同一套窗口实现，只是 g_mode 不同。
             if (panicHotkeyOk)
             {
-                const setup_ui::Verdict v2 =
-                    setup_ui::ShowSafetyNotice(hInst, kPanicVK);
+                const bool hc = settings::Hardcore();
+
+                const setup_ui::Verdict v2 = hc
+                    ? setup_ui::ShowHardcoreNotice(hInst, kPanicVK)
+                    : setup_ui::ShowSafetyNotice(hInst, kPanicVK);
 
                 if (v2 == setup_ui::VERDICT_ABORT)
                 {
-                    elog::Write(L"[main] 用户在应急提示里退出了，不演出");
+                    elog::Write(L"[main] 用户在%s里退出了，不演出",
+                        hc ? L"硬核模式警告" : L"应急提示");
                     audio::Stop();
                     UnregisterHotKey(hIpc, kHotkeyPanic);
                     DestroyWindow(hIpc);
