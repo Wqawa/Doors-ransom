@@ -2,7 +2,7 @@
 
 **中文** | [English](README.en.md)
 
-(已归档，请移步到大号仓库：https://github.com/Wqawa/Doors_RanSoM)
+
 
 把《DOORS》里的 **Ransom（A-90）遭遇战**做成一个真的会动你桌面的 Windows 整蛊程序。
 
