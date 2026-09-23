@@ -2,8 +2,6 @@
 
 [中文](README.md) | **English**
 
-(Archived. Please go to the main repository: https://github.com/Wqawa/Doors_RanSoM)
-
 A Windows prank program that turns the **Ransom (A-90) encounter** from *DOORS* into something that actually messes with your desktop.
 
 A face surfaces at a random spot on your screen → you have to freeze → a red stop sign flashes for the verdict:
@@ -12,6 +10,10 @@ every open program is swept into the taskbar, and you have 90 seconds to scrape 
 everything back — otherwise a jumpscare ends the show and the locked shortcuts go to the Recycle Bin.
 
 Written in C++20 with Win32 + GDI+. **All assets are embedded in the executable**, so the artifact is a single file.
+
+![The ransom phase: popups everywhere, a main window reading YOUR ITEMS HAVE BEEN ENCRYPTED, and the timer running](docs/screenshots/ransom-desktop.png)
+
+*The ransom phase, captured on a 1920 × 1080 desktop.*
 
 > ⚠️ **Read this first**: this program really does change your desktop — it moves icons, blocks right-clicks,
 > minimizes your windows, and on timeout throws shortcuts into the Recycle Bin. Every action is reversible;
@@ -97,7 +99,8 @@ requires a rebuild (this is deliberate: a single-file artifact is worth more).
 
 ## Running it
 
-Just double-click `Ransom_dev.exe`. It lurks for a few seconds and then the show starts.
+Just double-click `Ransom_dev.exe`. It shows the [setup window](#the-setup-window) first, lurks for a few
+seconds once you confirm, and then the show starts.
 
 **For a first run, look around in this order:**
 
@@ -112,13 +115,36 @@ Ransom_dev.exe --ui-preview preview.png --ui-grid
 Ransom_dev.exe
 ```
 
+## The setup window
+
+This is the first thing every launch shows you — **the settings window, not the show**. Every parameter for
+the run is decided here:
+
+![The setup window: photosensitivity notice, background music, sound effects, hardcore mode, time between jumpscares, ransom goal, child-window punishment, fake coin ratio, fake coin mix](docs/screenshots/setup.png)
+
+Top to bottom: photosensitivity notice → background music → sound effects → **hardcore mode** →
+time between jumpscares (random range) → ransom goal → child-window punishment duration →
+fake coin ratio → fake coin mix.
+
+After you press "start" there is one more **pre-show notice** (titled "emergency notice" in normal mode, and
+"hardcore mode warning" in hardcore): it echoes back the values you just chose and puts the escape hotkey
+`Ctrl + Alt + Shift + Q` front and centre. The show only begins once you press "I understand, start";
+"back one level" returns you to the settings.
+
+> The settings window grew more controls than fit on one screen: there is a **scrollbar on the right**.
+> With the wheel over a slider track you fine-tune that one row; over empty space you scroll the page.
+> The two buttons at the bottom are not part of the scroll region, so they are always visible.
+
+Parameters are stored in `%LOCALAPPDATA%\Ransom_dev\settings.ini`. To skip the setup window and start straight
+away with the previous values, use `--no-setup`.
+
 ## Safety valve and rollback
 
 Every place where the program touches your desktop has a way back:
 
 | Situation | How to get out |
 |---|---|
-| **Want to stop immediately, any time** | Press `Ctrl + Alt + Shift + Q` (a global hotkey, exempt from the movement check, so it never counts against you) |
+| **Want to stop immediately, any time** | Press `Ctrl + Alt + Shift + Q` (a global hotkey, exempt from the movement check, so it never counts against you. **In hardcore mode it still stops on the first press**) |
 | Gold shortcuts left behind | `Ransom_dev.exe --clean-gold` |
 | Shortcuts were sent to the Recycle Bin | `Ransom_dev.exe --restore` |
 | Windows we swept away did not come back | Every normal exit path **always restores them**; being force-killed from Task Manager does not — in that case just click them on the taskbar once |
@@ -126,6 +152,54 @@ Every place where the program touches your desktop has a way back:
 
 Every normal exit path (paid, timed out, safety-valve hotkey, window closed) will: restore the windows, delete
 every generated gold shortcut, and put the confiscated shortcuts back where they came from, following the manifest.
+
+## Hardcore mode
+
+There is a "hardcore mode" switch in the setup window (the window shakes when you turn it on).
+
+![The hardcore mode warning page: every value chosen for this run listed out before the show starts](docs/screenshots/hardcore-warning.png)
+
+*With hardcore mode on, the screen before the show lists the values you just picked — that screen is meant to
+be **read**, not decorated.*
+
+With it on, the run becomes:
+
+| Item | Normal | Hardcore |
+|---|---|---|
+| Ransom countdown | 90 seconds | **3 minutes** |
+| Ransom goal | adjustable 10 – 1000 (default 500) | adjustable **1000 – 9999** (default 5000; anything above 9999 is cut off) |
+| Gold denominations | 10 – 500 | **50 / 75 / 100** (about 74 genuine coins) |
+| Theme song | original (trimmed to 1:30) | **remix** (first 3:30, sped up without pitch change to 3:00) |
+| Popups | up to 14 at once | up to 22, and they **spawn against your mouse cursor** to block your clicks |
+| Closing a child window | adjustable 0 – 18 s (default 10 s) | adjustable 0 – 30 s (default 30 s); closing 6 kills the run |
+| Desktop lockdown | shortcuts only | also **randomly locks non-shortcut items** (folders / files) for 0.9 – 9 s, fading out green when they expire |
+| Where gold lands | desktop only | desktop **+ the top-level directory of every fixed drive** |
+| Fake coins | none | ratio adjustable **0 – 100%** (default 35%), plus a **dual-slider** track controlling the "prefix swapped / digits swapped / both swapped" mix |
+
+The safety valve stops on the first press **exactly as it does normally** — that is deliberate: no extra
+"press it twice" threshold is left in.
+
+Two things worth spelling out:
+
+- **Fake coins.** A share of the generated coins are counterfeits (35% by default, adjustable from 0 to 100%
+  in the settings). They are ordinary shortcuts whose *filename* has been rewritten with look-alike characters
+  (`Gold_50` → `G01d_5o`). Double-clicking one pays **nothing**; instead you take a punishment based on which
+  part was corrupted: with the `Gold` prefix swapped, the countdown loses "denomination × 0.1" seconds; with the
+  digits swapped, the unpaid ransom goes **up** by the denomination; with both swapped, both triggers fire at
+  once. The mix of those three forms is controlled by **a single dual-slider track** (the same mechanism as the
+  "time between jumpscares" row): two beads cut the 0 – 100 range into three segments —
+  **left red = prefix swapped, middle green = suffix swapped, right red = both swapped**. The third segment has
+  no bead of its own; it swallows whatever is left after the first two, which is why the three forms can never
+  all be zero at once (push both beads fully left and everything lands in "both swapped"). The ransom that gets
+  pushed up is **not permanent** — genuine coins you pick up afterwards go towards that debt first, and the
+  reading returns to its normal pace once it is paid off.
+- **No switching mid-run.** A run goes all the way through: whatever the settings say when it starts is what
+  this run uses.
+
+The switch lives in `%LOCALAPPDATA%\Ransom_dev\settings.ini` as `[game] hardcore=`. In hardcore the gold is
+scattered into the top-level folders of fixed drives such as `C:\` and `D:\`, so `--clean-gold` scans those
+locations too (the criteria are still "the target points at this program and the arguments contain
+`--pay`/`--token`", so it will not touch your own files).
 
 ## The show
 
@@ -153,7 +227,7 @@ IDLE ──> face surfaces at a random spot FACE ──> teleports to center CEN
                                     thank-you screen + full restore            jumpscare + shortcuts to the Recycle Bin
 ```
 
-The "you moved" check is generous: mouse movement beyond the tolerance (10 px by default) or any keypress gets
+The "you moved" check is generous: mouse movement beyond the tolerance (20 px by default) or any keypress gets
 you caught. `--tolerance N` loosens it.
 
 ## Command-line options
@@ -168,6 +242,8 @@ you caught. `--tolerance N` loosens it.
 | `--overlay-topmost` | Keep the overlay on top (by default it sits at the desktop layer and normal windows cover it) |
 | `--no-block-menu` | Do not block the right-click menu on encrypted icons (**for troubleshooting**) |
 | `--no-lockdown` | Do not minimize other programs during the ransom (**for troubleshooting**) |
+| `--no-guardian` | Do not start the two-process watchdog (for debugging; also skipped automatically when a debugger is attached) |
+| `--no-setup` | Do not show the setup window or the pre-show notice; start straight from `settings.ini` |
 | `--diag PATH` | Write the diagnostic log to a file. A GUI subsystem has no console, so this is how you debug |
 | `--face-demo MODE` | Show one face only: `idle` / `stop` / `attack` / `thanks` / `loading` |
 | `--face-dump DIR` | Export the procedurally generated faces to PNG and exit |
@@ -176,6 +252,9 @@ you caught. `--tolerance N` loosens it.
 | `--ui-preview PATH` | Render the ransom window layout to a PNG and exit (for tweaking the layout without running the show) |
 | `--ui-grid` | With `--ui-preview`, overlay a coordinate grid on the preview |
 | `--payup` | With `--ui-preview`, preview the payment screen layout instead |
+| `--setup-ui PATH` | Render the setup window to a PNG and exit (for tweaking the layout) |
+| `--notice-ui PATH` | Render the pre-show notice window to a PNG and exit |
+| `--setup-grid` | With either of the two above, overlay a coordinate grid on the preview |
 | `--fx-demo NAME PATH` | Export the effect layer to a PNG on its own: `glow` / `black` / `stop` |
 | `--clean-gold` | Just scan for and delete leftover gold shortcuts, then exit |
 | `--restore` | Restore confiscated shortcuts from the Recycle Bin using the manifest, then exit |
@@ -205,6 +284,9 @@ Ransom_dev.sln
 │     ├─ audio.cpp / audio_clip.cpp   mixing and decoding (ogg/mp3)
 │     ├─ assets.cpp / image_blob.cpp  reading the embedded assets
 │     ├─ entity_log.cpp         diagnostic log
+│     ├─ guardian.cpp           two-process watchdog: a normal exit signals Disarm, a force-kill is punished
+│     ├─ settings.cpp           parameter persistence (reading and writing settings.ini)
+│     ├─ setup_ui.cpp           the setup window + the pre-show notice (custom-drawn UI)
 │     └─ third_party/           stb_vorbis (ogg), minimp3 (mp3), inlined as source
 ├─ assets/                      assets (packed into the executable)
 │  ├─ main_window.ini           layout of the ransom window
@@ -212,7 +294,8 @@ Ransom_dev.sln
 │  ├─ image/  audio/            images and audio
 │  ├─ ransom.ico                application icon
 │  └─ dump/                     exported sample faces (safe to delete)
-└─ tools/gen_assets.ps1         scans assets\ and generates the resource manifest
+├─ tools/gen_assets.ps1         scans assets\ and generates the resource manifest
+└─ docs/screenshots/            screenshots used by the READMEs (not built, never packed into the exe)
 ```
 
 ## A few design trade-offs (and why)
