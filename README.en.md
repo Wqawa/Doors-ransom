@@ -2,6 +2,8 @@
 
 [中文](README.md) | **English**
 
+🎨 **[Gallery](GALLERY.md)** — fan art drawn by the author for this project.
+
 A Windows prank program that turns the **Ransom (A-90) encounter** from *DOORS* into something that actually messes with your desktop.
 
 A face surfaces at a random spot on your screen → you have to freeze → a red stop sign flashes for the verdict:
@@ -15,7 +17,6 @@ Written in C++20 with Win32 + GDI+. **All assets are embedded in the executable*
 
 *The ransom phase, captured on a 1920 × 1080 desktop.*
 
-🎨 **[Gallery](GALLERY.md)** — fan art drawn by the author for this project.
 
 > ⚠️ **Read this first**: this program really does change your desktop — it moves icons, blocks right-clicks,
 > minimizes your windows, and on timeout throws shortcuts into the Recycle Bin. Every action is reversible;
