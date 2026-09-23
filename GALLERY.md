@@ -12,8 +12,8 @@
 
 | # | 预览 | 标题 | 文件 |
 |---|---|---|---|
-| 01 | <img src="docs/gallery/art-01.png" width="140" alt="art-01"> | 可爱的A90！！ | `docs/gallery/art-01.png` |
-| 02 | <img src="docs/gallery/art-02.png" width="140" alt="art-02"> | A1——F | `docs/gallery/art-02.png` |
+| 01 | <img src="docs/gallery/art-01.png" width="140" alt="art-01"> | A90！！ | `docs/gallery/art-01.png` |
+| 02 | <img src="docs/gallery/art-02.png" width="140" alt="art-02"> | A1—F | `docs/gallery/art-02.png` |
 | 03 | <img src="docs/gallery/art-03.jpg" width="140" alt="art-03"> | RedLight | `docs/gallery/art-03.jpg` |
 
 ---
@@ -26,9 +26,9 @@
 
 **描述**：可爱的A90！！
 
-**Title**: TBD
+**Title**: A-90!!
 
-**Description**: TBD
+**Description**: A cute A-90!!
 
 ---
 
@@ -36,13 +36,13 @@
 
 <img src="docs/gallery/art-02.png" width="760" alt="art-02">
 
-**标题**：A1——F
+**标题**：A1—F
 
 **描述**：我自己的A120&A200(Rooms&Doors)结合体的设子
 
-**Title**: TBD
+**Title**: A1—F
 
-**Description**: TBD
+**Description**: My own character design — a fusion of A-120 & A-200 (Rooms & Doors).
 
 ---
 
@@ -54,9 +54,9 @@
 
 **描述**：A90上级(老板大概吧)，我自己的私人形象，素身(龙龙~)
 
-**Title**: TBD
+**Title**: RedLight
 
-**Description**: TBD
+**Description**: A-90's superior (his boss, probably) — and my own personal avatar, in his natural unclothed form (a little dragon~).
 
 ---
 
