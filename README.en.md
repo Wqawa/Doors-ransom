@@ -2,7 +2,7 @@
 
 [中文](README.md) | **English**
 
-
+(Archived. Please go to the main repository: https://github.com/Wqawa/Doors_RanSoM)
 
 A Windows prank program that turns the **Ransom (A-90) encounter** from *DOORS* into something that actually messes with your desktop.
 
