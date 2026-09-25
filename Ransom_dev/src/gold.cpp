@@ -71,6 +71,63 @@ bool g_started = false;
 std::wstring g_iconPath;
 std::wstring g_honeyIconPath;
 
+// ---- 假金币专用图标 ----
+//
+// 三种污染形态**各一套 5 张**图，名字里的 Left / Right / All 就是形态：
+//   Left  = 前缀 "Gold" 被改坏      （kFakePrefix）
+//   Right = 面额数字被改坏          （kFakeSuffix）
+//   All   = 两个都改坏              （kFakePrefix | kFakeSuffix）
+//
+// 每套 5 张、生成时随机挑一张：否则一屏假币长得一模一样，玩家扫一眼就知道
+// "这几张是一伙的"。三套分开则是让图**和名字对得上** —— 前缀坏掉的那张，
+// 图上坏的就是左边那截。
+//
+// 转换（PNG -> 缓存 .ico）是**懒加载**：第一次真的要摆出某一形态的假币时，
+// 才把那套图里的某一张转出来。硬核没开、或者假币比例是 0 的时候，
+// 这 15 张图一点开销都不产生，启动也不会因此变慢。
+const int kFakeIconKinds    = 3;    // Left / Right / All
+const int kFakeIconVariants = 5;    // 每套几张
+
+const wchar_t* kFakeIconPng[kFakeIconKinds][kFakeIconVariants] = {
+    {
+        L"Gold_icon_Left_Glich1.png", L"Gold_icon_Left_Glich2.png",
+        L"Gold_icon_Left_Glich3.png", L"Gold_icon_Left_Glich4.png",
+        L"Gold_icon_Left_Glich5.png",
+    },
+    {
+        L"Gold_icon_Right_Glich1.png", L"Gold_icon_Right_Glich2.png",
+        L"Gold_icon_Right_Glich3.png", L"Gold_icon_Right_Glich4.png",
+        L"Gold_icon_Right_Glich5.png",
+    },
+    {
+        L"Gold_icon_All_Glich1.png", L"Gold_icon_All_Glich2.png",
+        L"Gold_icon_All_Glich3.png", L"Gold_icon_All_Glich4.png",
+        L"Gold_icon_All_Glich5.png",
+    },
+};
+
+// 缓存到 %LOCALAPPDATA%\Ransom_dev\ 下的 .ico 名。和真币那两个（gold_coin.ico /
+// honey_pot.ico）分开，互不覆盖。
+const wchar_t* kFakeIconIco[kFakeIconKinds][kFakeIconVariants] = {
+    {
+        L"gold_fake_left1.ico", L"gold_fake_left2.ico", L"gold_fake_left3.ico",
+        L"gold_fake_left4.ico", L"gold_fake_left5.ico",
+    },
+    {
+        L"gold_fake_right1.ico", L"gold_fake_right2.ico", L"gold_fake_right3.ico",
+        L"gold_fake_right4.ico", L"gold_fake_right5.ico",
+    },
+    {
+        L"gold_fake_all1.ico", L"gold_fake_all2.ico", L"gold_fake_all3.ico",
+        L"gold_fake_all4.ico", L"gold_fake_all5.ico",
+    },
+};
+
+// 生成结果（空串 = 这一张用不了）。tried 用来"只试一次"：
+// 素材缺了就是一直缺，不必每枚假币都去撞一遍文件系统。
+std::wstring g_fakeIcon[kFakeIconKinds][kFakeIconVariants];
+bool g_fakeIconTried[kFakeIconKinds][kFakeIconVariants] = {};
+
 // 面额**超过**这个值就换成蜂蜜罐图标。500 本身还是金币。
 // 想改分界线改这里：想让 500 也变蜂蜜罐就写 499；想更宽松写 999。
 const int kHoneyIconThreshold = 499;
@@ -611,6 +668,37 @@ std::wstring EnsureIcon(const wchar_t* pngName, const wchar_t* icoName)
     return ico;
 }
 
+// 假币的三种污染形态 -> 上面那三套图的下标。不是假币返回 -1。
+int FakeIconSlot(int mask)
+{
+    if (mask == kFakePrefix)                  return 0;   // Left
+    if (mask == kFakeSuffix)                  return 1;   // Right
+    if (mask == (kFakePrefix | kFakeSuffix))  return 2;   // All
+    return -1;
+}
+
+// 按污染形态随机挑一张假币图标（第一次用到时把那张 PNG 转成 .ico 缓存）。
+//
+// 返回空串 = 这一套用不了（素材包里没有 / ico 写不出去），调用方退回真币图标，
+// 不影响金币生成。**注意返回的是常引用**：调用处要拷贝一份再改。
+const std::wstring& PickFakeIcon(int mask)
+{
+    static const std::wstring kNone;
+
+    const int slot = FakeIconSlot(mask);
+    if (slot < 0) return kNone;
+
+    const int v = rand() % kFakeIconVariants;
+    if (!g_fakeIconTried[slot][v])
+    {
+        // 只试一次：素材缺了就一直缺，没必要每枚假币都撞一遍
+        g_fakeIconTried[slot][v] = true;
+        g_fakeIcon[slot][v] =
+            EnsureIcon(kFakeIconPng[slot][v], kFakeIconIco[slot][v]);
+    }
+    return g_fakeIcon[slot][v];
+}
+
 // 是不是我们造的金币？
 // 判据很严：目标必须是本程序本体，参数必须同时含 --pay 和 --token。
 // 你自己的快捷方式目标是别的程序，永远不会被误判。
@@ -734,10 +822,13 @@ bool Start(HINSTANCE /*hInst*/)
     //   面额 <= 500 -> 金币    (Gold_icon.png       -> gold_coin.ico)
     //   面额 >  500 -> 蜂蜜罐  (Honey_Pot_icon.png -> honey_pot.ico)
     // 各自缓存、互不影响。任一失败都不致命——那部分快捷方式退回默认图标。
+    //
+    // 假币那三套图（Left / Right / All 各 5 张）**不在这里生成**：它们是懒加载的
+    // （见 PickFakeIcon），省掉"硬核没开也要转 15 张图"的启动开销。
     g_iconPath = EnsureIcon(L"Gold_icon.png", L"gold_coin.ico");
     g_honeyIconPath = EnsureIcon(L"Honey_Pot_icon.png", L"honey_pot.ico");
 
-    elog::Write(L"[gold] 已就绪（本体 %s，金币图标 %s，蜂蜜罐图标 %s）",
+    elog::Write(L"[gold] 已就绪（本体 %s，金币图标 %s，蜂蜜罐图标 %s，假币三套图按需生成）",
         g_exePath.c_str(),
         g_iconPath.empty() ? L"无" : g_iconPath.c_str(),
         g_honeyIconPath.empty() ? L"无" : g_honeyIconPath.c_str());
@@ -886,12 +977,23 @@ int Spawn(int goal)
         wchar_t args[128];
         swprintf_s(args, L"--pay %d --token %d", amount, token);
 
-        // ---- 按面额挑图标 ----
-        // 大于 kHoneyIconThreshold（默认 500）的用蜂蜜罐，其余用金币。
-        // 蜂蜜罐素材缺失时 g_honeyIconPath 是空串，这里会自然退回金币图标——
-        // 不写额外的 fallback 分支，读起来更直白。
-        const std::wstring& iconPath =
-            (amount > kHoneyIconThreshold && !g_honeyIconPath.empty())
+        // ---- 挑图标 ----
+        // 假币优先：按污染形态（Left / Right / All）从那套 5 张里随机挑一张。
+        // 挑不出来（素材缺了）就往下走，退回真币那套图标——不写额外的分支，
+        // 空串自然落到下面的判断上。
+        //
+        // 真币还是老规矩：面额 > kHoneyIconThreshold（默认 500）的用蜂蜜罐，
+        // 其余用金币。蜂蜜罐素材缺失时 g_honeyIconPath 是空串，也自然退回金币。
+        //
+        // 刻意**不给假币留"面额大就用蜂蜜罐"的口子**：假币只在硬核下出现，
+        // 而硬核的面额池是 50/75/100，本来就到不了那个分界线；退一步说，
+        // 就算将来把假币放进普通模式，图上更该"看得出是假的"而不是"看得出很值钱"。
+        std::wstring iconPath;
+        if (fakeMask)
+            iconPath = PickFakeIcon(fakeMask);
+
+        if (iconPath.empty())
+            iconPath = (amount > kHoneyIconThreshold && !g_honeyIconPath.empty())
             ? g_honeyIconPath
             : g_iconPath;
 
@@ -940,8 +1042,11 @@ int Spawn(int goal)
     for (size_t i = 0; i < g_coins.size() && i < 20; ++i)
         elog::Write(L"[gold]    %d  %s  [%s%s]",
             g_coins[i].amount, g_coins[i].path.c_str(),
-            (g_coins[i].amount > kHoneyIconThreshold && !g_honeyIconPath.empty())
-            ? L"蜂蜜罐" : L"金币",
+            g_coins[i].fakeMask
+            ? ((g_coins[i].fakeMask == (kFakePrefix | kFakeSuffix)) ? L"假币图(All)"
+               : (g_coins[i].fakeMask == kFakePrefix ? L"假币图(Left)" : L"假币图(Right)"))
+            : ((g_coins[i].amount > kHoneyIconThreshold && !g_honeyIconPath.empty())
+                ? L"蜂蜜罐" : L"金币"),
             g_coins[i].fakeMask
             ? ((g_coins[i].fakeMask == (kFakePrefix | kFakeSuffix)) ? L"·假币(双重)"
                : (g_coins[i].fakeMask == kFakePrefix ? L"·假币(前缀)" : L"·假币(数字)"))
@@ -1003,6 +1108,17 @@ void Stop()
     g_started = false;
     g_iconPath.clear();
     g_honeyIconPath.clear();
+
+    // 假币那 15 张的缓存路径也清掉（磁盘上的 .ico 留着，下次命中哈希直接复用）。
+    // tried 一起复位：这一轮没转出来的图，下一轮还有机会再试一次。
+    for (int k = 0; k < kFakeIconKinds; ++k)
+    {
+        for (int v = 0; v < kFakeIconVariants; ++v)
+        {
+            g_fakeIcon[k][v].clear();
+            g_fakeIconTried[k][v] = false;
+        }
+    }
     elog::Write(L"[gold] 已停止");
 }
 

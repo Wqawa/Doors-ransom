@@ -85,7 +85,12 @@ namespace setup_ui {
 	//
 	// 前提：GDI+ 已初始化（调用点在 entity_main 里的 GDI+ 之后）。
 	// grid = true 会叠一层 20px 网格 + 每 100px 的坐标标注。
-	bool DumpSettingsPreview(const wchar_t* path, const settings::Set& s, bool grid);
+	//
+	// scroll = 内容区往上滚多少像素再画（默认 0 = 顶部）。设置项排到
+	// 视口外面之后，光看顶部那张图核对不了下面几行 —— 传一个滚动量，
+	// 导出的就是"用户把滚动条拖到那儿时看到的那一屏"。
+	bool DumpSettingsPreview(const wchar_t* path, const settings::Set& s,
+		bool grid, int scroll = 0);
 	bool DumpNoticePreview(const wchar_t* path, bool grid);
 	bool DumpHardcoreNoticePreview(const wchar_t* path, bool grid);
 

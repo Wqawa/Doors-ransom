@@ -105,10 +105,34 @@ namespace settings {
 	// 必须和硬核主题曲处理后的长度严格一致，见 audio.cpp 的 EditTheme。
 	const int kHardcoreRansomMs = 180000;
 
-	// 随机锁定桌面上的**非快捷方式**项：同时最多几个、时长范围、释放后的冷却。
-	const int kExtraLockMax = 9;
-	const int kExtraLockMinMs = 900;
-	const int kExtraLockMaxMs = 9000;
+	// ---- 硬核：同时最多几个勒索子窗口 ----
+	// 普通模式固定 14（popup.cpp 的 kMaxChildren，不走设置），只有硬核这一项
+	// 交给用户调。上限 30 是"再加下去窗口动画会被消息循环饿死"的界限：
+	// 每个子窗口都是一个独立的分层窗口 + 自己的定时器。
+	const int kHardPopupMin = 10;
+	const int kHardPopupMax = 30;
+	const int kDefaultHardPopupMax = 22;        // = 原来的 kHardMaxChildren
+
+	// ---- 硬核：贴着鼠标生成的"阻挡弹窗"的间隔（随机区间）----
+	// 只有硬核有这一路弹窗，所以这两个值也只在硬核下用。
+	// 界面上是一条两珠滑条：两珠落在同一个值上 = 固定间隔。
+	const int kCursorGapFloorMs = 900;          // 滑条左端 0.9 秒
+	const int kCursorGapCeilMs  = 18000;        // 滑条右端 18 秒
+	const int kDefaultCursorGapMinMs = 900;
+	const int kDefaultCursorGapMaxMs = 9000;
+
+	// ---- 硬核：随机锁定桌面上的**非快捷方式**项 ----
+	// 数量上限的硬顶是 90；但滑条实际能拖到的上界 = min(90, 桌面上真实存在
+	// 的非快捷方式条目数) —— 桌面上一共没那么多东西时，拖到 90 毫无意义。
+	// 见 ExtraLockCapacity()。
+	//
+	// 时长同样是"随机区间"，滑条两端 0.9~18 秒，两珠重合 = 固定时长。
+	const int kExtraLockCountCeil = 90;
+	const int kDefaultExtraLockCount = 9;       // = 原来的 kExtraLockMax
+	const int kExtraLockFloorMs = 900;          // 滑条左端 0.9 秒
+	const int kExtraLockCeilMs  = 18000;        // 滑条右端 18 秒
+	const int kDefaultExtraLockMinMs = 900;
+	const int kDefaultExtraLockMaxMs = 9000;
 	const int kExtraLockCooldownMs = 9000;
 
 	// 注：曾经打算让硬核下的安全阀"连按两次才退出"（T13），
@@ -156,6 +180,21 @@ namespace settings {
 		int  fakePrefixPct = kDefaultFakePrefixPct;
 		int  fakeSuffixPct = kDefaultFakeSuffixPct;
 		int  fakeBothPct = kDefaultFakeBothPct;
+
+		// ---- 硬核专属的四项（普通模式下原样存着、不生效）----
+		//
+		// 同时最多几个勒索子窗口（普通模式固定 14，这一项只在硬核下被读）。
+		int  hardPopupMax = kDefaultHardPopupMax;
+
+		// 贴鼠标那路"阻挡弹窗"的间隔随机区间（毫秒）。
+		int  cursorGapMinMs = kDefaultCursorGapMinMs;
+		int  cursorGapMaxMs = kDefaultCursorGapMaxMs;
+
+		// 同时最多锁几个桌面上的非快捷方式项（0 = 一个都不锁），
+		// 以及每项锁多久的随机区间（毫秒）。
+		int  extraLockCount = kDefaultExtraLockCount;
+		int  extraLockMinMs = kDefaultExtraLockMinMs;
+		int  extraLockMaxMs = kDefaultExtraLockMaxMs;
 
 		// 硬核模式。开着的时候下面这些全都换一套：
 		//   3 分钟倒计时 / 赎金 1000-9999（默认 5000）/ 面额 <=100 / 假金币 /
@@ -223,6 +262,36 @@ namespace settings {
 	int  FakePrefixPct();
 	int  FakeSuffixPct();
 	int  FakeBothPct();
+
+	// ---- 硬核专属四项（夹过之后的值，下游只读这几个）----
+
+	// 同时最多几个勒索子窗口，夹到 [kHardPopupMin, kHardPopupMax]。
+	int  HardPopupMax();
+
+	// 贴鼠标的阻挡弹窗的间隔区间（毫秒），夹到
+	// [kCursorGapFloorMs, kCursorGapCeilMs]，并保证 min <= max。
+	int  CursorGapMinMs();
+	int  CursorGapMaxMs();
+
+	// 同时最多锁几个桌面非快捷方式项。夹到 [0, ExtraLockCapacity()]。
+	int  ExtraLockCount();
+
+	// 桌面锁定时长区间（毫秒），夹到 [kExtraLockFloorMs, kExtraLockCeilMs]，
+	// 并保证 min <= max。
+	int  ExtraLockMinMs();
+	int  ExtraLockMaxMs();
+
+	// 数量上限的**动态上界** = min(90, 桌面上真实存在的非快捷方式条目数)。
+	// 界面滑条拿它当右端；桌面上一个能锁的东西都没有时返回 0
+	//（此时 ExtraLockCount() 也是 0，等于这个功能不生效）。
+	int  ExtraLockCapacity();
+
+	// 桌面上真实存在的非快捷方式条目数（用户桌面 + 公共桌面，去重，
+	// 跳过 .lnk/.url 和隐藏项）。诊断和界面提示文案用。
+	//
+	// 注意：**只在第一次调用时扫一遍盘**，之后返回缓存值 ——
+	// 它被绘制循环读到，不能每次重绘都去翻目录。
+	int  DesktopItemCount();
 
 	// 硬核模式开关。
 	bool Hardcore();

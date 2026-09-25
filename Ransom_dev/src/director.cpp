@@ -350,13 +350,15 @@ namespace {
             fx::SetNoise(0);
             fx::SetEdgeGlow(true, kLockGlow, kLockGlowStrength);
 
-            // 硬核的开局批更大（同时上限也提到 22，见 popup::BeginRansom）
+            // 硬核的开局批更大（同时上限由用户在设置里调，10-30，
+            // 见 settings::HardPopupMax() 与 popup::BeginRansom）
             popup::BeginRansom(settings::Hardcore() ? 12 : 8);
             overlay::SetLook(overlay::LOOK_LOCKED);
             overlay::SetVisible(true);
 
             // 硬核：除了快捷方式，再随机锁几个桌面上的非快捷方式项
-            // （0.9~9 秒，到点变绿淡出）。非硬核时这一行是空操作。
+            // （时长与数量上限都在设置里，默认为 0.9~9 秒、同时最多 9 个；
+            // 到点变绿淡出）。非硬核时这一行是空操作。
             overlay::SetExtraLockEnabled(settings::Hardcore());
 
             gold::Spawn(settings::GoldGoal());

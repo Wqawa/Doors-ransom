@@ -39,7 +39,8 @@ namespace {
     const DWORD kGapMaxEndMs = 6000;
 
     // ---- 硬核：弹窗更多、更黏人 ----
-    const int   kHardMaxChildren  = 22;
+    // 同时上限不再是常数：硬核下由用户在设置里调（10-30，见
+    // settings::HardPopupMax()），普通模式仍然是上面的 kMaxChildren。
     const DWORD kHardGapMinMs     = 3000;
     const DWORD kHardGapMaxMs     = 7000;
     const DWORD kHardGapMinEndMs  = 1500;
@@ -48,11 +49,13 @@ namespace {
     const DWORD kHardChildLifeMax = 6000;
 
     // "在鼠标位置生成、阻碍点击"的那一路弹窗：
-    // 尺寸比普通弹窗小一号（够盖住光标就行），活得短，**间隔 0.9~9 秒随机**。
+    // 尺寸比普通弹窗小一号（够盖住光标就行），活得短，**间隔由用户调**
+    // （设置里那条 0.9~18 秒的两珠滑条，默认 0.9~9 秒）。
     // 间隔跨度故意拉得很大：短的时候连着糊你两下，长的时候给你一段
     // 以为"这波过去了"的喘息——节奏不成规律才烦人。
-    const DWORD kHardCursorMinGapMs = 900;
-    const DWORD kHardCursorMaxGapMs = 9000;
+    // 下面这两个只是**默认值**，真正的取值在 BeginRansom 里按设置定下来。
+    const DWORD kDefaultCursorMinGapMs = 900;
+    const DWORD kDefaultCursorMaxGapMs = 9000;
     const DWORD kHardCursorLifeMin  = 1200;
     const DWORD kHardCursorLifeMax  = 2400;
     const int   kCursorPopW      = 150;
@@ -70,7 +73,17 @@ namespace {
     DWORD g_gapMaxEnd     = kGapMaxEndMs;
     DWORD g_childLifeMin  = kChildLifeMin;
     DWORD g_childLifeMax  = kChildLifeMax;
+    DWORD g_cursorGapMin  = kDefaultCursorMinGapMs;   // 鼠标位弹窗间隔（本轮定死）
+    DWORD g_cursorGapMax  = kDefaultCursorMaxGapMs;
     DWORD g_nextCursorPop = 0;      // 下一个"鼠标位阻碍弹窗"的时刻
+
+    // 在 [lo, hi] 里随机一个间隔。两珠重合（lo == hi）时返回 lo ——
+    // 不能直接 rand() % (hi - lo)，那样会除零。
+    DWORD RollGap(DWORD lo, DWORD hi)
+    {
+        if (hi <= lo) return lo;
+        return lo + (DWORD)(rand() % (hi - lo));
+    }
 
     // ---- 主窗口每隔一段时间换个位置 ----
     const DWORD kMainMoveMinMs = 6000;
@@ -370,7 +383,7 @@ namespace {
         // 两个 user 是分开的，互不干扰）。
         opt.onUserClose = &OnChildCloseClick;
         opt.onUserCloseUser = c;
-        // 子窗口开得多（硬核同时最多 22 个），重绘间隔要放宽，
+        // 子窗口开得多（硬核由用户设到 10-30 个），重绘间隔要放宽，
         // 否则消息循环被重绘压满，窗口动画会被饿住。
         // 100ms 对雪花/故障这种内容来说反而更像「信号不良」。
         opt.tickMs = 130;
@@ -546,8 +559,7 @@ namespace {
         // 等有窗口关掉之后自然又会冒。
         if (g_hardcore && (int)g_children.size() < g_maxChildren && now >= g_nextCursorPop)
         {
-            g_nextCursorPop = now + kHardCursorMinGapMs +
-                (DWORD)(rand() % (kHardCursorMaxGapMs - kHardCursorMinGapMs));
+            g_nextCursorPop = now + RollGap(g_cursorGapMin, g_cursorGapMax);
             SpawnChild(kHardCursorLifeMin +
                 (DWORD)(rand() % (kHardCursorLifeMax - kHardCursorLifeMin)), true);
         }
@@ -635,20 +647,21 @@ namespace popup {
         EndRansom();
 
         // ---- 定下本轮的节奏参数 ----
-        // 硬核：同时上限 22、波间隔更短、单窗活得更短、还要在鼠标位置冒弹窗。
-        // 在这里定一次，整轮不再变（演出中途不允许切换模式）。
+        // 硬核：同时上限来自设置（10-30，默认 22）、波间隔更短、单窗活得更短、
+        // 还要在鼠标位置冒弹窗。在这里定一次，整轮不再变（演出中途不允许切换模式）。
         g_hardcore = settings::Hardcore();
-        g_maxChildren = g_hardcore ? kHardMaxChildren : kMaxChildren;
+        g_maxChildren = g_hardcore ? settings::HardPopupMax() : kMaxChildren;
         g_gapMin = g_hardcore ? kHardGapMinMs : kGapMinMs;
         g_gapMax = g_hardcore ? kHardGapMaxMs : kGapMaxMs;
         g_gapMinEnd = g_hardcore ? kHardGapMinEndMs : kGapMinEndMs;
         g_gapMaxEnd = g_hardcore ? kHardGapMaxEndMs : kGapMaxEndMs;
         g_childLifeMin = g_hardcore ? kHardChildLifeMin : kChildLifeMin;
         g_childLifeMax = g_hardcore ? kHardChildLifeMax : kChildLifeMax;
-        // 第一个鼠标位弹窗也按同一条 0.9~9 秒的随机间隔排队，
+        g_cursorGapMin = (DWORD)(g_hardcore ? settings::CursorGapMinMs() : kDefaultCursorMinGapMs);
+        g_cursorGapMax = (DWORD)(g_hardcore ? settings::CursorGapMaxMs() : kDefaultCursorMaxGapMs);
+        // 第一个鼠标位弹窗也按同一条随机间隔排队（两端重合就是固定间隔），
         // 不搞"开场就糊一脸"的特殊待遇。
-        g_nextCursorPop = GetTickCount() + kHardCursorMinGapMs +
-            (DWORD)(rand() % (kHardCursorMaxGapMs - kHardCursorMinGapMs));
+        g_nextCursorPop = GetTickCount() + RollGap(g_cursorGapMin, g_cursorGapMax);
 
         // **一定要先切回主排版。**
         // 付完钱那套演出把 active 停在「付钱」排版上，不切回来的话，
@@ -700,6 +713,10 @@ namespace popup {
             (unsigned long)(g_gapMin / 1000), (unsigned long)(g_gapMax / 1000),
             (unsigned long)(g_childLifeMin / 1000), (unsigned long)(g_childLifeMax / 1000),
             g_hardcore ? L"，另有鼠标位阻碍弹窗" : L"");
+
+        if (g_hardcore)
+            elog::Write(L"[popup] 鼠标位阻碍弹窗：间隔 %lu-%lums（来自设置）",
+                (unsigned long)g_cursorGapMin, (unsigned long)g_cursorGapMax);
     }
 
     void EndRansom()

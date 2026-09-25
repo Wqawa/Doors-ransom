@@ -405,16 +405,17 @@ std::map<std::pair<LONG, LONG>, DWORD> g_frameNextBurst;
 
 // ============================================ 硬核：随机锁定"非快捷方式"
 //
-// 除了快捷方式，硬核还会随机挑几个桌面上的**文件夹 / 文件**锁上
-// 0.9~9 秒；到点后按"付清消散"那套**变绿 + 淡出**单独解锁。
+// 除了快捷方式，硬核还会随机挑几个桌面上的**文件夹 / 文件**锁上一段
+// 随机时长（设置里那条 0.9~18 秒的两珠滑条，默认 0.9~9 秒）；
+// 到点后按"付清消散"那套**变绿 + 淡出**单独解锁。
 //
 // 身份键和上面一样用方框的 (left, top)：桌面重排时不能拿下标当身份，
 // 数组每次重扫都可能重排，用下标会把 A 的计时挪到 B 身上。
 //
 // 每一项的走向（这三步合起来保证"同一个项不会被同时锁两次"）：
-//   没有记录 -> 新锁一个（同时最多 settings::kExtraLockMax 个）
+//   没有记录 -> 新锁一个（同时最多 settings::ExtraLockCount() 个）
 //   到了 unlockAt -> 进入变绿淡出窗口（kExtraFadeMs）
-//   淡出完 -> 进冷却（kExtraLockCooldownMs），冷却期内不再被选中
+//   淡出完 -> 进冷却（settings::kExtraLockCooldownMs），冷却期内不再被选中
 //
 // 生命周期：g_extraLockOn 为假、退出锁定态、付清消散开始时一律清空
 // （见 Render 开头那段和 OverlayTick 的复位分支）。
@@ -1885,7 +1886,14 @@ static void RefreshInternal(bool force)
         extraFade.assign(rects.size(), 0);
         fadeElapsed.assign(rects.size(), 0);
 
-        const int span = settings::kExtraLockMaxMs - settings::kExtraLockMinMs;
+        // 本轮的数量上限与时长区间**在这里读一次**（而不是在下面的循环里
+        // 逐项读）：这几个是 accessor，里面还要跟桌面实际条目数夹一道，
+        // 循环里每项调一次没必要。数量上限可能为 0（桌面上一个能锁的
+        // 非快捷方式项都没有），那种情况下整个循环等于空转。
+        const int  lockCount = settings::ExtraLockCount();
+        const int  lockMinMs = settings::ExtraLockMinMs();
+        const int  lockMaxMs = settings::ExtraLockMaxMs();
+        const int  durSpan = lockMaxMs - lockMinMs;
 
         for (size_t i = 0; i < others.size(); ++i)
         {
@@ -1910,10 +1918,10 @@ static void RefreshInternal(bool force)
             if (it == g_extraUnlockAt.end())
             {
                 // 新名额：满了就不再锁新的（map 的键天然保证"同一项不会被锁两次"）
-                if ((int)g_extraUnlockAt.size() >= settings::kExtraLockMax) continue;
+                if ((int)g_extraUnlockAt.size() >= lockCount) continue;
 
-                const DWORD life = (DWORD)settings::kExtraLockMinMs +
-                    ((span > 0) ? (DWORD)(rand() % (span + 1)) : 0);
+                const DWORD life = (DWORD)lockMinMs +
+                    ((durSpan > 0) ? (DWORD)(rand() % (durSpan + 1)) : 0);
                 g_extraUnlockAt[key] = now + life;
 
                 DLog(L"[overlay] 硬核：锁定桌面项 <%s> %.1f 秒",
@@ -2251,8 +2259,8 @@ void SetExtraLockEnabled(bool on)
 
     elog::Write(L"[overlay] 硬核的「随机锁非快捷方式」：%s（同时最多 %d 个，%d-%dms，释放后冷却 %dms）",
         on ? L"开" : L"关",
-        (int)settings::kExtraLockMax,
-        (int)settings::kExtraLockMinMs, (int)settings::kExtraLockMaxMs,
+        (int)settings::ExtraLockCount(),
+        (int)settings::ExtraLockMinMs(), (int)settings::ExtraLockMaxMs(),
         (int)settings::kExtraLockCooldownMs);
 
     if (g_hwnd) RefreshInternal(true);

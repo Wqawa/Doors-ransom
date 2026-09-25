@@ -17,6 +17,8 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cwchar>
+#include <cwctype>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -57,6 +59,75 @@ namespace {
         return v;
     }
 
+    // ---- 桌面上的"真实条目"计数 ----
+    //
+    // 「桌面锁定非快捷方式文件的数量上限」这条滑条的右端 = min(90, 这个数)：
+    // 桌面上一共就 N 个能锁的东西，滑条拖到 90 也锁不满。
+    //
+    // 口径尽量和 overlay 的候选名单对齐（见 desktop_overlay.cpp 的 g_allNames）：
+    //   * 只数**磁盘上真实存在**的条目 —— "此电脑""回收站"这类虚拟项本来就
+    //     不在磁盘上，天然不参与；
+    //   * 文件夹照数（它们同样是"非快捷方式"，同样会被锁）；
+    //   * .lnk / .url 不算 —— 那些走的是"已加密"那一套，不属于额外锁定；
+    //   * 隐藏项跳过（桌面列表视图默认也不显示，典型的就是 desktop.ini）；
+    //   * 用户桌面 + 公共桌面都数，重名只算一个。
+    //
+    // 结果是**一次扫描缓存到底**：它会被绘制循环读到，不能每帧翻目录。
+    int ScanDesktopItems()
+    {
+        const int kIds[2] = { CSIDL_DESKTOPDIRECTORY, CSIDL_COMMON_DESKTOPDIRECTORY };
+        std::set<std::wstring> seen;
+
+        for (int d = 0; d < 2; ++d)
+        {
+            wchar_t dir[MAX_PATH] = {};
+            if (FAILED(SHGetFolderPathW(nullptr, kIds[d], nullptr, 0, dir))) continue;
+            if (!dir[0]) continue;
+
+            std::wstring pattern = dir;
+            if (pattern.back() != L'\\') pattern += L'\\';
+            pattern += L'*';
+
+            WIN32_FIND_DATAW fd = {};
+            HANDLE h = FindFirstFileW(pattern.c_str(), &fd);
+            if (h == INVALID_HANDLE_VALUE) continue;
+
+            do
+            {
+                const std::wstring name = fd.cFileName;
+                if (name == L"." || name == L"..") continue;
+                if (fd.dwFileAttributes & FILE_ATTRIBUTE_HIDDEN) continue;
+
+                if (!(fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY))
+                {
+                    // 快捷方式（.lnk/.url）不算"非快捷方式"
+                    const size_t dot = name.find_last_of(L'.');
+                    if (dot != std::wstring::npos)
+                    {
+                        std::wstring ext = name.substr(dot);
+                        for (size_t i = 0; i < ext.size(); ++i)
+                            ext[i] = (wchar_t)towlower(ext[i]);
+                        if (ext == L".lnk" || ext == L".url") continue;
+                    }
+                }
+
+                std::wstring lower = name;
+                for (size_t i = 0; i < lower.size(); ++i)
+                    lower[i] = (wchar_t)towlower(lower[i]);
+                seen.insert(lower);
+
+                // 上限就 90，数够了没必要继续翻（桌面被塞满几千个文件时省点事）
+                if (seen.size() >= 400) break;
+            } while (FindNextFileW(h, &fd));
+
+            FindClose(h);
+        }
+
+        return (int)seen.size();
+    }
+
+    int g_desktopItems = -1;        // -1 = 还没数过
+
     // 把 Set 夹到合法范围。**所有**入口（ini、界面、命令行）都过这一关，
     // 免得下游还要各自防一手。
     void Sanitize(settings::Set& s)
@@ -92,6 +163,39 @@ namespace {
         s.fakePrefixPct = ClampInt(s.fakePrefixPct, settings::kFakePctMin, settings::kFakePctMax);
         s.fakeSuffixPct = ClampInt(s.fakeSuffixPct, settings::kFakePctMin, settings::kFakePctMax);
         s.fakeBothPct   = ClampInt(s.fakeBothPct,   settings::kFakePctMin, settings::kFakePctMax);
+
+        // ---- 硬核那四项 ----
+        // 数量上限这里只夹到"硬顶 90"：真正的动态上界要看桌面上有几个能锁的
+        // 东西，那一步在 ExtraLockCount() 里做（Sanitize 会被界面每帧调到，
+        // 不能在这里翻目录）。
+        s.hardPopupMax = ClampInt(s.hardPopupMax,
+            settings::kHardPopupMin, settings::kHardPopupMax);
+
+        s.cursorGapMinMs = ClampInt(s.cursorGapMinMs,
+            settings::kCursorGapFloorMs, settings::kCursorGapCeilMs);
+        s.cursorGapMaxMs = ClampInt(s.cursorGapMaxMs,
+            settings::kCursorGapFloorMs, settings::kCursorGapCeilMs);
+
+        s.extraLockCount = ClampInt(s.extraLockCount, 0, settings::kExtraLockCountCeil);
+        s.extraLockMinMs = ClampInt(s.extraLockMinMs,
+            settings::kExtraLockFloorMs, settings::kExtraLockCeilMs);
+        s.extraLockMaxMs = ClampInt(s.extraLockMaxMs,
+            settings::kExtraLockFloorMs, settings::kExtraLockCeilMs);
+
+        // 同 idle：上下限写反了就交换，而不是拒绝 —— 用户拖过去时想要的是
+        // 「那一段区间」，不是一句报错。
+        if (s.cursorGapMinMs > s.cursorGapMaxMs)
+        {
+            const int t = s.cursorGapMinMs;
+            s.cursorGapMinMs = s.cursorGapMaxMs;
+            s.cursorGapMaxMs = t;
+        }
+        if (s.extraLockMinMs > s.extraLockMaxMs)
+        {
+            const int t = s.extraLockMinMs;
+            s.extraLockMinMs = s.extraLockMaxMs;
+            s.extraLockMaxMs = t;
+        }
 
         // ---- 面额池 ----
         // 空 -> 填默认。非空 -> 逐项夹到 [1, 100000]、排序、去重、截断。
@@ -206,7 +310,25 @@ namespace {
             L"; gold face values, comma-separated. Any positive integers.\n"
             L"; Duplicates and order are normalized on load (sorted, deduped).\n"
             L"; e.g. 10,50,75,100,125,150,325,500\n"
-            L"coin_amounts=%s\n",
+            L"coin_amounts=%s\n"
+            L"\n"
+            L"[hardcore]\n"
+            L"; Everything below only matters while hardcore=1 in [game].\n"
+            L"; Max ransom child windows alive at once, 10-30 (normal mode is fixed\n"
+            L"; at 14 and does not read this).\n"
+            L"popup_max=%d\n"
+            L"; Interval between the popups that spawn right on your mouse cursor\n"
+            L"; (they exist to block clicking), min-max in milliseconds, 900-18000.\n"
+            L"; min == max means a fixed interval.\n"
+            L"cursor_gap_min=%d\n"
+            L"cursor_gap_max=%d\n"
+            L"; Random locks on non-shortcut desktop items: how many may be locked at\n"
+            L"; once (0-90; the UI cap is also limited by how many lockable items the\n"
+            L"; desktop really has), and how long each one stays locked, min-max in\n"
+            L"; milliseconds, 900-18000. min == max means a fixed duration.\n"
+            L"desk_lock_count=%d\n"
+            L"desk_lock_min_ms=%d\n"
+            L"desk_lock_max_ms=%d\n",
             s.bgmVol, s.sfxVol, s.masterVol,
             s.photosensitiveSafe ? 1 : 0,
             s.minMs, s.maxMs,
@@ -214,7 +336,10 @@ namespace {
             s.childCloseMs,
             s.hardcore ? 1 : 0,
             s.fakePercent, s.fakePrefixPct, s.fakeSuffixPct, s.fakeBothPct,
-            pool.c_str());
+            pool.c_str(),
+            s.hardPopupMax,
+            s.cursorGapMinMs, s.cursorGapMaxMs,
+            s.extraLockCount, s.extraLockMinMs, s.extraLockMaxMs);
 
         FILE* f = nullptr;
         if (_wfopen_s(&f, path.c_str(), L"wb") != 0 || !f) return false;
@@ -271,6 +396,20 @@ namespace settings {
             g_set.fakeSuffixPct = ReadInt(path, L"game", L"fake_suffix_pct", kDefaultFakeSuffixPct);
             g_set.fakeBothPct   = ReadInt(path, L"game", L"fake_both_pct",   kDefaultFakeBothPct);
 
+            // 新增：[hardcore] 硬核专属四项（旧 ini 里没有这一段，落到默认值）
+            g_set.hardPopupMax  = ReadInt(path, L"hardcore", L"popup_max",
+                kDefaultHardPopupMax);
+            g_set.cursorGapMinMs = ReadInt(path, L"hardcore", L"cursor_gap_min",
+                kDefaultCursorGapMinMs);
+            g_set.cursorGapMaxMs = ReadInt(path, L"hardcore", L"cursor_gap_max",
+                kDefaultCursorGapMaxMs);
+            g_set.extraLockCount = ReadInt(path, L"hardcore", L"desk_lock_count",
+                kDefaultExtraLockCount);
+            g_set.extraLockMinMs = ReadInt(path, L"hardcore", L"desk_lock_min_ms",
+                kDefaultExtraLockMinMs);
+            g_set.extraLockMaxMs = ReadInt(path, L"hardcore", L"desk_lock_max_ms",
+                kDefaultExtraLockMaxMs);
+
             // 新增：金币面额池（逗号分隔的整数串）
             {
                 wchar_t raw[512] = { 0 };
@@ -323,6 +462,12 @@ namespace settings {
             GoldGoal(), g_set.goldGoal, g_set.hardcore ? L"硬核" : L"普通",
             ChildCloseMs(), g_set.childCloseMs,
             FakePercent(), FakePrefixPct(), FakeSuffixPct(), FakeBothPct());
+
+        elog::Write(L"[settings] 硬核专属：弹窗上限 %d（滑条值 %d）/ 阻挡弹窗间隔 %d-%dms / 桌面锁定 %d 个（滑条值 %d，桌面上限 %d）%d-%dms",
+            HardPopupMax(), g_set.hardPopupMax,
+            CursorGapMinMs(), CursorGapMaxMs(),
+            ExtraLockCount(), g_set.extraLockCount, ExtraLockCapacity(),
+            ExtraLockMinMs(), ExtraLockMaxMs());
 
         // 面额池一行单独打：条数不定，拼成一个短串更直观
         {
@@ -422,6 +567,70 @@ namespace settings {
     int FakePrefixPct() { return ClampInt(g_set.fakePrefixPct, kFakePctMin, kFakePctMax); }
     int FakeSuffixPct() { return ClampInt(g_set.fakeSuffixPct, kFakePctMin, kFakePctMax); }
     int FakeBothPct()   { return ClampInt(g_set.fakeBothPct,   kFakePctMin, kFakePctMax); }
+
+    // ---- 硬核专属四项 ----
+    // 这四个都**不做模式判断**：读它们的只有硬核那几条路径（popup 的
+    // 鼠标位弹窗 / 子窗口上限、overlay 的额外锁定），普通模式下没人调。
+    int HardPopupMax()
+    {
+        return ClampInt(g_set.hardPopupMax, kHardPopupMin, kHardPopupMax);
+    }
+
+    int CursorGapMinMs()
+    {
+        const int a = ClampInt(g_set.cursorGapMinMs, kCursorGapFloorMs, kCursorGapCeilMs);
+        const int b = ClampInt(g_set.cursorGapMaxMs, kCursorGapFloorMs, kCursorGapCeilMs);
+        return (a < b) ? a : b;
+    }
+
+    int CursorGapMaxMs()
+    {
+        const int a = ClampInt(g_set.cursorGapMinMs, kCursorGapFloorMs, kCursorGapCeilMs);
+        const int b = ClampInt(g_set.cursorGapMaxMs, kCursorGapFloorMs, kCursorGapCeilMs);
+        return (a > b) ? a : b;
+    }
+
+    int DesktopItemCount()
+    {
+        // 只扫一次：这个数被界面绘制循环读，不能每帧翻目录。
+        // 演出期间桌面多出几个文件不会重扫 —— 它只影响"滑条能拖多高"，
+        // 不影响演出本身（真正锁多少由 overlay 按候选名单自己收口）。
+        if (g_desktopItems < 0)
+        {
+            g_desktopItems = ScanDesktopItems();
+            elog::Write(L"[settings] 桌面上可锁的非快捷方式条目：%d 项（数量上限滑条右端 = %d）",
+                g_desktopItems,
+                (g_desktopItems > kExtraLockCountCeil) ? kExtraLockCountCeil : g_desktopItems);
+        }
+        return g_desktopItems;
+    }
+
+    int ExtraLockCapacity()
+    {
+        const int n = DesktopItemCount();
+        return (n > kExtraLockCountCeil) ? kExtraLockCountCeil : n;
+    }
+
+    int ExtraLockCount()
+    {
+        // 夹到"桌面上真有几个能锁的"为止：手改 ini 写了 90，而桌面上只有
+        // 8 个非快捷方式项时，实际同时最多只能锁 8 个。
+        return ClampInt(g_set.extraLockCount, 0, ExtraLockCapacity());
+    }
+
+    int ExtraLockMinMs()
+    {
+        const int a = ClampInt(g_set.extraLockMinMs, kExtraLockFloorMs, kExtraLockCeilMs);
+        const int b = ClampInt(g_set.extraLockMaxMs, kExtraLockFloorMs, kExtraLockCeilMs);
+        return (a < b) ? a : b;
+    }
+
+    int ExtraLockMaxMs()
+    {
+        const int a = ClampInt(g_set.extraLockMinMs, kExtraLockFloorMs, kExtraLockCeilMs);
+        const int b = ClampInt(g_set.extraLockMaxMs, kExtraLockFloorMs, kExtraLockCeilMs);
+        return (a > b) ? a : b;
+    }
 
     bool Hardcore() { return g_set.hardcore; }
 

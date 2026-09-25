@@ -242,6 +242,8 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int)
     //   --setup-ui PATH        把启动设置窗口渲染成 PNG 后退出（调排版用）
     //   --notice-ui PATH       把应急提示窗口渲染成 PNG 后退出
     //   --setup-grid           配合上面两个，预览图叠坐标网格
+    //   --setup-scroll N       配合 --setup-ui：先把内容区往上滚 N 像素再导，
+    //                          用来核对视口外（需要滚动才看得到）的那几行
     //   --fx-demo NAME PATH    设置 fx 图层状态并把它单独导成 PNG 后退出。
     //                          NAME：glow（四角红光）/ black（黑幕+雪花）/ stop（亮红幕）
     //   --image-dir DIR        覆盖图片素材目录（默认自动找 assets\image）
@@ -273,6 +275,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int)
     const wchar_t* setupUi     = nullptr;
     const wchar_t* noticeUi    = nullptr;
     bool           setupUiGrid = false;
+    int            setupUiScroll = 0;      // --setup-scroll N：导出时先滚 N 像素
     const wchar_t* fxDemo      = nullptr;
     const wchar_t* fxDump      = nullptr;
     const wchar_t* audioDir    = nullptr;
@@ -308,6 +311,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int)
         else if (_wcsicmp(a, L"--setup-ui")   == 0 && hasNext) setupUi = __wargv[++i];
         else if (_wcsicmp(a, L"--notice-ui")  == 0 && hasNext) noticeUi = __wargv[++i];
         else if (_wcsicmp(a, L"--setup-grid") == 0)            setupUiGrid = true;
+        else if (_wcsicmp(a, L"--setup-scroll") == 0 && hasNext) setupUiScroll = _wtoi(__wargv[++i]);
         else if (_wcsicmp(a, L"--fx-demo")    == 0 && hasNext) fxDemo = __wargv[++i];
         else if (_wcsicmp(a, L"--fx-dump")    == 0 && hasNext) fxDump = __wargv[++i];
         else if (_wcsicmp(a, L"--audio-dir")  == 0 && hasNext) { audioDir = __wargv[++i]; assets::UseDiskDir(assets::KIND_AUDIO, audioDir); }
@@ -457,7 +461,16 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int)
             demo.fakePrefixPct = 40;
             demo.fakeSuffixPct = 40;
             demo.fakeBothPct = 20;
-            ok = setup_ui::DumpSettingsPreview(setupUi, demo, setupUiGrid) && ok;
+            // 后加的四条硬核滑条：也挑非默认值，免得预览里看着像没接上。
+            // 桌面锁定数量那条的右端是动态的（按桌面实有项数），这里给个
+            // 中段值就够了。
+            demo.hardPopupMax = 26;
+            demo.cursorGapMinMs = 2000;
+            demo.cursorGapMaxMs = 12000;
+            demo.extraLockCount = 6;
+            demo.extraLockMinMs = 1500;
+            demo.extraLockMaxMs = 9000;
+            ok = setup_ui::DumpSettingsPreview(setupUi, demo, setupUiGrid, setupUiScroll) && ok;
         }
         if (noticeUi)
         {
