@@ -60,68 +60,81 @@ using namespace Gdiplus;
 namespace {
 
     // ========================================================================
-    //  配色 —— 真正的定义已经搬进 aero::ui::DefaultTheme()
+    //  统一配色表 —— 想换风格只改这一块
     // ========================================================================
     //
-    //  这里只是把主题的字段转成本地常量名，好让下面几百行绘制代码一行都不用改。
-    //  **想改配色请去 aero_window.cpp 的 aero::ui::DefaultTheme()**（方案 v3：
-    //  中性灰 + 纯红；底板 alpha 240，桌面只贡献 6%）。
+    //  方案 v3 —— 中性灰 + 纯红
     //
-    //   底板     ■ #121212  近黑中性灰（alpha 240）   描边 ■ #505050 中性灰
-    //   文字四级 ■ #F5F5F5 标签 / #DCDCDC 说明 / #A5A5A5 数值 / #828282 刻度
-    //   强调     ■ #FF0000  纯红（和 A-90 停牌的红同源）
-    //   滑条     ■ #2D2D2D 滑槽 / ■ #FF0000 已选段 / ○ #F5F5F5 滑块
-    //   假币条   ■ #FF0000 红段 / ■ #28C83C 绿段
-    const aero::ui::Theme& g_th = aero::ui::DefaultTheme();
+    //  三条设计原则：
+    //
+    //   * **背景 / 文字全部中性灰**（R = G = B），不带任何暖色或冷色倾向。
+    //   * **强调色是纯红 (255,0,0)**，和 A-90 停牌的红同源。
+    //   * 底板 alpha 240：桌面只贡献 6%，明度关系可控。
+    //
+    //  ---- 速查 ----
+    //
+    //   底板     ■ #121212  近黑中性灰（alpha 240）
+    //   描边     ■ #505050  中性灰
+    //
+    //   文字四级（全部 R=G=B）
+    //            ■ #F5F5F5  标签 / 标题
+    //            ■ #DCDCDC  说明文字
+    //            ■ #A5A5A5  数值
+    //            ■ #828282  刻度
+    //
+    //   强调     ■ #FF0000  纯红
+    //   滑条     ■ #2D2D2D  滑槽 / ■ #FF0000 已选段 / ○ #F5F5F5 滑块
+    //   假币条   ■ #FF0000  红段 / ■ #28C83C 绿段
+    // ========================================================================
 
     // ---- 底板 ----
-    const Color kPanelBg   = g_th.panelBg;
-    const Color kPanelEdge = g_th.panelEdge;
+    const Color kPanelBg(240, 18, 18, 18);
+    const Color kPanelEdge(90, 80, 80, 80);
 
     // ---- 文字四级（亮 → 弱，全部中性灰）----
-    const Color kTextMain  = g_th.textMain;
-    const Color kTextHint  = g_th.textHint;
-    const Color kTextDim   = g_th.textDim;
-    const Color kTextFaint = g_th.textFaint;
+    const Color kTextMain(255, 245, 245, 245);
+    const Color kTextHint(250, 220, 220, 220);
+    const Color kTextDim(235, 165, 165, 165);
+    const Color kTextFaint(185, 130, 130, 130);
 
     // ---- 强调色：纯红 ----
-    const Color kAccent     = g_th.accent;
-    const Color kAccentSoft = g_th.accentSoft;
+    const Color kAccent(255, 255, 0, 0);
+    const Color kAccentSoft(150, 255, 0, 0);
 
     // ---- 滑条 ----
-    const Color kTrackBg    = g_th.trackBg;
-    const Color kTrackFill  = g_th.trackFill;
-    const Color kKnob       = g_th.knob;
-    const Color kKnobActive = g_th.knobActive;
+    const Color kTrackBg(230, 45, 45, 45);
+    const Color kTrackFill(255, 255, 0, 0);
+    const Color kKnob(255, 245, 245, 245);
+    const Color kKnobActive(255, 255, 80, 80);
 
     // ---- 按钮 ----
-    const Color kBtnPrimary        = g_th.btnPrimary;
-    const Color kBtnPrimaryHot     = g_th.btnPrimaryHot;
-    const Color kBtnPrimaryEdge    = g_th.btnPrimaryEdge;
-    const Color kBtnSecondary      = g_th.btnSecondary;
-    const Color kBtnSecondaryHot   = g_th.btnSecondaryHot;
-    const Color kBtnSecondaryEdge  = g_th.btnSecondaryEdge;
-    const Color kBtnSecondaryEdgeHot = g_th.btnSecondaryEdgeHot;
+    const Color kBtnPrimary(200, 180, 0, 0);
+    const Color kBtnPrimaryHot(240, 220, 0, 0);
+    const Color kBtnPrimaryEdge(255, 255, 0, 0);
+    const Color kBtnSecondary(100, 50, 50, 50);
+    const Color kBtnSecondaryHot(150, 80, 80, 80);
+    const Color kBtnSecondaryEdge(140, 130, 130, 130);
+    const Color kBtnSecondaryEdgeHot(220, 200, 200, 200);
 
     // ---- 复选框 ----
-    const Color kCheckEdge    = g_th.checkEdge;
-    const Color kCheckEdgeHot = g_th.checkEdgeHot;
+    const Color kCheckEdge(180, 150, 150, 150);
+    const Color kCheckEdgeHot(255, 255, 0, 0);
 
-    // ---- 滚动条（画法已经搬进 ui::ScrollBar，这几个常量留给旧调用点）----
-    const Color kScrollTrack        = g_th.scrollTrack;
-    const Color kScrollThumb        = g_th.scrollThumb;
-    const Color kScrollThumbActive  = g_th.scrollThumbActive;
+    // ---- 滚动条 ----
+    const Color kScrollTrack(120, 26, 26, 26);
+    const Color kScrollThumb(190, 120, 120, 120);
+    const Color kScrollThumbActive(150, 255, 0, 0);
 
     // ---- 禁用态 ----
-    const Color kTrackBgOff   = g_th.trackBgOff;
-    const Color kTrackFillOff = g_th.trackFillOff;
-    const Color kKnobOff      = g_th.knobOff;
+    const Color kTrackBgOff(150, 60, 60, 60);
+    const Color kTrackFillOff(120, 120, 120, 120);
+    const Color kKnobOff(255, 150, 150, 150);
 
     // ---- 语义色：假币条 ----
-    const Color kMixRed   = g_th.mixRed;
-    const Color kMixGreen = g_th.mixGreen;
+    const Color kMixRed(255, 255, 0, 0);
+    const Color kMixGreen(255, 40, 200, 60);
 
-    // ---- 应急提示窗口（这两屏不归 aero::ui 管，配色留在本地）----
+    // ---- 应急提示窗口 ----
     const Color kHardcoreFrame(220, 255, 0, 0);
     const Color kNoticeBar(255, 255, 0, 0);
     const Color kExitBoxBg(170, 100, 100, 100);
@@ -132,33 +145,6 @@ namespace {
     const Color kGridBold(150, 120, 200, 240);
     const Color kGridLabel(190, 160, 220, 255);
     const Color kPreviewCanvas(255, 18, 18, 18);
-
-    // ========================================================================
-    //  控件与小工具 —— 实现都在 aero_window.cpp 的 aero::ui 里
-    // ========================================================================
-    //
-    //  设置界面这边**不再自带一份**画法：缓动、配色、几何/文本小工具、
-    //  按钮 / 滑条 / 复选框 / 下拉框 / 侧边滚动条 / 盘符格全在 aero::ui。
-    //  这里只把它们引进命名空间，调用点和以前完全一样。
-    using aero::ui::Tween;
-
-    using aero::ui::Clamp01;
-    using aero::ui::LerpColor;
-    using aero::ui::Fade;
-    using aero::ui::FillRound;
-    using aero::ui::StrokeRound;
-    using aero::ui::DrawPanel;
-    using aero::ui::Hit;
-    using aero::ui::SetRectLocal;
-    using aero::ui::DrawTextCjk;
-    using aero::ui::DrawTextMono;
-
-    using aero::ui::Button;
-    using aero::ui::Checkbox;
-    using aero::ui::Slider;
-    using aero::ui::Combo;
-    using aero::ui::ScrollBar;
-    using aero::ui::Tile;
 
     // ========================================================================
     //  文案表 —— 界面上所有能看到的字都集中在这一块
@@ -192,15 +178,6 @@ namespace {
     // ---- 设置窗口：头部 ----
     const wchar_t* const TXT_SET_TITLE     = L"启动设置";
     const wchar_t* const TXT_SET_LEDE      = L"请在这里修改具体参数";
-
-    // ---- 设置窗口：游戏模式（下拉框）----
-    const wchar_t* const TXT_LBL_MODE      = L"游戏模式";
-    // 三项的名字 / 一句话说明。顺序必须和 settings::kModeNormal / kModeHardcore /
-    // kModeIdle 一致（想加第四种模式就往后追一项）。
-    const wchar_t* const TXT_MODE_NAME[3]  = { L"普通", L"硬核", L"挂机" };
-    const wchar_t* const TXT_MODE_DESC[3]  = {
-        L"原版难度", L"更难的挑战", L"挂机（未实装）"
-    };
 
     // ---- 设置窗口：行标签 ----
     const wchar_t* const TXT_LBL_SAFE      = L"光敏安全模式（癫痫模式）";
@@ -347,19 +324,155 @@ namespace {
     const DWORD kEaseDragMs = 80;
     const DWORD kEaseMs = 180;
 
+    struct Tween {
+        double from = 0.0;
+        double to = 0.0;
+        DWORD  startMs = 0;
+        DWORD  durMs = kEaseMs;   // 本份 Tween 当前的时长
+
+        // snap = true ：直接把起点和终点都设成目标（**几乎瞬移**，
+        //               只用于窗口打开时的初始化）。
+        // snap = false：正常补间，durMs 毫秒内走完。
+        // dur = 0     ：用默认时长（kEaseMs）。
+        void Set(double v, bool snap, DWORD dur = 0)
+        {
+            if (snap) { from = v; to = v; startMs = 0; return; }
+            if (v == to) return;                     // 已经在去这个目标的路上
+            from = Value();
+            to = v;
+            durMs = (dur < 30) ? kEaseMs : dur;      // 太短的时长跟瞬时没区别
+            startMs = GetTickCount();
+        }
+
+        double Value() const
+        {
+            if (startMs == 0) return to;
+            const DWORD el = GetTickCount() - startMs;
+            if (el >= durMs) return to;
+
+            const float p = (float)el / (float)durMs;
+            const float u = 1.0f - p;
+            const float t = 1.0f - u * u * u;        // ease-out cubic
+            return from + (to - from) * (double)t;
+        }
+    };
+
+    // 颜色线性插值（ARGB 逐通道）。
+    Color LerpColor(const Color& a, const Color& b, float t)
+    {
+        if (t <= 0.0f) return a;
+        if (t >= 1.0f) return b;
+        const BYTE A = (BYTE)(a.GetA() + (b.GetA() - a.GetA()) * t + 0.5f);
+        const BYTE R = (BYTE)(a.GetR() + (b.GetR() - a.GetR()) * t + 0.5f);
+        const BYTE G = (BYTE)(a.GetG() + (b.GetG() - a.GetG()) * t + 0.5f);
+        const BYTE B = (BYTE)(a.GetB() + (b.GetB() - a.GetB()) * t + 0.5f);
+        return Color(A, R, G, B);
+    }
+
+    float Clamp01(float v)
+    {
+        if (v < 0.0f) return 0.0f;
+        if (v > 1.0f) return 1.0f;
+        return v;
+    }
+
     // ========================================================================
-    //  缓动 —— 实现已搬进 aero::ui（见 aero_window.cpp）
+    //  小工具
     // ========================================================================
-    //
-    //  两种时长（现在定义在 aero_window.h 里）：
-    //    * kEaseDragMs = 80   —— **拖拽**：珠子"追"鼠标而不是瞬移。早先拖拽是
-    //                            snap（完全不缓动），用户反馈"手动拖动所有
-    //                            滑条没有任何缓动曲线"—— 就是这条路径。
-    //    * kEaseMs = 180      —— **非拖拽**（滚轮 / 恢复默认 / 切换模式 / 翻页）：
-    //                            离散事件用长缓动"滑过去"才有缓冲感。
-    //
-    //  时长存在每份 Tween 自己身上（durMs），所以同一个数值"拖拽时"和"滚轮时"
-    //  可以用不同时长 —— 调用时传第三个参数即可，不传就是 180ms。
+
+    bool Hit(const RECT& r, const POINT& p)
+    {
+        return p.x >= r.left && p.x < r.right && p.y >= r.top && p.y < r.bottom;
+    }
+
+    // 注意**不叫** Rect：windows.h 里已经有一个同名的 GDI 函数。
+    void SetRectLocal(RECT& r, int x, int y, int w, int h)
+    {
+        r.left = x; r.top = y; r.right = x + w; r.bottom = y + h;
+    }
+
+    FontFamily* MonoFamily()
+    {
+        static FontFamily* fam = nullptr;
+        static bool tried = false;
+        if (!tried) { tried = true; fam = aero::UiFontFamily(); }
+        return fam;
+    }
+
+    Font MakeCjkFont(float px, int style = FontStyleRegular)
+    {
+        return Font(L"Microsoft YaHei", px, style, UnitPixel);
+    }
+
+    Font MakeMonoFont(float px, int style = FontStyleRegular)
+    {
+        FontFamily* fam = MonoFamily();
+        if (fam) return Font(fam, px, style, UnitPixel);
+        return Font(L"Consolas", px, style, UnitPixel);
+    }
+
+    void DrawTextCjk(Graphics& g, const wchar_t* s, const RectF& rc, float px,
+        const Color& c, StringAlignment align = StringAlignmentNear,
+        int style = FontStyleRegular)
+    {
+        Font f = MakeCjkFont(px, style);
+        StringFormat fmt;
+        fmt.SetAlignment(align);
+        fmt.SetLineAlignment(StringAlignmentCenter);
+        fmt.SetFormatFlags(StringFormatFlagsNoWrap);
+        SolidBrush b(c);
+        g.DrawString(s, -1, &f, rc, &fmt, &b);
+    }
+
+    void DrawTextMono(Graphics& g, const wchar_t* s, const RectF& rc, float px,
+        const Color& c, StringAlignment align = StringAlignmentNear,
+        int style = FontStyleRegular)
+    {
+        Font f = MakeMonoFont(px, style);
+        StringFormat fmt;
+        fmt.SetAlignment(align);
+        fmt.SetLineAlignment(StringAlignmentCenter);
+        fmt.SetFormatFlags(StringFormatFlagsNoWrap);
+        SolidBrush b(c);
+        g.DrawString(s, -1, &f, rc, &fmt, &b);
+    }
+
+    void AddRound(GraphicsPath& p, const RectF& r, REAL radius)
+    {
+        REAL d = radius * 2.0f;
+        if (d > r.Width)  d = r.Width;
+        if (d > r.Height) d = r.Height;
+        if (d < 0) d = 0;
+        p.Reset();
+        p.StartFigure();
+        p.AddArc(r.X, r.Y, d, d, 180.0f, 90.0f);
+        p.AddArc(r.GetRight() - d, r.Y, d, d, 270.0f, 90.0f);
+        p.AddArc(r.GetRight() - d, r.GetBottom() - d, d, d, 0.0f, 90.0f);
+        p.AddArc(r.X, r.GetBottom() - d, d, d, 90.0f, 90.0f);
+        p.CloseFigure();
+    }
+
+    void FillRound(Graphics& g, const RectF& r, REAL radius, const Color& c)
+    {
+        GraphicsPath p;
+        AddRound(p, r, radius);
+        SolidBrush b(c);
+        g.FillPath(&b, &p);
+    }
+
+    void StrokeRound(Graphics& g, const RectF& r, REAL radius, const Color& c, REAL w)
+    {
+        GraphicsPath p;
+        AddRound(p, r, radius);
+        Pen pen(c, w);
+        g.DrawPath(&pen, &p);
+    }
+
+    void DrawPanel(Graphics& g, const RectF& rc)
+    {
+        FillRound(g, rc, 10.0f, kPanelBg);
+        StrokeRound(g, rc, 10.0f, kPanelEdge, 1.0f);
+    }
 
     bool SavePng(Bitmap& bmp, const wchar_t* path);
 
@@ -471,6 +584,8 @@ namespace {
     {
         Pen thin(kGridThin, 1.0f);
         Pen bold(kGridBold, 1.0f);
+        Font f = MakeMonoFont(9.0f);
+        SolidBrush label(kGridLabel);
 
         for (int x = 0; x < (int)rc.Width; x += 20)
         {
@@ -482,7 +597,7 @@ namespace {
                 wchar_t s[16];
                 swprintf_s(s, L"%d", x);
                 RectF t(px + 2.0f, rc.Y + 1.0f, 34.0f, 11.0f);
-                DrawTextMono(g, s, t, 9.0f, kGridLabel);
+                g.DrawString(s, -1, &f, t, nullptr, &label);
             }
         }
         for (int y = 0; y < (int)rc.Height; y += 20)
@@ -495,26 +610,42 @@ namespace {
                 wchar_t s[16];
                 swprintf_s(s, L"%d", y);
                 RectF t(rc.X + 2.0f, py + 1.0f, 34.0f, 11.0f);
-                DrawTextMono(g, s, t, 9.0f, kGridLabel);
+                g.DrawString(s, -1, &f, t, nullptr, &label);
             }
         }
     }
 
-    // 画一个按钮 —— **画法在 aero::ui::Button 里**，这里只负责把参数打包给它。
-    // 保留这个同名包装是为了让下面几十个调用点一行都不用改。
-    // alpha = 这一行/这个控件的显示进度（切模式时淡入淡出），1 = 完全不透明。
     void DrawButton(Graphics& g, const RectF& rc, const RECT& local,
-        const wchar_t* label, bool hot, bool primary, bool enabled = true,
-        float alpha = 1.0f)
+        const wchar_t* label, bool hot, bool primary, bool enabled = true)
     {
-        Button b;
-        b.rc      = local;
-        b.label   = label;
-        b.hot     = hot;
-        b.primary = primary;
-        b.enabled = enabled;
-        b.alpha   = alpha;
-        b.Draw(g, rc);
+        RectF b(rc.X + (REAL)local.left, rc.Y + (REAL)local.top,
+            (REAL)(local.right - local.left), (REAL)(local.bottom - local.top));
+
+        // 灰掉的按钮：不参与高亮，底色和文字一起压暗。
+        // 用途：「金币生成磁盘范围」那条只有在硬核开着时才点得进去。
+        Color fill, edge, text;
+        if (!enabled)
+        {
+            fill = kTrackBgOff;
+            edge = kBtnSecondaryEdge;
+            text = kTextFaint;
+        }
+        else
+        {
+            fill = primary
+                ? (hot ? kBtnPrimaryHot : kBtnPrimary)
+                : (hot ? kBtnSecondaryHot : kBtnSecondary);
+            edge = primary
+                ? kBtnPrimaryEdge
+                : (hot ? kBtnSecondaryEdgeHot : kBtnSecondaryEdge);
+            text = kTextMain;
+        }
+
+        FillRound(g, b, 7.0f, fill);
+        StrokeRound(g, b, 7.0f, edge, 1.4f);
+
+        DrawTextCjk(g, label, b, 15.0f, text,
+            StringAlignmentCenter, FontStyleBold);
     }
 
     // ==========================================================================
@@ -541,52 +672,32 @@ namespace {
         const int kScrollW = 14;
         const int kContentW = kW - kScrollW;
 
-        const int kRowH = 56;          // 每一行都这么高（内容在行内自己排）
+        const int kRowH = 56;
         const int kCheckH = 34;
 
-        // ---- 行表：设置列表的每一行都由它描述 ----
+        const int kRowSafe = 0;
+        const int kRowBgm = 40;
+        const int kRowSfx = 96;
+        const int kRowHard = 152;
+        const int kRowIdle = 194;
+        const int kRowGold = 250;
+        const int kRowClose = 306;
+        const int kRowFakePct = 362;
+        const int kRowFakeMix = 418;
+
+        // ---- 硬核专属的四条（接在假币那两条后面）----
         //
-        //  为什么成表：三态模式上线之后**不同模式显示不同的行**，行的 y 不再是
-        //  常数 —— 由"它前面那些行现在有多高"累加出来（RowY）。每行还挂一个
-        //  0..1 的显示进度（Tween）：切换模式时旧行按进度**缩高 + 淡出**，
-        //  新行按进度**展开 + 淡入**，也就是「渐变消失 → 换一批 → 渐显」。
-        //
-        //  行的顺序 = 数组顺序。想调整顺序就动这里，别去改绘制代码。
-        enum RowId {
-            ROW_SAFE = 0,    // 光敏安全模式（复选框）
-            ROW_BGM,         // 背景音乐
-            ROW_SFX,         // 音效
-            ROW_MODE,        // 游戏模式（下拉框：普通 / 硬核 / 挂机）
-            ROW_IDLE,        // 跳杀间隔（普通硬核**共用**一条）
-            ROW_GOLD_N,      // 赎金目标金币（普通）
-            ROW_GOLD_H,      // 赎金目标金币（硬核）—— 与上一条是两个独立个体
-            ROW_CLOSE,       // 关窗惩罚时长（普通硬核**共用**一条）
-            ROW_FAKE_PCT,    // ↓ 以下全是硬核专属，普通/挂机模式下整行收起
-            ROW_FAKE_MIX,
-            ROW_HARDWIN,
-            ROW_CURSOR,
-            ROW_LOCKNUM,
-            ROW_LOCKDUR,
-            ROW_DRIVES,      // 金币生成磁盘范围（入口按钮，点进 2D 盘符页）
-            ROW_COUNT
-        };
+        // 为什么接在末尾而不是插在「硬核模式」开关下面：v0.4 的排版刚定稿，
+        // 插在中间会把下面所有行的位置整体顶下去，用户已经记住的行位置全乱；
+        // 接在末尾则一行都不动，只是往下多出四条（滚动条本来就一直在）。
+        // 这四条和假金币那两条一样，只在硬核开着时能拖。
+        const int kRowHardWin = 474;    // 硬核同时最多几个弹窗（10-30）
+        const int kRowCursor = 530;     // 阻挡鼠标弹窗的生成间隔（0.9~18 秒）
+        const int kRowLockNum = 586;    // 桌面锁定数量上限（0~min(90, 桌面实有））
+        const int kRowLockDur = 642;    // 桌面锁定时长（0.9~18 秒）
+        const int kRowDrives = 698;     // 金币生成磁盘范围（点进去是 2D 盘符页）
 
-        // 这一行属于哪些模式（bit mask，按 settings::kMode* 索引）。
-        // 普通和挂机先共用同一套 —— 挂机还没实装，选中它按普通跑（Q2）。
-        int RowModeMask(int row)
-        {
-            const int kNormalOrIdle =
-                (1 << settings::kModeNormal) | (1 << settings::kModeIdle);
-            const int kAll = kNormalOrIdle | (1 << settings::kModeHardcore);
-
-            if (row == ROW_GOLD_N) return kNormalOrIdle;   // 普通那条
-            if (row == ROW_GOLD_H) return (1 << settings::kModeHardcore);
-
-            // 硬核专属那一串：磁盘范围那行也在里面（它只在硬核下有意义）
-            if (row >= ROW_FAKE_PCT) return (1 << settings::kModeHardcore);
-
-            return kAll;
-        }
+        const int kContentH = 754;
 
         // ---- 盘符页（设置窗口的第二个界面）----
         //
@@ -637,7 +748,7 @@ namespace {
         setup_ui::Verdict g_verdict = setup_ui::VERDICT_ERROR;
         int   g_panicVk = 'Q';
 
-        enum Hot { HOT_NONE = 0, HOT_RESET, HOT_START, HOT_DRIVES, HOT_COMBO, HOT_DRV_ALL, HOT_DRV_NONE, HOT_DRV_BACK };
+        enum Hot { HOT_NONE = 0, HOT_RESET, HOT_START, HOT_DRIVES, HOT_DRV_ALL, HOT_DRV_NONE, HOT_DRV_BACK };
         int   g_hot = HOT_NONE;
 
         // 当前是哪个界面：0 = 设置列表，1 = 2D 盘符页。
@@ -684,11 +795,9 @@ namespace {
         // ---- 显示值 Tween ----
         Tween g_tBgm, g_tSfx;
         Tween g_tIdleMin, g_tIdleMax;
-        // 赎金目标：**两条独立滑条各一份显示值**（普通 / 硬核）
-        Tween g_tGoldN, g_tGoldH;
-        Tween g_tClose;
+        Tween g_tGold, g_tClose;
         Tween g_tFakePct, g_tFakePre, g_tFakeSuf;
-        Tween g_tSafe;
+        Tween g_tSafe, g_tHard;
         // 硬核专属四条：弹窗上限 / 阻挡弹窗间隔（两珠）/ 锁定数量 / 锁定时长（两珠）
         Tween g_tHardWin;
         Tween g_tCursorMin, g_tCursorMax;
@@ -696,79 +805,10 @@ namespace {
         Tween g_tLockMin, g_tLockMax;
         Tween g_tScroll;
 
-        // ---- 每行的显示进度（0 = 收起，1 = 展开）----
-        //
-        // 切换模式时它走 Tween（180ms）：旧行缩高 + 淡出，新行展开 + 淡入。
-        // 行高和透明度都读它，所以渐变是"连高度一起"的，不会留空洞。
-        struct RowState { Tween show; };
-        RowState g_row[ROW_COUNT];
-
-        float RowAlpha(int row) { return (float)g_row[row].show.Value(); }
-
-        int RowHeight(int row)
-        {
-            const double v = g_row[row].show.Value();
-            int h = (int)lround(kRowH * v);
-            if (h < 0) h = 0;
-            return h;
-        }
-
-        // 这一行的 y（前面所有行当前高度之和）
-        int RowY(int row)
-        {
-            int y = 0;
-            for (int i = 0; i < row; ++i) y += RowHeight(i);
-            return y;
-        }
-
-        int TotalContentH()
-        {
-            int h = 0;
-            for (int i = 0; i < ROW_COUNT; ++i) h += RowHeight(i);
-            return h;
-        }
-
-        // 把颜色按行进度淡掉（t=1 原样，t=0 全透明）
-        Color Fade(const Color& c, float t)
-        {
-            const BYTE a = (BYTE)((float)c.GetA() * Clamp01(t) + 0.5f);
-            return Color(a, c.GetR(), c.GetG(), c.GetB());
-        }
-
-        // 当前模式下这一行该不该显示 -> 写进每行的显示进度（snap=false 走缓动）
-        void SyncRowVisibility(bool snap)
-        {
-            const int bit = 1 << g_edit.mode;
-            for (int i = 0; i < ROW_COUNT; ++i)
-                g_row[i].show.Set((RowModeMask(i) & bit) ? 1.0 : 0.0, snap);
-        }
-
-        // ---- 模式下拉框 ----
-        //
-        //  展开时列表**盖在下面的行上**（Q1），所以绘制顺序在最后、
-        //  命中判定在最前 —— 展开着的时候点列表，不能被下面的滑条接走。
-        //
-        //  **两个状态要分开**（踩过）：
-        //    Opened()  = 目标状态（展开 / 收起），管"能不能点进列表"和箭头朝向；
-        //    Visible() = 还画不画（展开进度 > 0），管绘制。
-        //  一开始两个都只看目标状态，结果**收起时目标立刻翻掉、列表当场不画了**，
-        //  180ms 的收起缓动等于没有（用户报的就是这个）。
-        //
-        //  控件本体（画法 / 命中 / 动画）在 aero::ui::Combo 里；这里只有一份
-        //  全局实例 + 每帧把矩形和当前项同步过去的胶水。
-        const int kComboW = 260;           // 闭合态下拉框宽度（须和 Combo.rc 一致）
-        const int kComboItemH = 30;        // 展开时每一项的高度
-        Combo g_combo;
-
-        int GoldRow()
-        {
-            return (g_edit.mode == settings::kModeHardcore) ? ROW_GOLD_H : ROW_GOLD_N;
-        }
-
         // ---- 滚动 ----
         int MaxScroll()
         {
-            const int m = TotalContentH() - kViewH;
+            const int m = kContentH - kViewH;
             return (m > 0) ? m : 0;
         }
         int ClampScroll(int v)
@@ -779,42 +819,9 @@ namespace {
         }
 
         // 本帧的滚动显示位置（从 Tween 取，会和 g_scroll 短暂分离）。
-        // 切换模式时内容总高会变，这里再夹一道，免得滚到"空的地方"。
-        int ScrollValue()
-        {
-            int v = (int)lround(g_tScroll.Value());
-            if (v < 0) v = 0;
-            const int m = MaxScroll();
-            if (v > m) v = m;
-            return v;
-        }
+        int ScrollValue() { return (int)lround(g_tScroll.Value()); }
 
         int ViewOffset() { return kViewTop - ScrollValue(); }
-
-        // ---- 下拉框的胶水 ----
-        //
-        //  矩形依赖 RowY（行高在切模式时会动）和滚动偏移，所以每帧都要重算；
-        //  这些包装放在这里是因为它们要用 RowY / ViewOffset。
-        void SyncCombo()
-        {
-            RECT r;
-            SetRectLocal(r, kTrackLeft, ViewOffset() + RowY(ROW_MODE) + kLabelH + 2,
-                kComboW, kCheckH);
-
-            g_combo.rc      = r;
-            g_combo.itemH   = kComboItemH;
-            g_combo.count   = settings::kModeCount;
-            g_combo.current = (g_edit.mode >= 0 && g_edit.mode < settings::kModeCount)
-                ? g_edit.mode : 0;
-        }
-
-        // 下面这几个包装只是让调用点读起来跟以前一样（逻辑全在控件里）
-        bool ComboOpened() { SyncCombo(); return g_combo.Opened(); }
-        bool ComboVisible() { SyncCombo(); return g_combo.Visible(); }
-        RECT ComboRect() { SyncCombo(); return g_combo.rc; }
-        RECT ComboItemRect(int i) { SyncCombo(); return g_combo.ItemRect(i); }
-        void OpenCombo() { SyncCombo(); g_combo.Open(); }
-        void CloseCombo() { SyncCombo(); g_combo.Close(); }
 
         bool InView(POINT p)
         {
@@ -830,43 +837,43 @@ namespace {
         }
 
         // ---- 控件矩形 ----
-        //
-        // 注意参数是**行号（RowId）**，不是 y —— 行的 y 是算出来的（RowY）。
-        RECT RowTrack(int row)
+        RECT RowTrack(int rowY)
         {
             RECT r;
-            SetRectLocal(r, kTrackLeft, ViewOffset() + RowY(row) + kLabelH + 2, kTrackW, kTrackH);
+            SetRectLocal(r, kTrackLeft, ViewOffset() + rowY + kLabelH + 2, kTrackW, kTrackH);
             return r;
         }
 
-        RECT BgmTrack() { return RowTrack(ROW_BGM); }
-        RECT SfxTrack() { return RowTrack(ROW_SFX); }
-        RECT IntTrack() { return RowTrack(ROW_IDLE); }
-        RECT GoldTrack() { return RowTrack(GoldRow()); }
-        RECT CloseTrack() { return RowTrack(ROW_CLOSE); }
-        RECT FakePctTrack() { return RowTrack(ROW_FAKE_PCT); }
-        RECT FakeMixTrack() { return RowTrack(ROW_FAKE_MIX); }
-        RECT HardWinTrack() { return RowTrack(ROW_HARDWIN); }
-        RECT CursorTrack() { return RowTrack(ROW_CURSOR); }
-        RECT LockNumTrack() { return RowTrack(ROW_LOCKNUM); }
-        RECT LockDurTrack() { return RowTrack(ROW_LOCKDUR); }
+        RECT BgmTrack() { return RowTrack(kRowBgm); }
+        RECT SfxTrack() { return RowTrack(kRowSfx); }
+        RECT IntTrack() { return RowTrack(kRowIdle); }
+        RECT GoldTrack() { return RowTrack(kRowGold); }
+        RECT CloseTrack() { return RowTrack(kRowClose); }
+        RECT FakePctTrack() { return RowTrack(kRowFakePct); }
+        RECT FakeMixTrack() { return RowTrack(kRowFakeMix); }
+        RECT HardWinTrack() { return RowTrack(kRowHardWin); }
+        RECT CursorTrack() { return RowTrack(kRowCursor); }
+        RECT LockNumTrack() { return RowTrack(kRowLockNum); }
+        RECT LockDurTrack() { return RowTrack(kRowLockDur); }
 
-        RECT CheckBoxAt(int row)
+        RECT CheckBoxAt(int rowY)
         {
             RECT r;
-            SetRectLocal(r, kM, ViewOffset() + RowY(row) + (kCheckH - 20) / 2, 20, 20);
+            SetRectLocal(r, kM, ViewOffset() + rowY + (kCheckH - 20) / 2, 20, 20);
             return r;
         }
 
-        RECT CheckHitAt(int row)
+        RECT CheckHitAt(int rowY)
         {
             RECT r;
-            SetRectLocal(r, kM - 4, ViewOffset() + RowY(row), 430, kCheckH);
+            SetRectLocal(r, kM - 4, ViewOffset() + rowY, 430, kCheckH);
             return r;
         }
 
-        RECT SafeBox() { return CheckBoxAt(ROW_SAFE); }
-        RECT SafeHit() { return CheckHitAt(ROW_SAFE); }
+        RECT SafeBox() { return CheckBoxAt(kRowSafe); }
+        RECT SafeHit() { return CheckHitAt(kRowSafe); }
+        RECT HardBox() { return CheckBoxAt(kRowHard); }
+        RECT HardHit() { return CheckHitAt(kRowHard); }
 
         bool TrackHit(const RECT& t, POINT p)
         {
@@ -894,20 +901,16 @@ namespace {
         RECT DrivesBtn()
         {
             RECT r;
-            SetRectLocal(r, kTrackLeft, ViewOffset() + RowY(ROW_DRIVES) + 20, kTrackW, kCheckH);
+            SetRectLocal(r, kTrackLeft, ViewOffset() + kRowDrives + 20, kTrackW, kCheckH);
             return r;
         }
 
         RECT DrivesHit()
         {
             RECT r;
-            SetRectLocal(r, kM - 4, ViewOffset() + RowY(ROW_DRIVES),
-                kContentW - (kM - 4) * 2, kRowH);
+            SetRectLocal(r, kM - 4, ViewOffset() + kRowDrives, kContentW - (kM - 4) * 2, 56);
             return r;
         }
-
-        // （模式下拉框的矩形/项矩形见上面 SyncCombo/ComboRect —— 那些现在
-        //   由 aero::ui::Combo 负责，这里不再自己算。）
 
         // ---- 盘符页的格子与按钮 ----
         //
@@ -974,12 +977,6 @@ namespace {
             swprintf_s(buf, n, FMT_DRIVES_SUM, s.c_str(), (int)dv.size());
         }
 
-        // ---- 侧边滚动条 ----
-        //
-        //  画法、滑块长度、命中、拖动/点击/滚轮的换算全在 aero::ui::ScrollBar 里；
-        //  这里只提供"轨道放在哪、内容多高、视口多高、当前滚到哪"。
-        ScrollBar g_sbar;
-
         RECT ScrollTrackRect()
         {
             RECT r;
@@ -987,150 +984,141 @@ namespace {
             return r;
         }
 
-        void SyncScrollBar()
-        {
-            g_sbar.rc        = ScrollTrackRect();
-            g_sbar.contentH  = TotalContentH();
-            g_sbar.viewH     = kViewH;
-            g_sbar.maxOffset = MaxScroll();
-            g_sbar.offset    = ScrollValue();
-            g_sbar.hot       = (g_drag == DRAG_SCROLL);
-        }
-
         RECT ScrollThumbRect()
         {
-            SyncScrollBar();
-            return g_sbar.ThumbRect();
+            const RECT t = ScrollTrackRect();
+            const int th = t.bottom - t.top;
+
+            int h = (kContentH > 0) ? (int)((double)th * (double)kViewH / (double)kContentH) : th;
+            if (h < 30) h = 30;
+            if (h > th) h = th;
+
+            const int m = MaxScroll();
+            const int span = th - h;
+            const int y = t.top + ((m > 0 && span > 0)
+                ? (int)((double)span * (double)ScrollValue() / (double)m) : 0);
+
+            RECT r;
+            SetRectLocal(r, t.left, y, t.right - t.left, h);
+            return r;
         }
 
         // ---- 数值 <-> 像素 ----
-        //
-        //  这些换算**是控件的活**：aero::ui::Slider 里有 FromX / ToX（含夹取与
-        //  吸附）。这里只负责"这条滑条的范围和吸附粒度是多少"，然后把值算出来。
-        Slider MakeSlider(const RECT& track, int lo, int hi, int snapStep, int knobs = 1)
+        int ValueFromX(int x, const RECT& t, int lo, int hi)
         {
-            Slider s;
-            s.track     = track;
-            s.lo        = lo;
-            s.hi        = hi;
-            s.snapStep  = snapStep;
-            s.knobCount = knobs;
-            return s;
+            double f = (double)(x - t.left) / (double)(t.right - t.left);
+            if (f < 0.0) f = 0.0;
+            if (f > 1.0) f = 1.0;
+            return lo + (int)std::lround(f * (hi - lo));
         }
 
-        int VolFromX(int x)
+        int XFromValue(int v, const RECT& t, int lo, int hi)
         {
-            return MakeSlider(BgmTrack(), 0, settings::kVolMax, 1).FromX(x);
+            double f = (hi > lo) ? (double)(v - lo) / (double)(hi - lo) : 0.0;
+            if (f < 0.0) f = 0.0;
+            if (f > 1.0) f = 1.0;
+            return t.left + (int)std::lround(f * (t.right - t.left));
         }
+
+        int VolFromX(int x) { return ValueFromX(x, BgmTrack(), 0, settings::kVolMax); }
 
         int VolToX(int v, const RECT& t)
         {
-            return MakeSlider(t, 0, settings::kVolMax, 1).ToX(v);
+            return XFromValue(v, t, 0, settings::kVolMax);
         }
 
-        int MsFromX(int x)
+        int MsFromX(int x) { return ValueFromX(x, IntTrack(), kLoMs, kHiMs); }
+        int MsToX(int ms) { return XFromValue(ms, IntTrack(), kLoMs, kHiMs); }
+
+        int GoldLo() { return g_edit.hardcore ? settings::kGoldHardMin : settings::kGoldMin; }
+        int GoldHi() { return g_edit.hardcore ? settings::kGoldHardMax : settings::kGoldMax; }
+
+        int GoldFromX(int x)
         {
-            return MakeSlider(IntTrack(), kLoMs, kHiMs, 1, 2).FromX(x);
+            int v = ValueFromX(x, GoldTrack(), GoldLo(), GoldHi());
+            v = (v / 10) * 10;
+            if (v < GoldLo()) v = GoldLo();
+            if (v > GoldHi()) v = GoldHi();
+            return v;
         }
 
-        int MsToX(int ms)
+        int GoldToX(int v)
         {
-            return MakeSlider(IntTrack(), kLoMs, kHiMs, 1, 2).ToX(ms);
+            return XFromValue(v, GoldTrack(), GoldLo(), GoldHi());
         }
-
-        // ---- 赎金目标：**两条独立滑条，各自一对取值函数** ----
-        //
-        // 拆分是用户明确要求的（Q3）：普通那条只认 [10,1000]，硬核那条只认
-        // [1000,9999]，两条的值各存各的、互相不影响。吸附到 10 的倍数。
-        int GoldNormalFromX(int x)
-        {
-            return MakeSlider(GoldTrack(), settings::kGoldMin, settings::kGoldMax, 10).FromX(x);
-        }
-
-        int GoldNormalToX(int v)
-        {
-            return MakeSlider(GoldTrack(), settings::kGoldMin, settings::kGoldMax, 10).ToX(v);
-        }
-
-        int GoldHardFromX(int x)
-        {
-            return MakeSlider(GoldTrack(),
-                settings::kGoldHardMin, settings::kGoldHardMax, 10).FromX(x);
-        }
-
-        int GoldHardToX(int v)
-        {
-            return MakeSlider(GoldTrack(),
-                settings::kGoldHardMin, settings::kGoldHardMax, 10).ToX(v);
-        }
-
-        // 当前模式该用哪一对（拖拽 / 滚轮 / 绘制都走它，免得三处各写一遍）
-        bool GoldIsHard() { return g_edit.mode == settings::kModeHardcore; }
-        int  GoldFromX(int x) { return GoldIsHard() ? GoldHardFromX(x) : GoldNormalFromX(x); }
-        int  GoldToX(int v)   { return GoldIsHard() ? GoldHardToX(v)   : GoldNormalToX(v); }
-        int  GoldLo() { return GoldIsHard() ? settings::kGoldHardMin : settings::kGoldMin; }
-        int  GoldHi() { return GoldIsHard() ? settings::kGoldHardMax : settings::kGoldMax; }
 
         int CloseHi()
         {
-            return GoldIsHard() ? settings::kCloseHardMax : settings::kCloseNormalMax;
+            return g_edit.hardcore ? settings::kCloseHardMax : settings::kCloseNormalMax;
         }
 
         int CloseFromX(int x)
         {
-            return MakeSlider(CloseTrack(), 0, CloseHi(), 100).FromX(x);
+            int v = ValueFromX(x, CloseTrack(), 0, CloseHi());
+            v = (v / 100) * 100;
+            if (v < 0) v = 0;
+            if (v > CloseHi()) v = CloseHi();
+            return v;
         }
 
         int CloseToX(int ms)
         {
-            return MakeSlider(CloseTrack(), 0, CloseHi(), 100).ToX(ms);
+            return XFromValue(ms, CloseTrack(), 0, CloseHi());
         }
 
-        // 硬核专属那几行只在硬核下显示，所以它们出现时这个一定是 true ——
-        // 下面这些门只是防止漏改。
-        bool HardcoreOn() { return g_edit.IsHardcore(); }
+        // 硬核开关。下面四条硬核专属滑条全部以它为"可不可拖"的门。
+        // FakeEnabled 是它的旧名（假币那两条先用的），保留下来少改一处。
+        bool HardcoreOn() { return g_edit.hardcore; }
 
-        bool FakeEnabled() { return g_edit.IsHardcore(); }
+        bool FakeEnabled() { return g_edit.hardcore; }
 
         // ---- 硬核：同时最多几个弹窗（10-30，单珠）----
         int HardWinFromX(int x)
         {
-            return MakeSlider(HardWinTrack(),
-                settings::kHardPopupMin, settings::kHardPopupMax, 1).FromX(x);
+            return ValueFromX(x, HardWinTrack(), settings::kHardPopupMin, settings::kHardPopupMax);
         }
 
         int HardWinToX(int v)
         {
-            return MakeSlider(HardWinTrack(),
-                settings::kHardPopupMin, settings::kHardPopupMax, 1).ToX(v);
+            return XFromValue(v, HardWinTrack(), settings::kHardPopupMin, settings::kHardPopupMax);
         }
 
         // ---- 时间类的两条（阻挡弹窗间隔 / 锁定时长）：两珠、毫秒、0.1 秒粒度 ----
         //
         // 吸附到 100ms：显示是 "%.1f 秒"，如果内部值是 1234ms，用户看到 1.2 秒
         // 而实际生效的是 1.234 秒 —— 读数对不上。吸到 100ms 之后所见即所得。
+        int SnapMs(int v, int lo, int hi)
+        {
+            v = (v / 100) * 100;
+            if (v < lo) v = lo;
+            if (v > hi) v = hi;
+            return v;
+        }
+
         int CursorMsFromX(int x)
         {
-            return MakeSlider(CursorTrack(), settings::kCursorGapFloorMs,
-                settings::kCursorGapCeilMs, 100, 2).FromX(x);
+            return SnapMs(ValueFromX(x, CursorTrack(),
+                settings::kCursorGapFloorMs, settings::kCursorGapCeilMs),
+                settings::kCursorGapFloorMs, settings::kCursorGapCeilMs);
         }
 
         int CursorMsToX(int ms)
         {
-            return MakeSlider(CursorTrack(), settings::kCursorGapFloorMs,
-                settings::kCursorGapCeilMs, 100, 2).ToX(ms);
+            return XFromValue(ms, CursorTrack(),
+                settings::kCursorGapFloorMs, settings::kCursorGapCeilMs);
         }
 
         int LockDurMsFromX(int x)
         {
-            return MakeSlider(LockDurTrack(), settings::kExtraLockFloorMs,
-                settings::kExtraLockCeilMs, 100, 2).FromX(x);
+            return SnapMs(ValueFromX(x, LockDurTrack(),
+                settings::kExtraLockFloorMs, settings::kExtraLockCeilMs),
+                settings::kExtraLockFloorMs, settings::kExtraLockCeilMs);
         }
 
         int LockDurMsToX(int ms)
         {
-            return MakeSlider(LockDurTrack(), settings::kExtraLockFloorMs,
-                settings::kExtraLockCeilMs, 100, 2).ToX(ms);
+            return XFromValue(ms, LockDurTrack(),
+                settings::kExtraLockFloorMs, settings::kExtraLockCeilMs);
         }
 
         // ---- 硬核：桌面锁定数量上限（单珠）----
@@ -1142,12 +1130,12 @@ namespace {
 
         int LockNumFromX(int x)
         {
-            return MakeSlider(LockNumTrack(), 0, LockCap(), 1).FromX(x);
+            return ValueFromX(x, LockNumTrack(), 0, LockCap());
         }
 
         int LockNumToX(int n)
         {
-            return MakeSlider(LockNumTrack(), 0, LockCap(), 1).ToX(n);
+            return XFromValue(n, LockNumTrack(), 0, LockCap());
         }
 
         // "0.9-9.0 秒" / 两端重合时 "3.0 秒（固定）"
@@ -1161,28 +1149,18 @@ namespace {
 
         int PctFromX(int x, const RECT& t)
         {
-            return MakeSlider(t, settings::kFakePctMin, settings::kFakePctMax, 1).FromX(x);
+            return ValueFromX(x, t, settings::kFakePctMin, settings::kFakePctMax);
         }
 
         int PctToX(int v, const RECT& t)
         {
-            return MakeSlider(t, settings::kFakePctMin, settings::kFakePctMax, 1).ToX(v);
+            return XFromValue(v, t, settings::kFakePctMin, settings::kFakePctMax);
         }
 
         int ClampI(int v, int lo, int hi)
         {
             if (v < lo) return lo;
             if (v > hi) return hi;
-            return v;
-        }
-
-        // 把一个值吸到 step 的倍数并夹进 [lo,hi]（滚轮那一格累加完之后用）。
-        // 像素 -> 值那条路走 aero::ui::Slider::FromX（那边自带吸附）。
-        int SnapVal(int v, int step, int lo, int hi)
-        {
-            if (step > 1) v = (v / step) * step;
-            if (v < lo) v = lo;
-            if (v > hi) v = hi;
             return v;
         }
 
@@ -1218,12 +1196,12 @@ namespace {
 
         int MixToX(int v)
         {
-            return MakeSlider(FakeMixTrack(), kMixMin, kMixMax, 1, 2).ToX(v);
+            return XFromValue(v, FakeMixTrack(), kMixMin, kMixMax);
         }
 
         int MixFromX(int x)
         {
-            return MakeSlider(FakeMixTrack(), kMixMin, kMixMax, 1, 2).FromX(x);
+            return ValueFromX(x, FakeMixTrack(), kMixMin, kMixMax);
         }
 
         // 第 idx 颗珠子（0=前缀边界 1=后缀边界）的 x。
@@ -1310,14 +1288,13 @@ namespace {
             g_tSfx.Set(g_edit.sfxVol, snap);
             g_tIdleMin.Set(g_edit.minMs, snap);
             g_tIdleMax.Set(g_edit.maxMs, snap);
-            // 赎金目标两条独立滑条，各对齐各的
-            g_tGoldN.Set(g_edit.goldGoalNormal, snap);
-            g_tGoldH.Set(g_edit.goldGoalHardcore, snap);
+            g_tGold.Set(g_edit.goldGoal, snap);
             g_tClose.Set(g_edit.childCloseMs, snap);
             g_tFakePct.Set(g_edit.fakePercent, snap);
             g_tFakePre.Set(g_edit.fakePrefixPct, snap);
             g_tFakeSuf.Set(g_edit.fakeSuffixPct, snap);
             g_tSafe.Set(g_edit.photosensitiveSafe ? 1.0 : 0.0, snap);
+            g_tHard.Set(g_edit.hardcore ? 1.0 : 0.0, snap);
             // 硬核专属四条
             g_tHardWin.Set(g_edit.hardPopupMax, snap);
             g_tCursorMin.Set(g_edit.cursorGapMinMs, snap);
@@ -1325,111 +1302,128 @@ namespace {
             g_tLockNum.Set(g_edit.extraLockCount, snap);
             g_tLockMin.Set(g_edit.extraLockMinMs, snap);
             g_tLockMax.Set(g_edit.extraLockMaxMs, snap);
-
-            // 行的显隐（按当前模式）
-            SyncRowVisibility(snap);
         }
 
-        // 把编辑中的那份推给设置模块（并让各子系统立刻生效）
+        void ApplyModeDefaults(settings::Set& s, bool toHardcore)
+        {
+            if (toHardcore)
+            {
+                if (s.goldGoal < settings::kGoldHardMin) s.goldGoal = settings::kHardcoreGoldGoal;
+                if (s.childCloseMs == settings::kCloseNormalDefault)
+                    s.childCloseMs = settings::kCloseHardDefault;
+            }
+            else
+            {
+                if (s.goldGoal > settings::kGoldMax) s.goldGoal = settings::kDefaultGoldGoal;
+                if (s.childCloseMs == settings::kCloseHardDefault)
+                    s.childCloseMs = settings::kCloseNormalDefault;
+            }
+        }
+
         void PushLive()
         {
             settings::SetCurrent(g_edit);
             settings::Apply();
         }
 
-        // 切换游戏模式：只改 g_edit.mode，行的显隐交给同步函数走缓动
-        void SetMode(int mode)
+        // ---- 画一条滑条 ----
+        void DrawTrack(Graphics& g, const RectF& rc, const RECT& local,
+            int knobCount, int x1, int x2, int fillL, int fillR,
+            int hotKnob, bool enabled = true)
         {
-            if (mode < 0 || mode >= settings::kModeCount) return;
-            if (g_edit.mode == mode) return;
+            const REAL cy = rc.Y + (REAL)local.top + (REAL)kTrackH * 0.5f;
+            const REAL x0 = rc.X + (REAL)local.left;
+            const REAL xN = rc.X + (REAL)local.right;
 
-            const int old = g_edit.mode;
-            g_edit.mode = mode;
+            const Color bgC = enabled ? kTrackBg : kTrackBgOff;
+            const Color fillC = enabled ? kTrackFill : kTrackFillOff;
+            const Color knobC = enabled ? kKnob : kKnobOff;
 
-            // 渐变：旧模式的行按 180ms 缩高淡出，新模式的展开淡入
-            SyncRowVisibility(false);
-            g_scroll = ClampScroll(g_scroll);        // 内容总高变了，夹一下滚动
-            g_tScroll.Set((double)g_scroll, false);
-            PushLive();
+            {
+                RectF t(x0, cy - 3.0f, xN - x0, 6.0f);
+                FillRound(g, t, 3.0f, bgC);
+            }
+            if (fillR > fillL)
+            {
+                RectF f(rc.X + (REAL)fillL, cy - 3.0f, (REAL)(fillR - fillL), 6.0f);
+                FillRound(g, f, 3.0f, fillC);
+            }
+            {
+                SolidBrush dim(kTextFaint);
+                g.FillRectangle(&dim, x0, cy - 6.0f, 1.0f, 12.0f);
+                g.FillRectangle(&dim, xN - 1.0f, cy - 6.0f, 1.0f, 12.0f);
+            }
 
-            static const wchar_t* const kName[settings::kModeCount] = {
-                L"普通", L"硬核", L"挂机"
-            };
-            elog::Write(L"[setup] 游戏模式：%s → %s",
-                kName[old], kName[mode]);
+            const int xs[2] = { x1, x2 };
+            for (int i = 0; i < knobCount; ++i)
+            {
+                const REAL kx = rc.X + (REAL)xs[i];
+                const Color c = (enabled && i == hotKnob) ? kKnobActive : knobC;
+
+                SolidBrush b(c);
+                g.FillEllipse(&b, kx - kKnobR, cy - kKnobR, kKnobR * 2.0f, kKnobR * 2.0f);
+
+                Pen edge(Color(200, 30, 20, 24), 1.6f);
+                g.DrawEllipse(&edge, kx - kKnobR, cy - kKnobR, kKnobR * 2.0f, kKnobR * 2.0f);
+            }
         }
 
-        // rowY 传 RowY(ROW_xxx)（行的 y 是算出来的，不是常数）。
-        // alpha = 这一行的显示进度（切换模式时淡入淡出），1 = 完全不透明。
         void DrawSliderRow(Graphics& g, const RectF& rc, int rowY,
             const wchar_t* label, const wchar_t* value,
             const Color& valueColor, const RECT& track,
             int knobCount, int x1, int x2, int fillL, int fillR,
             int hotKnob, bool enabled,
             const wchar_t* loText, const wchar_t* hiText,
-            const wchar_t* midText, int midX,
-            float alpha = 1.0f)
+            const wchar_t* midText, int midX)
         {
             const REAL xL = rc.X + (REAL)kM;
             const REAL w = (REAL)(kContentW - kM * 2);
             const REAL y = rc.Y + (REAL)(ViewOffset() + rowY);
 
             RectF t(xL, y, w, (REAL)kLabelH);
-            DrawTextCjk(g, label, t, 14.0f,
-                Fade(enabled ? kTextMain : kTextFaint, alpha));
+            DrawTextCjk(g, label, t, 14.0f, enabled ? kTextMain : kTextFaint);
 
             RectF v(xL, y, w, (REAL)kLabelH);
             DrawTextMono(g, value, v, 14.0f,
-                Fade(enabled ? valueColor : kTextFaint, alpha), StringAlignmentFar);
+                enabled ? valueColor : kTextFaint, StringAlignmentFar);
 
-            // 滑条本体（轨道 + 珠子）**由 aero::ui::Slider 画**，
-            // 这里只把"哪一段是已选"这些显示参数打包过去。
-            {
-                Slider s;
-                s.track     = track;
-                s.knobCount = knobCount;
-                s.hotKnob   = hotKnob;
-                s.enabled   = enabled;
-                s.alpha     = alpha;
-                s.Draw(g, rc, x1, x2, fillL, fillR);
-            }
+            DrawTrack(g, rc, track, knobCount, x1, x2, fillL, fillR, hotKnob, enabled);
 
             RectF lo(xL, rc.Y + (REAL)(track.bottom + 2), w, 14.0f);
-            DrawTextMono(g, loText, lo, 11.0f, Fade(kTextFaint, alpha));
+            DrawTextMono(g, loText, lo, 11.0f, kTextFaint);
             RectF hi(xL, rc.Y + (REAL)(track.bottom + 2), w, 14.0f);
-            DrawTextMono(g, hiText, hi, 11.0f, Fade(kTextFaint, alpha), StringAlignmentFar);
+            DrawTextMono(g, hiText, hi, 11.0f, kTextFaint, StringAlignmentFar);
 
             if (midText && midX > 0)
             {
                 const REAL mx = rc.X + (REAL)midX;
                 const REAL my = rc.Y + (REAL)track.top + (REAL)kTrackH * 0.5f;
-                SolidBrush tick(Fade(kTextFaint, alpha));
+                SolidBrush tick(kTextFaint);
                 g.FillRectangle(&tick, mx, my - 9.0f, 1.0f, 18.0f);
 
                 RectF mid(xL + w * 0.5f - 40.0f,
                     rc.Y + (REAL)(track.bottom + 2), 80.0f, 14.0f);
-                DrawTextMono(g, midText, mid, 11.0f, Fade(kTextFaint, alpha), StringAlignmentCenter);
+                DrawTextMono(g, midText, mid, 11.0f, kTextFaint, StringAlignmentCenter);
             }
         }
 
         void DrawFakeMixRow(Graphics& g, const RectF& rc, bool enabled,
-            int b1, int b2, float alpha = 1.0f)
+            int b1, int b2)
         {
             const REAL xL = rc.X + (REAL)kM;
             const REAL w = (REAL)(kContentW - kM * 2);
-            const REAL y = rc.Y + (REAL)(ViewOffset() + RowY(ROW_FAKE_MIX));
+            const REAL y = rc.Y + (REAL)(ViewOffset() + kRowFakeMix);
 
             const int bothPct = kMixMax - b2;
 
             RectF t(xL, y, w, (REAL)kLabelH);
             DrawTextCjk(g, TXT_LBL_FAKE_MIX, t, 14.0f,
-                Fade(enabled ? kTextMain : kTextFaint, alpha));
+                enabled ? kTextMain : kTextFaint);
 
             wchar_t val[64];
             swprintf_s(val, FMT_MIX_TRIPLE, b1, b2 - b1, bothPct);
             RectF v(xL, y, w, (REAL)kLabelH);
-            DrawTextMono(g, val, v, 14.0f,
-                Fade(enabled ? kTextDim : kTextFaint, alpha), StringAlignmentFar);
+            DrawTextMono(g, val, v, 14.0f, enabled ? kTextDim : kTextFaint, StringAlignmentFar);
 
             const RECT tr = FakeMixTrack();
             const REAL cy = rc.Y + (REAL)tr.top + (REAL)kTrackH * 0.5f;
@@ -1438,7 +1432,7 @@ namespace {
 
             {
                 RectF track(x0, cy - 3.0f, xN - x0, 6.0f);
-                FillRound(g, track, 3.0f, Fade(enabled ? kTrackBg : kTrackBgOff, alpha));
+                FillRound(g, track, 3.0f, enabled ? kTrackBg : kTrackBgOff);
             }
 
             if (enabled)
@@ -1453,12 +1447,12 @@ namespace {
                 {
                     if (seg[i + 1] - seg[i] < 0.5f) continue;
                     RectF f(seg[i], cy - 3.0f, seg[i + 1] - seg[i], 6.0f);
-                    FillRound(g, f, 3.0f, Fade(segC[i], alpha));
+                    FillRound(g, f, 3.0f, segC[i]);
                 }
             }
 
             {
-                SolidBrush dim(Fade(kTextFaint, alpha));
+                SolidBrush dim(kTextFaint);
                 g.FillRectangle(&dim, x0, cy - 6.0f, 1.0f, 12.0f);
                 g.FillRectangle(&dim, xN - 1.0f, cy - 6.0f, 1.0f, 12.0f);
             }
@@ -1467,51 +1461,60 @@ namespace {
             {
                 const REAL kx = rc.X + (REAL)MixToX(i == 0 ? b1 : b2);
                 const bool hot = enabled && g_drag == DRAG_FAKE_MIX && g_dragMixIdx == i;
-                const Color c = Fade(enabled ? (hot ? kKnobActive : kKnob) : kKnobOff, alpha);
+                const Color c = enabled ? (hot ? kKnobActive : kKnob) : kKnobOff;
 
                 SolidBrush b(c);
                 g.FillEllipse(&b, kx - kKnobR, cy - kKnobR, kKnobR * 2.0f, kKnobR * 2.0f);
 
-                Pen edge(Fade(Color(200, 30, 20, 24), alpha), 1.6f);
+                Pen edge(Color(200, 30, 20, 24), 1.6f);
                 g.DrawEllipse(&edge, kx - kKnobR, cy - kKnobR, kKnobR * 2.0f, kKnobR * 2.0f);
             }
 
             RectF lo(xL, rc.Y + (REAL)(tr.bottom + 2), w, 14.0f);
-            DrawTextMono(g, L"0", lo, 11.0f, Fade(kTextFaint, alpha));
+            DrawTextMono(g, L"0", lo, 11.0f, kTextFaint);
             RectF hi(xL, rc.Y + (REAL)(tr.bottom + 2), w, 14.0f);
-            DrawTextMono(g, TXT_SCALE_MIXEND, hi, 11.0f, Fade(kTextFaint, alpha),
-                StringAlignmentFar);
+            DrawTextMono(g, TXT_SCALE_MIXEND, hi, 11.0f, kTextFaint, StringAlignmentFar);
         }
 
         // ---- 一个复选框（带勾选进度动画）----
-        // 画法在 aero::ui::Checkbox 里；这里只打包参数，调用点不用改。
-        // alpha = 这一行的显示进度（切模式时淡入淡出）
         void DrawCheckbox(Graphics& g, const RectF& rc, const RECT& b,
-            float progress, bool hot, float alpha = 1.0f)
+            float progress, bool hot)
         {
-            Checkbox cb;
-            cb.rc    = b;
-            cb.hot   = hot;
-            cb.alpha = alpha;
-            cb.Draw(g, rc, progress);
-        }
+            RectF box(rc.X + (REAL)b.left, rc.Y + (REAL)b.top, 20.0f, 20.0f);
 
-        // ---- 主绘制 ----
-        //
-        //  模式下拉框是 aero::ui::Combo（画法、命中、展开动画都在 aero_window.cpp）。
-        //  分两步画：闭合的那一条跟普通行一起画，展开的列表在**所有行之后**画
-        //  —— 因为列表要盖在下面的行上（Q1）。命中判定也是同样的优先级。
-        void DrawCombo(Graphics& g, const RectF& rc, float alpha)
-        {
-            SyncCombo();                 // 把这一帧的矩形/当前项同步给控件
-            g_combo.alpha = alpha;
-            g_combo.DrawBox(g, rc, TXT_LBL_MODE);
-        }
+            const Color fill = LerpColor(kTrackBg, kAccentSoft, progress);
+            FillRound(g, box, 4.0f, fill);
 
-        void DrawComboList(Graphics& g, const RectF& rc)
-        {
-            SyncCombo();
-            g_combo.DrawList(g, rc);
+            const Color edge = hot
+                ? kCheckEdgeHot
+                : LerpColor(kCheckEdge, kCheckEdgeHot, progress);
+            StrokeRound(g, box, 4.0f, edge, 1.6f);
+
+            if (progress <= 0.02f) return;
+
+            const float s1 = Clamp01(progress / 0.55f);
+            const float s2 = Clamp01((progress - 0.55f) / 0.45f);
+
+            const REAL x0 = box.X + 5.0f, y0 = box.Y + 10.5f;
+            const REAL x1 = box.X + 8.5f, y1 = box.Y + 14.0f;
+            const REAL x2 = box.X + 15.0f, y2 = box.Y + 6.0f;
+
+            Pen pen(Color(255, 245, 245, 250), 2.6f);
+            pen.SetStartCap(LineCapRound);
+            pen.SetEndCap(LineCapRound);
+
+            if (s1 > 0.0f)
+            {
+                const REAL mx = x0 + (x1 - x0) * s1;
+                const REAL my = y0 + (y1 - y0) * s1;
+                g.DrawLine(&pen, x0, y0, mx, my);
+            }
+            if (s2 > 0.0f)
+            {
+                const REAL mx = x1 + (x2 - x1) * s2;
+                const REAL my = y1 + (y2 - y1) * s2;
+                g.DrawLine(&pen, x1, y1, mx, my);
+            }
         }
 
         // ---- 主绘制 ----
@@ -1534,13 +1537,12 @@ namespace {
             const int dispSfx = (int)lround(g_tSfx.Value());
             const int dispMinMs = (int)lround(g_tIdleMin.Value());
             const int dispMaxMs = (int)lround(g_tIdleMax.Value());
-            // 赎金目标：两条独立滑条各一份显示值
-            const int dispGoldN = (int)lround(g_tGoldN.Value());
-            const int dispGoldH = (int)lround(g_tGoldH.Value());
+            const int dispGold = (int)lround(g_tGold.Value());
             const int dispClose = (int)lround(g_tClose.Value());
             const int dispFakePct = (int)lround(g_tFakePct.Value());
 
             const float safeP = (float)g_tSafe.Value();
+            const float hardP = (float)g_tHard.Value();
 
             // 硬核专属四条（同样读 Tween）
             const int dispHardWin = (int)lround(g_tHardWin.Value());
@@ -1574,67 +1576,65 @@ namespace {
             // ================= 视口 =================
             g.SetClip(RectF(rc.X, rc.Y + (REAL)kViewTop, (REAL)kContentW, (REAL)kViewH));
 
-            // 每一行都按自己的显示进度画：切模式时旧行缩高 + 淡出、
-            // 新行展开 + 淡入，所以下面的块都是 "if (a > 0) { ... Fade(..., a) }"。
-            // 行位置一律用 RowY(ROW_xxx)，不再有固定 y 常量。
-
             // ---- 光敏安全 ----
             {
-                const float a = RowAlpha(ROW_SAFE);
-                if (a > 0.004f)
-                {
-                    DrawCheckbox(g, rc, SafeBox(), safeP, false, a);
+                DrawCheckbox(g, rc, SafeBox(), safeP, false);
 
-                    const RECT b = SafeBox();
-                    RectF t(rc.X + (REAL)(b.right + 10),
-                        rc.Y + (REAL)(ViewOffset() + RowY(ROW_SAFE)),
-                        300.0f, (REAL)kCheckH);
-                    DrawTextCjk(g, TXT_LBL_SAFE, t, 14.0f, Fade(kTextMain, a));
+                const RECT b = SafeBox();
+                RectF t(rc.X + (REAL)(b.right + 10),
+                    rc.Y + (REAL)(ViewOffset() + kRowSafe), 300.0f, (REAL)kCheckH);
+                DrawTextCjk(g, TXT_LBL_SAFE, t, 14.0f, kTextMain);
 
-                    RectF d(rc.X + (REAL)(b.right + 10),
-                        rc.Y + (REAL)(ViewOffset() + RowY(ROW_SAFE) + 18),
-                        420.0f, 16.0f);
-                    DrawTextCjk(g, TXT_DESC_SAFE, d, 11.0f, Fade(kTextDim, a));
-                }
+                RectF d(rc.X + (REAL)(b.right + 10),
+                    rc.Y + (REAL)(ViewOffset() + kRowSafe + 18), 420.0f, 16.0f);
+                DrawTextCjk(g, TXT_DESC_SAFE, d, 11.0f, kTextDim);
             }
 
             // ---- 背景音乐 ----
             {
-                const float a = RowAlpha(ROW_BGM);
                 const RECT tr = BgmTrack();
                 const int kx = VolToX(dispBgm, tr);
                 swprintf_s(buf, FMT_PCT, dispBgm);
-                DrawSliderRow(g, rc, RowY(ROW_BGM), TXT_LBL_BGM, buf,
+                DrawSliderRow(g, rc, kRowBgm, TXT_LBL_BGM, buf,
                     dispBgm > 100 ? kAccent : kTextDim, tr,
                     1, kx, kx, tr.left, kx,
                     g_drag == DRAG_BGM ? 0 : -1, true,
                     TXT_SCALE_0, TXT_SCALE_200PCT,
-                    TXT_SCALE_100PCT, VolToX(100, tr), a);
+                    TXT_SCALE_100PCT, VolToX(100, tr));
             }
 
             // ---- 音效 ----
             {
-                const float a = RowAlpha(ROW_SFX);
                 const RECT tr = SfxTrack();
                 const int kx = VolToX(dispSfx, tr);
                 swprintf_s(buf, FMT_PCT, dispSfx);
-                DrawSliderRow(g, rc, RowY(ROW_SFX), TXT_LBL_SFX, buf,
+                DrawSliderRow(g, rc, kRowSfx, TXT_LBL_SFX, buf,
                     dispSfx > 100 ? kAccent : kTextDim, tr,
                     1, kx, kx, tr.left, kx,
                     g_drag == DRAG_SFX ? 0 : -1, true,
                     TXT_SCALE_0, TXT_SCALE_200PCT,
-                    TXT_SCALE_100PCT, VolToX(100, tr), a);
+                    TXT_SCALE_100PCT, VolToX(100, tr));
             }
 
-            // ---- 游戏模式（下拉框）----
+            // ---- 硬核模式 ----
             {
-                const float a = RowAlpha(ROW_MODE);
-                DrawCombo(g, rc, a);
+                DrawCheckbox(g, rc, HardBox(), hardP, false);
+
+                const RECT hb = HardBox();
+                RectF t(rc.X + (REAL)(hb.right + 10),
+                    rc.Y + (REAL)(ViewOffset() + kRowHard), 300.0f, (REAL)kCheckH);
+                DrawTextCjk(g, TXT_LBL_HARD, t, 14.0f,
+                    g_edit.hardcore ? kAccent : kTextMain, StringAlignmentNear, FontStyleBold);
+
+                RectF d(rc.X + (REAL)(hb.right + 10),
+                    rc.Y + (REAL)(ViewOffset() + kRowHard + 20), 440.0f, 16.0f);
+                DrawTextCjk(g,
+                    g_edit.hardcore ? TXT_HARD_ON : TXT_HARD_OFF,
+                    d, 11.0f, kTextDim);
             }
 
-            // ---- 遭遇战间隔（两模式共用一条）----
+            // ---- 遭遇战间隔 ----
             {
-                const float a = RowAlpha(ROW_IDLE);
                 const double f1 = (double)dispMinMs / 1000.0;
                 const double f2 = (double)dispMaxMs / 1000.0;
                 if (dispMinMs == dispMaxMs)
@@ -1649,50 +1649,32 @@ namespace {
                 const int hotKnob = (g_drag == DRAG_IDLE_LO) ? 0
                     : (g_drag == DRAG_IDLE_HI ? 1 : -1);
 
-                DrawSliderRow(g, rc, RowY(ROW_IDLE), TXT_LBL_IDLE, buf, kTextDim, tr,
+                DrawSliderRow(g, rc, kRowIdle, TXT_LBL_IDLE, buf, kTextDim, tr,
                     2, x1, x2, x1, x2, hotKnob, true,
                     TXT_SCALE_20MS, TXT_SCALE_90S,
-                    TXT_SCALE_45S, (tr.left + tr.right) / 2, a);
+                    TXT_SCALE_45S, (tr.left + tr.right) / 2);
             }
 
-            // ---- 赎金目标（普通）----
-            //
-            //  这一条和下面那条硬核的是**两个独立个体**（用户要求）：
-            //  各自的值、各自的区间、各自的取值函数，互不影响。
+            // ---- 赎金目标 ----
             {
-                const float a = RowAlpha(ROW_GOLD_N);
-                const RECT tr = RowTrack(ROW_GOLD_N);
-                const int shown = dispGoldN;
-                const int kx = GoldNormalToX(shown);
+                const RECT tr = GoldTrack();
+                const int shown = dispGold;
+                const int kx = GoldToX(shown);
 
                 swprintf_s(buf, L"%d", shown);
-                DrawSliderRow(g, rc, RowY(ROW_GOLD_N), TXT_LBL_GOLD, buf,
-                    shown > 500 ? kAccent : kTextDim, tr,
+                DrawSliderRow(g, rc, kRowGold,
+                    g_edit.hardcore ? TXT_LBL_GOLD_HC : TXT_LBL_GOLD,
+                    buf, shown > 500 ? kAccent : kTextDim, tr,
                     1, kx, kx, tr.left, kx,
                     g_drag == DRAG_GOLD ? 0 : -1, true,
-                    TXT_SCALE_10, TXT_SCALE_1000,
-                    TXT_SCALE_500, GoldNormalToX(500), a);
+                    g_edit.hardcore ? TXT_SCALE_1000 : TXT_SCALE_10,
+                    g_edit.hardcore ? TXT_SCALE_9999 : TXT_SCALE_1000,
+                    g_edit.hardcore ? TXT_SCALE_5000 : TXT_SCALE_500,
+                    g_edit.hardcore ? GoldToX(5000) : GoldToX(500));
             }
 
-            // ---- 赎金目标（硬核）----
+            // ---- 关窗惩罚时长 ----
             {
-                const float a = RowAlpha(ROW_GOLD_H);
-                const RECT tr = RowTrack(ROW_GOLD_H);
-                const int shown = dispGoldH;
-                const int kx = GoldHardToX(shown);
-
-                swprintf_s(buf, L"%d", shown);
-                DrawSliderRow(g, rc, RowY(ROW_GOLD_H), TXT_LBL_GOLD_HC, buf,
-                    kTextDim, tr,
-                    1, kx, kx, tr.left, kx,
-                    g_drag == DRAG_GOLD ? 0 : -1, true,
-                    TXT_SCALE_1000, TXT_SCALE_9999,
-                    TXT_SCALE_5000, GoldHardToX(5000), a);
-            }
-
-            // ---- 关窗惩罚时长（两模式共用一条，上限随模式变）----
-            {
-                const float a = RowAlpha(ROW_CLOSE);
                 const RECT tr = CloseTrack();
                 const int ms = dispClose;
                 const int kx = CloseToX(ms);
@@ -1702,55 +1684,56 @@ namespace {
                 else
                     swprintf_s(buf, FMT_SEC_ONE, ms / 1000.0);
 
-                const bool hc = HardcoreOn();
-                DrawSliderRow(g, rc, RowY(ROW_CLOSE), TXT_LBL_CLOSE, buf,
+                DrawSliderRow(g, rc, kRowClose, TXT_LBL_CLOSE, buf,
                     ms > 10000 ? kAccent : kTextDim, tr,
                     1, kx, kx, tr.left, kx,
                     g_drag == DRAG_CLOSE ? 0 : -1, true,
-                    TXT_SCALE_0, hc ? TXT_SCALE_30S : TXT_SCALE_18S,
-                    hc ? TXT_SCALE_30S : TXT_SCALE_18S,
-                    hc ? CloseToX(30000) : CloseToX(18000), a);
+                    TXT_SCALE_0, g_edit.hardcore ? TXT_SCALE_30S : TXT_SCALE_18S,
+                    g_edit.hardcore ? TXT_SCALE_30S : TXT_SCALE_18S,
+                    g_edit.hardcore ? CloseToX(30000) : CloseToX(18000));
             }
 
-            // ---- 假金币比例 + 假币形态配比（硬核专属）----
+            // ---- 假金币比例 + 假币形态配比 ----
             {
-                const float a1 = RowAlpha(ROW_FAKE_PCT);
+                const bool on = FakeEnabled();
+
                 {
                     const RECT tr = FakePctTrack();
                     const int kx = PctToX(dispFakePct, tr);
                     swprintf_s(buf, FMT_PCT, dispFakePct);
-                    DrawSliderRow(g, rc, RowY(ROW_FAKE_PCT), TXT_LBL_FAKE_PCT, buf,
+                    DrawSliderRow(g, rc, kRowFakePct, TXT_LBL_FAKE_PCT, buf,
                         kTextDim, tr, 1, kx, kx, tr.left, kx,
-                        g_drag == DRAG_FAKE_PCT ? 0 : -1, true,
-                        TXT_SCALE_0PCT, TXT_SCALE_100PCT, nullptr, 0, a1);
+                        g_drag == DRAG_FAKE_PCT ? 0 : -1, on,
+                        TXT_SCALE_0PCT, TXT_SCALE_100PCT, nullptr, 0);
                 }
 
-                DrawFakeMixRow(g, rc, true, dispB1, dispB2, RowAlpha(ROW_FAKE_MIX));
+                DrawFakeMixRow(g, rc, on, dispB1, dispB2);
             }
 
-            // ---- 硬核专属四条 ----
+            // ---- 硬核专属四条（硬核没开时整条灰掉、拖不动）----
             //
             // 顺序照用户提的来：弹窗上限 → 阻挡鼠标弹窗的间隔 → 桌面锁定
-            // 数量上限 → 桌面锁定时长。只在硬核模式下出现（其他模式整行收起）。
+            // 数量上限 → 桌面锁定时长。全部是滑条，全部挂 Tween，
+            // 所以拖拽 / 滚轮 / 恢复默认 / 切模式都和其他滑条一样有缓动。
             {
+                const bool on = HardcoreOn();
+
                 // ---- 硬核：同时最多几个弹窗（10-30）----
                 {
-                    const float a = RowAlpha(ROW_HARDWIN);
                     const RECT tr = HardWinTrack();
                     const int n = dispHardWin;
                     const int kx = HardWinToX(n);
 
                     swprintf_s(buf, FMT_COUNT, n);
-                    DrawSliderRow(g, rc, RowY(ROW_HARDWIN), TXT_LBL_HARDWIN, buf,
+                    DrawSliderRow(g, rc, kRowHardWin, TXT_LBL_HARDWIN, buf,
                         kTextDim, tr, 1, kx, kx, tr.left, kx,
-                        g_drag == DRAG_HARDWIN ? 0 : -1, true,
+                        g_drag == DRAG_HARDWIN ? 0 : -1, on,
                         TXT_SCALE_10, TXT_SCALE_30,
-                        TXT_SCALE_22DEF, HardWinToX(settings::kDefaultHardPopupMax), a);
+                        TXT_SCALE_22DEF, HardWinToX(settings::kDefaultHardPopupMax));
                 }
 
                 // ---- 硬核：阻挡鼠标弹窗的生成间隔（0.9~18 秒，两珠）----
                 {
-                    const float a = RowAlpha(ROW_CURSOR);
                     const RECT tr = CursorTrack();
                     FormatSpanSecs(buf, 96, dispCursorMin, dispCursorMax);
 
@@ -1759,9 +1742,9 @@ namespace {
                     const int hotKnob = (g_drag == DRAG_CURSOR_LO) ? 0
                         : (g_drag == DRAG_CURSOR_HI ? 1 : -1);
 
-                    DrawSliderRow(g, rc, RowY(ROW_CURSOR), TXT_LBL_CURSOR,
-                        buf, kTextDim, tr, 2, x1, x2, x1, x2, hotKnob, true,
-                        TXT_SCALE_09S, TXT_SCALE_18S, nullptr, 0, a);
+                    DrawSliderRow(g, rc, kRowCursor, TXT_LBL_CURSOR,
+                        buf, kTextDim, tr, 2, x1, x2, x1, x2, hotKnob, on,
+                        TXT_SCALE_09S, TXT_SCALE_18S, nullptr, 0);
                 }
 
                 // ---- 硬核：桌面锁定非快捷方式的数量上限 ----
@@ -1770,7 +1753,6 @@ namespace {
                 // 滑条就只能拖到几（硬顶 90）。刻度文字直接把这两个数写出来，
                 // 免得用户以为"怎么拖不到 90"。
                 {
-                    const float a = RowAlpha(ROW_LOCKNUM);
                     const RECT tr = LockNumTrack();
                     const int n = dispLockNum;
                     const int kx = LockNumToX(n);
@@ -1780,15 +1762,14 @@ namespace {
                         LockCap(), settings::DesktopItemCount());
 
                     swprintf_s(buf, FMT_COUNT, n);
-                    DrawSliderRow(g, rc, RowY(ROW_LOCKNUM), TXT_LBL_LOCKNUM, buf,
+                    DrawSliderRow(g, rc, kRowLockNum, TXT_LBL_LOCKNUM, buf,
                         kTextDim, tr, 1, kx, kx, tr.left, kx,
-                        g_drag == DRAG_LOCKNUM ? 0 : -1, true,
-                        TXT_SCALE_0, hi, nullptr, 0, a);
+                        g_drag == DRAG_LOCKNUM ? 0 : -1, on,
+                        TXT_SCALE_0, hi, nullptr, 0);
                 }
 
                 // ---- 硬核：桌面锁定时长（0.9~18 秒，两珠）----
                 {
-                    const float a = RowAlpha(ROW_LOCKDUR);
                     const RECT tr = LockDurTrack();
                     FormatSpanSecs(buf, 96, dispLockMin, dispLockMax);
 
@@ -1797,40 +1778,54 @@ namespace {
                     const int hotKnob = (g_drag == DRAG_LOCKDUR_LO) ? 0
                         : (g_drag == DRAG_LOCKDUR_HI ? 1 : -1);
 
-                    DrawSliderRow(g, rc, RowY(ROW_LOCKDUR), TXT_LBL_LOCKDUR,
-                        buf, kTextDim, tr, 2, x1, x2, x1, x2, hotKnob, true,
-                        TXT_SCALE_09S, TXT_SCALE_18S, nullptr, 0, a);
+                    DrawSliderRow(g, rc, kRowLockDur, TXT_LBL_LOCKDUR,
+                        buf, kTextDim, tr, 2, x1, x2, x1, x2, hotKnob, on,
+                        TXT_SCALE_09S, TXT_SCALE_18S, nullptr, 0);
                 }
 
                 // ---- 金币生成磁盘范围（点进去是 2D 盘符页）----
                 //
                 // 这一条不是滑条而是一个入口按钮：范围是"勾哪几个盘"，
-                // 塞不进一条轨道里。行内左侧是标签 + 当前值，右半边是按钮。
-                // 它只在硬核模式下出现，所以出现时一定点得进去。
+                // 塞不进一条轨道里。行内左侧照旧是标签 + 当前值，右半边是按钮。
+                //
+                // **只在硬核开着时点得进去**（磁盘范围本来就是硬核的参数）：
+                // 关着的时候按钮画成灰的，命中判定那边也会挡住。
                 {
-                    const float a = RowAlpha(ROW_DRIVES);
                     wchar_t sum[160];
                     DrivesSummary(sum, 160);
 
-                    RectF t(xL, rc.Y + (REAL)(ViewOffset() + RowY(ROW_DRIVES)),
+                    RectF t(xL, rc.Y + (REAL)(ViewOffset() + kRowDrives),
                         (REAL)(kContentW - kM * 2), (REAL)kLabelH);
-                    DrawTextCjk(g, TXT_LBL_DRIVES, t, 14.0f, Fade(kTextMain, a));
-                    DrawTextMono(g, sum, t, 13.0f, Fade(kTextDim, a), StringAlignmentFar);
+                    DrawTextCjk(g, TXT_LBL_DRIVES, t, 14.0f,
+                        on ? kTextMain : kTextFaint);
+                    DrawTextMono(g, sum, t, 13.0f,
+                        on ? kTextDim : kTextFaint, StringAlignmentFar);
 
-                    DrawButton(g, rc, DrivesBtn(), TXT_BTN_DRIVES,
-                        g_hot == HOT_DRIVES, false, true, a);
+                    DrawButton(g, rc, DrivesBtn(),
+                        on ? TXT_BTN_DRIVES : TXT_BTN_DRIVES_OFF,
+                        g_hot == HOT_DRIVES, false, on);
                 }
             }
-
-            // 下拉框展开的列表最后画：它要**盖在下面的行上**（Q1）
-            DrawComboList(g, rc);
 
             g.ResetClip();
 
             // ================= 滚动条 =================
-            // 画法在 aero::ui::ScrollBar 里（滑块长度、悬停高亮都归它）
-            SyncScrollBar();
-            g_sbar.Draw(g, rc);
+            {
+                const RECT t = ScrollTrackRect();
+                const RECT th = ScrollThumbRect();
+
+                RectF track(xL + (REAL)(t.left - xL), rc.Y + (REAL)t.top,
+                    (REAL)(t.right - t.left), (REAL)(t.bottom - t.top));
+                FillRound(g, track, 6.0f, kScrollTrack);
+
+                if (MaxScroll() > 0)
+                {
+                    RectF thumb(rc.X + (REAL)th.left, rc.Y + (REAL)th.top,
+                        (REAL)(th.right - th.left), (REAL)(th.bottom - th.top));
+                    FillRound(g, thumb, 6.0f,
+                        (g_drag == DRAG_SCROLL) ? kScrollThumbActive : kScrollThumb);
+                }
+            }
 
             // ================= 底部 =================
             DrawButton(g, rc, ResetBtn(), TXT_BTN_RESET, g_hot == HOT_RESET, false);
@@ -2035,22 +2030,43 @@ namespace {
                 RectF t(xL, rc.Y + (REAL)(kDrvGridTop + 20), w, 20.0f);
                 DrawTextCjk(g, TXT_DRV_EMPTY, t, 13.0f, kAccent);
             }
+
             for (size_t i = 0; i < g_drives.size(); ++i)
             {
                 const DriveItem& dv = g_drives[i];
+                const RECT lr = DriveTileRect((int)i);
+                const RectF t(rc.X + (REAL)lr.left, rc.Y + (REAL)lr.top,
+                    (REAL)(lr.right - lr.left), (REAL)(lr.bottom - lr.top));
 
-                // 格子的画法在 aero::ui::Tile 里（图标 + 盘符 + 已选/不选）
-                wchar_t letter[8];
-                swprintf_s(letter, FMT_DRV_LETTER, dv.letter);
+                const float p = (float)dv.anim.Value();
+                const bool hot = ((int)i == g_drvHot);
 
-                Tile tile;
-                tile.rc       = DriveTileRect((int)i);
-                tile.title    = letter;
-                tile.sub      = (dv.anim.Value() > 0.5) ? TXT_DRV_PICKED : TXT_DRV_SKIPPED;
-                tile.icon     = dv.icon;
-                tile.hot      = ((int)i == g_drvHot);
-                tile.progress = (float)dv.anim.Value();
-                tile.Draw(g, rc);
+                FillRound(g, t, 8.0f, LerpColor(kTrackBg, kAccentSoft, p));
+                StrokeRound(g, t, 8.0f,
+                    hot ? kCheckEdgeHot
+                        : LerpColor(kBtnSecondaryEdge, kBtnPrimaryEdge, p), 1.4f);
+
+                // 图标（32x32 居中；拿不到就不画，只留盘符）
+                if (dv.icon)
+                {
+                    RectF ib(t.X + (t.Width - 32.0f) * 0.5f, t.Y + 7.0f, 32.0f, 32.0f);
+                    g.DrawImage(dv.icon, ib);
+                }
+
+                // 盘符 + 勾选状态
+                {
+                    wchar_t s[8];
+                    swprintf_s(s, FMT_DRV_LETTER, dv.letter);
+
+                    RectF lt(t.X, t.Y + 41.0f, t.Width, 20.0f);
+                    DrawTextMono(g, s, lt, 17.0f,
+                        (p > 0.5f || hot) ? kTextMain : kTextDim,
+                        StringAlignmentCenter, FontStyleBold);
+
+                    RectF tt(t.X, t.Y + 60.0f, t.Width, 14.0f);
+                    DrawTextCjk(g, p > 0.5f ? TXT_DRV_PICKED : TXT_DRV_SKIPPED, tt, 10.0f,
+                        p > 0.5f ? kAccent : kTextFaint, StringAlignmentCenter);
+                }
             }
 
             // ---- 底部 ----
@@ -2112,17 +2128,8 @@ namespace {
             }
 
             case DRAG_GOLD:
-                // 两条独立的赎金滑条：拖哪条看当前模式（同一时刻只显示一条）
-                if (GoldIsHard())
-                {
-                    g_edit.goldGoalHardcore = GoldHardFromX(p.x);
-                    g_tGoldH.Set(g_edit.goldGoalHardcore, false, kEaseDragMs);
-                }
-                else
-                {
-                    g_edit.goldGoalNormal = GoldNormalFromX(p.x);
-                    g_tGoldN.Set(g_edit.goldGoalNormal, false, kEaseDragMs);
-                }
+                g_edit.goldGoal = GoldFromX(p.x);
+                g_tGold.Set(g_edit.goldGoal, false, kEaseDragMs);
                 break;
 
             case DRAG_CLOSE:
@@ -2200,12 +2207,17 @@ namespace {
 
             case DRAG_SCROLL:
             {
-                // 拖动换算在控件里（OffsetFromDrag 已经夹好范围）
-                SyncScrollBar();
-                g_sbar.grab = g_scrollGrab;
-                g_scroll = ClampScroll(g_sbar.OffsetFromDrag(p));
-                // 拖滚动条也走短缓动，内容跟手但不硬贴
-                g_tScroll.Set((double)g_scroll, false, kEaseDragMs);
+                const RECT t = ScrollTrackRect();
+                const RECT th = ScrollThumbRect();
+                const int span = (t.bottom - t.top) - (th.bottom - th.top);
+                const int m = MaxScroll();
+                if (span > 0 && m > 0)
+                {
+                    const int y = p.y - g_scrollGrab - t.top;
+                    g_scroll = ClampScroll((int)((double)y * (double)m / (double)span));
+                    // 拖滚动条也走短缓动，内容跟手但不硬贴
+                    g_tScroll.Set((double)g_scroll, false, kEaseDragMs);
+                }
                 break;
             }
 
@@ -2244,22 +2256,8 @@ namespace {
 
             if (Hit(ResetBtn(), p)) h = HOT_RESET;
             else if (Hit(StartBtn(), p)) h = HOT_START;
-
-            // 下拉框展开着的时候，列表里的项优先高亮；点到别处不高亮任何东西
-            // （免得鼠标划过下面的滑条还有反馈，看起来像能点）
-            if (ComboOpened())
-            {
-                g_combo.hotItem = -1;
-                for (int i = 0; i < settings::kModeCount; ++i)
-                    if (Hit(ComboItemRect(i), p)) { g_combo.hotItem = i; break; }
-                h = HOT_NONE;
-            }
-            else
-            {
-                g_combo.hotItem = -1;
-                if (Hit(ComboRect(), p)) h = HOT_COMBO;
-                else if (Hit(DrivesHit(), p)) h = HOT_DRIVES;
-            }
+            // 灰掉的按钮不高亮，否则鼠标一上去就像能点
+            else if (g_edit.hardcore && Hit(DrivesHit(), p)) h = HOT_DRIVES;
 
             if (h != g_hot)
             {
@@ -2314,14 +2312,6 @@ namespace {
             g_verdict = v;
             g_drag = 0;
             g_hot = HOT_NONE;
-            g_combo.Close();
-
-            // 挂机模式还没实装：选中它先按**普通模式**跑，这里留一行日志，
-            // 免得以后看到"选了挂机却是普通演出"以为是 bug（Q2）。
-            if (g_edit.mode == settings::kModeIdle)
-            {
-                elog::Write(L"[setup] 挂机模式尚未实装：本轮按**普通模式**跑（行为等同普通）");
-            }
 
             settings::Set s = g_edit;
             s.save = (v == setup_ui::VERDICT_START);
@@ -2347,42 +2337,13 @@ namespace {
 
             case WM_LBUTTONDOWN:
             {
-                // ---- 下拉框优先 ----
-                //
-                // 展开着的时候，列表盖在下面的行上：点列表选模式、点别处收起，
-                // 这两种情况都**不能**再让下面的滑条/按钮接走这一下。
-                if (ComboOpened())
-                {
-                    for (int i = 0; i < settings::kModeCount; ++i)
-                    {
-                        // 只认视口里看得见的那几项（列表滚出视口的部分会被裁掉，
-                        // 但命中判定不会，所以要在这儿补一道 InView）
-                        if (!Hit(ComboItemRect(i), p)) continue;
-                        if (!InView(p)) continue;
-
-                        CloseCombo();
-                        SetMode(i);                 // 换模式（行会渐变切换）
-                        aero::Repaint(hwnd);
-                        return;
-                    }
-
-                    // 点在框上 = 收起；点在任何别的地方也收起
-                    CloseCombo();
-                    aero::Repaint(hwnd);
-                    return;
-                }
-
-                // 正在收起（目标已经关了、进度还没走完）：这一下也吃掉，
-                // 别让它穿透到下面的行/滑条上
-                if (ComboVisible()) return;
-
                 if (Hit(StartBtn(), p)) { Commit(setup_ui::VERDICT_START); return; }
 
                 if (Hit(ResetBtn(), p))
                 {
                     settings::ResetToDefault();
                     g_edit = settings::Current();
-                    // 缓动：所有滑条、复选框、行显隐一起"滑"到默认值。
+                    // 缓动：所有滑条、复选框一起"滑"到默认值。
                     SyncAllTweens(false);
                     PushLive();
                     elog::Write(L"[setup] 已恢复默认设置");
@@ -2399,31 +2360,46 @@ namespace {
                     return;
                 }
 
-                // ---- 游戏模式：点开下拉框 ----
-                if (Hit(ComboRect(), p))
+                if (Hit(HardHit(), p))
                 {
-                    OpenCombo();
+                    g_edit.hardcore = !g_edit.hardcore;
+                    ApplyModeDefaults(g_edit, g_edit.hardcore);
+
+                    g_tHard.Set(g_edit.hardcore ? 1.0 : 0.0, false);
+                    g_tGold.Set(g_edit.goldGoal, false);
+                    g_tClose.Set(g_edit.childCloseMs, false);
+
+                    PushLive();
+
+                    aero::AnimateJolt(hwnd, 9.0f, 380);
+
+                    elog::Write(L"[setup] 硬核模式 %s（赎金 %d，关窗惩罚 %dms，倒计时 %d 秒，假币 %d%%，弹窗上限 %d，阻挡弹窗 %d-%dms，桌面锁定 %d 个 %d-%dms）",
+                        g_edit.hardcore ? L"开" : L"关",
+                        g_edit.goldGoal, g_edit.childCloseMs,
+                        g_edit.hardcore ? settings::kHardcoreRansomMs / 1000 : 90,
+                        g_edit.fakePercent,
+                        g_edit.hardPopupMax,
+                        g_edit.cursorGapMinMs, g_edit.cursorGapMaxMs,
+                        g_edit.extraLockCount,
+                        g_edit.extraLockMinMs, g_edit.extraLockMaxMs);
                     aero::Repaint(hwnd);
                     return;
                 }
 
                 // ---- 滚动条 ----
-                // 拖动/点空白的换算在 aero::ui::ScrollBar 里（OffsetFromDrag /
-                // OffsetFromClick），这里只负责把结果塞回 g_scroll 并起缓动。
                 if (Hit(ScrollTrackRect(), p) && MaxScroll() > 0)
                 {
-                    SyncScrollBar();
-
-                    if (g_sbar.HitThumb(p))
+                    const RECT th = ScrollThumbRect();
+                    if (Hit(th, p))
                     {
-                        const RECT th = g_sbar.ThumbRect();
                         g_drag = DRAG_SCROLL;
-                        g_sbar.grab = p.y - th.top;
-                        g_scrollGrab = g_sbar.grab;
+                        g_scrollGrab = p.y - th.top;
                     }
                     else
                     {
-                        g_scroll = ClampScroll(g_sbar.OffsetFromClick(p));
+                        const RECT t = ScrollTrackRect();
+                        const double f = (double)(p.y - t.top) / (double)(t.bottom - t.top);
+                        g_scroll = ClampScroll((int)(f * MaxScroll()));
                         g_tScroll.Set((double)g_scroll, false);
                     }
                     SetCapture(hwnd);
@@ -2435,10 +2411,13 @@ namespace {
 
                 // ---- 金币生成磁盘范围：点进盘符页 ----
                 //
-                // 这一行只在硬核模式下出现（普通/挂机时整行收起），所以能点到
-                // 就说明模式允许。放在 InView 之后：这一行的矩形带着滚动偏移，
-                // 滚出视口之后它可能压到页头/页脚上，先过 InView 才不会误触。
-                if (RowAlpha(ROW_DRIVES) > 0.5f && Hit(DrivesHit(), p))
+                // **只有硬核开着才进得去**（磁盘范围是硬核的参数，普通模式
+                // 根本不往磁盘撒金币）。关着时点这里什么都不做 —— 那行按钮
+                // 本来就画成灰的了。
+                //
+                // 放在 InView 之后：盘符行的矩形带着滚动偏移，滚出视口之后
+                // 它可能压到页头/页脚上，先过 InView 才不会误触。
+                if (g_edit.hardcore && Hit(DrivesHit(), p))
                 {
                     SwitchPage(1);
                     return;
@@ -2572,18 +2551,6 @@ namespace {
 
             const int step = (delta > 0) ? 1 : -1;
 
-            // 下拉框展开着的时候，滚轮改成"上下切模式" —— 列表本来就是选模式的，
-            // 这时候还去滚下面的内容会很怪。
-            if (ComboOpened())
-            {
-                int m = g_edit.mode + step;
-                if (m < 0) m = 0;
-                if (m >= settings::kModeCount) m = settings::kModeCount - 1;
-                SetMode(m);
-                aero::Repaint(hwnd);
-                return;
-            }
-
             const int kScrollStep = 34;
             const bool overScrollbar = Hit(ScrollTrackRect(), p);
 
@@ -2598,9 +2565,8 @@ namespace {
                     return;
                 }
 
-                // 模式下拉框**不接受滚轮**（展开时另说，见上面）：
-                // 这么重的开关被滚轮误触翻掉太容易了。
-                if (Hit(ComboRect(), p)) return;
+                // 硬核开关**不接受滚轮**：这么重的开关被滚轮误触翻掉太容易了。
+                if (Hit(HardHit(), p)) return;
 
                 const RECT bt = BgmTrack();
                 const RECT st = SfxTrack();
@@ -2649,27 +2615,15 @@ namespace {
                     // 一格 1%：普通跨度 990 -> 9，硬核跨度 8999 -> 89。
                     // 但下面还要把结果吸到 10 的倍数，所以**步长自己也必须是
                     // 10 的倍数** —— 否则每次都会在吸附那一步丢步甚至归零。
-                    // 两条滑条各改各的值。
                     int gstep = (GoldHi() - GoldLo()) / 100;
                     gstep = (gstep / 10) * 10;
                     if (gstep < 10) gstep = 10;
 
-                    if (GoldIsHard())
-                    {
-                        int v = g_edit.goldGoalHardcore + step * gstep;
-                        if (v < GoldLo()) v = GoldLo();
-                        if (v > GoldHi()) v = GoldHi();
-                        g_edit.goldGoalHardcore = (v / 10) * 10;
-                        g_tGoldH.Set(g_edit.goldGoalHardcore, false);
-                    }
-                    else
-                    {
-                        int v = g_edit.goldGoalNormal + step * gstep;
-                        if (v < GoldLo()) v = GoldLo();
-                        if (v > GoldHi()) v = GoldHi();
-                        g_edit.goldGoalNormal = (v / 10) * 10;
-                        g_tGoldN.Set(g_edit.goldGoalNormal, false);
-                    }
+                    g_edit.goldGoal += step * gstep;
+                    if (g_edit.goldGoal < GoldLo()) g_edit.goldGoal = GoldLo();
+                    if (g_edit.goldGoal > GoldHi()) g_edit.goldGoal = GoldHi();
+                    g_edit.goldGoal = (g_edit.goldGoal / 10) * 10;
+                    g_tGold.Set(g_edit.goldGoal, false);
                 }
                 else if (p.y >= ct.top - 10 && p.y < ct.bottom + 10)
                 {
@@ -2752,7 +2706,7 @@ namespace {
                     {
                         int v = g_edit.cursorGapMinMs + d;
                         if (v > g_edit.cursorGapMaxMs) v = g_edit.cursorGapMaxMs;
-                        g_edit.cursorGapMinMs = SnapVal(v, 100,
+                        g_edit.cursorGapMinMs = SnapMs(v,
                             settings::kCursorGapFloorMs, settings::kCursorGapCeilMs);
                         g_tCursorMin.Set(g_edit.cursorGapMinMs, false);
                     }
@@ -2760,7 +2714,7 @@ namespace {
                     {
                         int v = g_edit.cursorGapMaxMs + d;
                         if (v < g_edit.cursorGapMinMs) v = g_edit.cursorGapMinMs;
-                        g_edit.cursorGapMaxMs = SnapVal(v, 100,
+                        g_edit.cursorGapMaxMs = SnapMs(v,
                             settings::kCursorGapFloorMs, settings::kCursorGapCeilMs);
                         g_tCursorMax.Set(g_edit.cursorGapMaxMs, false);
                     }
@@ -2783,7 +2737,7 @@ namespace {
                     {
                         int v = g_edit.extraLockMinMs + d;
                         if (v > g_edit.extraLockMaxMs) v = g_edit.extraLockMaxMs;
-                        g_edit.extraLockMinMs = SnapVal(v, 100,
+                        g_edit.extraLockMinMs = SnapMs(v,
                             settings::kExtraLockFloorMs, settings::kExtraLockCeilMs);
                         g_tLockMin.Set(g_edit.extraLockMinMs, false);
                     }
@@ -2791,20 +2745,20 @@ namespace {
                     {
                         int v = g_edit.extraLockMaxMs + d;
                         if (v < g_edit.extraLockMinMs) v = g_edit.extraLockMinMs;
-                        g_edit.extraLockMaxMs = SnapVal(v, 100,
+                        g_edit.extraLockMaxMs = SnapMs(v,
                             settings::kExtraLockFloorMs, settings::kExtraLockCeilMs);
                         g_tLockMax.Set(g_edit.extraLockMaxMs, false);
                     }
                 }
                 else
                 {
-                    SyncScrollBar(); g_scroll = ClampScroll(g_sbar.OffsetFromWheel(delta, kScrollStep));
+                    g_scroll = ClampScroll(g_scroll + ((delta > 0) ? -kScrollStep : kScrollStep));
                     g_tScroll.Set((double)g_scroll, false);
                 }
             }
             else
             {
-                SyncScrollBar(); g_scroll = ClampScroll(g_sbar.OffsetFromWheel(delta, kScrollStep));
+                g_scroll = ClampScroll(g_scroll + ((delta > 0) ? -kScrollStep : kScrollStep));
                 g_tScroll.Set((double)g_scroll, false);
             }
 
@@ -2834,13 +2788,13 @@ namespace {
                 const Tween savedSfx = g_tSfx;
                 const Tween savedIdleMin = g_tIdleMin;
                 const Tween savedIdleMax = g_tIdleMax;
-                const Tween savedGoldN = g_tGoldN;
-                const Tween savedGoldH = g_tGoldH;
+                const Tween savedGold = g_tGold;
                 const Tween savedClose = g_tClose;
                 const Tween savedFakePct = g_tFakePct;
                 const Tween savedFakePre = g_tFakePre;
                 const Tween savedFakeSuf = g_tFakeSuf;
                 const Tween savedSafe = g_tSafe;
+                const Tween savedHard = g_tHard;
                 const Tween savedHardWin = g_tHardWin;
                 const Tween savedCursorMin = g_tCursorMin;
                 const Tween savedCursorMax = g_tCursorMax;
@@ -2848,19 +2802,11 @@ namespace {
                 const Tween savedLockMin = g_tLockMin;
                 const Tween savedLockMax = g_tLockMax;
                 const Tween savedScroll = g_tScroll;
-                const Tween savedCombo = g_combo.anim;
-                // 行的显隐进度也要备份（SyncRowVisibility 会按样例的模式重写）
-                Tween savedRow[ROW_COUNT];
-                for (int i = 0; i < ROW_COUNT; ++i) savedRow[i] = g_row[i].show;
 
                 g_edit = s;
                 SyncAllTweens(true);
                 // 预览里滚动条也应该是**静止**的：直接摆到目标位置（夹过之后）。
                 g_tScroll.Set((double)ClampScroll(scroll), true);
-                // 预览不展开下拉框（展开了会盖住下面的行，图看不成）
-                // 预览不展开下拉框（展开了会盖住下面的行，图看不成）
-                g_combo.open = false;
-                g_combo.anim.Set(0.0, true);
 
                 PaintContent(g, RectF(0.0f, 0.0f, (REAL)CW, (REAL)CH));
 
@@ -2869,13 +2815,13 @@ namespace {
                 g_tSfx = savedSfx;
                 g_tIdleMin = savedIdleMin;
                 g_tIdleMax = savedIdleMax;
-                g_tGoldN = savedGoldN;
-                g_tGoldH = savedGoldH;
+                g_tGold = savedGold;
                 g_tClose = savedClose;
                 g_tFakePct = savedFakePct;
                 g_tFakePre = savedFakePre;
                 g_tFakeSuf = savedFakeSuf;
                 g_tSafe = savedSafe;
+                g_tHard = savedHard;
                 g_tHardWin = savedHardWin;
                 g_tCursorMin = savedCursorMin;
                 g_tCursorMax = savedCursorMax;
@@ -2883,8 +2829,6 @@ namespace {
                 g_tLockMin = savedLockMin;
                 g_tLockMax = savedLockMax;
                 g_tScroll = savedScroll;
-                g_combo.anim = savedCombo;
-                for (int i = 0; i < ROW_COUNT; ++i) g_row[i].show = savedRow[i];
 
                 if (grid) DrawGrid(g, RectF(0.0f, 0.0f, (REAL)CW, (REAL)CH));
             }
@@ -3199,13 +3143,6 @@ namespace setup_ui {
         g_page = 0;
         g_pendingPage = -1;
         g_drvHot = -1;
-        g_combo.count = settings::kModeCount;
-        g_combo.names = TXT_MODE_NAME;
-        g_combo.descs = TXT_MODE_DESC;
-        g_combo.itemH = kComboItemH;
-        g_combo.open  = false;
-        g_combo.hotItem = -1;
-        g_combo.Sync(true);
         FreeDrives();
 
         // 窗口第一帧就显示正确的值，不让它从 0 滑上来。

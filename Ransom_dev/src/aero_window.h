@@ -189,4 +189,206 @@ void Repaint(HWND hwnd);
 // 当前存活的窗口数（调试用）。
 int AliveCount();
 
+// ============================================================================
+//  aero::ui —— 自绘控件库
+// ============================================================================
+//
+//  为什么在这儿：aero 的窗口是**分层窗口**，放不了 Win32 子控件（子控件画不出来），
+//  所以设置界面那套（按钮 / 滑条 / 复选框 / 下拉框 / 侧边滚动条 / 盘符格）全是自绘的。
+//  自绘代码一度全堆在 setup_ui.cpp 里 —— 那样 aero_window.cpp 只是个空壳，
+//  别的窗口想用同一个按钮就得抄一遍。现在把它们连**命中判定、拖拽与滚轮的
+//  数学、缓动动画、配色**一起搬到这里，setup_ui 只留"数据 + 布局 + 业务回调"。
+//
+//  约定（很重要，别改坏）：
+//    * 所有控件的坐标都是**内容区坐标**（左上角 = (0,0)，和 PaintFn 的 content
+//      同一个原点）。绘制时把 origin 传进来做平移，命中判定直接用裸坐标。
+//    * 控件不持有窗口、不管消息循环、不读设置 —— 状态是纯数据，逻辑是纯函数。
+//    * 值 <-> 像素、吸附、拖拽换算这些数学在控件里；"这个值代表什么"在调用方。
+namespace ui {
+
+// ---------------------------------------------------------------- 缓动 ----
+// 每个可动的"显示值"挂一份：目标变了就快照当前值当起点，按时间插值到目标。
+const DWORD kEaseDragMs = 80;    // 拖拽：珠子"追"鼠标，短缓动
+const DWORD kEaseMs = 180;       // 滚轮 / 恢复默认 / 切模式：滑过去
+
+struct Tween {
+    double from = 0.0;
+    double to = 0.0;
+    DWORD  startMs = 0;
+    DWORD  durMs = kEaseMs;
+
+    // snap = true 直接把起点终点都设成目标（几乎瞬移，只用于初始化）。
+    // dur = 0 用默认时长（kEaseMs）。
+    void Set(double v, bool snap, DWORD dur = 0);
+    double Value() const;
+};
+
+// ---------------------------------------------------------------- 主题 ----
+// 全部颜色集中在这儿（原来是 setup_ui 顶部那张配色表）。
+// 方案 v3：中性灰 + 纯红。
+struct Theme {
+    Gdiplus::Color panelBg, panelEdge;                        // 底板
+    Gdiplus::Color textMain, textHint, textDim, textFaint;     // 文字四级
+    Gdiplus::Color accent, accentSoft;                         // 强调（纯红）
+    Gdiplus::Color trackBg, trackFill, knob, knobActive;       // 滑条
+    Gdiplus::Color trackBgOff, trackFillOff, knobOff;          // 禁用态
+    Gdiplus::Color btnPrimary, btnPrimaryHot, btnPrimaryEdge;
+    Gdiplus::Color btnSecondary, btnSecondaryHot;
+    Gdiplus::Color btnSecondaryEdge, btnSecondaryEdgeHot;
+    Gdiplus::Color checkEdge, checkEdgeHot;                    // 复选框
+    Gdiplus::Color scrollTrack, scrollThumb, scrollThumbActive; // 滚动条
+    Gdiplus::Color mixRed, mixGreen;                           // 假币配比条
+};
+
+const Theme& DefaultTheme();
+
+// ------------------------------------------------------- 小工具与文本 ----
+float Clamp01(float v);
+Gdiplus::Color LerpColor(const Gdiplus::Color& a, const Gdiplus::Color& b, float t);
+// 按进度淡色（t = 1 原样，t = 0 全透明）—— 切模式时整行淡出用的就是它
+Gdiplus::Color Fade(const Gdiplus::Color& c, float t);
+
+void FillRound(Gdiplus::Graphics& g, const Gdiplus::RectF& r, float radius,
+    const Gdiplus::Color& c);
+void StrokeRound(Gdiplus::Graphics& g, const Gdiplus::RectF& r, float radius,
+    const Gdiplus::Color& c, float w);
+void DrawPanel(Gdiplus::Graphics& g, const Gdiplus::RectF& rc);
+
+bool Hit(const RECT& r, const POINT& p);
+void SetRectLocal(RECT& r, int x, int y, int w, int h);
+
+void DrawTextCjk(Gdiplus::Graphics& g, const wchar_t* s, const Gdiplus::RectF& rc,
+    float px, const Gdiplus::Color& c,
+    Gdiplus::StringAlignment align = Gdiplus::StringAlignmentNear,
+    int style = Gdiplus::FontStyleRegular);
+void DrawTextMono(Gdiplus::Graphics& g, const wchar_t* s, const Gdiplus::RectF& rc,
+    float px, const Gdiplus::Color& c,
+    Gdiplus::StringAlignment align = Gdiplus::StringAlignmentNear,
+    int style = Gdiplus::FontStyleRegular);
+
+// ------------------------------------------------------------- 按钮 ----
+struct Button {
+    RECT rc = {};                    // 内容区坐标
+    const wchar_t* label = L"";
+    bool  primary = false;           // 主按钮（红底）
+    bool  enabled = true;
+    bool  hot = false;
+    float alpha = 1.0f;
+
+    bool Hit(POINT p) const;
+    void Draw(Gdiplus::Graphics& g, const Gdiplus::RectF& origin) const;
+};
+
+// ----------------------------------------------------------- 复选框 ----
+struct Checkbox {
+    RECT  rc = {};
+    bool  hot = false;
+    float alpha = 1.0f;
+
+    bool Hit(POINT p) const;
+    // progress = 勾选进度（0..1），对勾从中心"长"出来
+    void Draw(Gdiplus::Graphics& g, const Gdiplus::RectF& origin, float progress) const;
+};
+
+// ------------------------------------------------------------- 滑条 ----
+//
+// 单珠和双珠共用一套：knobCount = 1 时只有左珠。
+// 值 <-> 像素、吸附、选珠全在里面；拖拽只是"每帧拿鼠标 x 调 FromX"。
+struct Slider {
+    RECT  track = {};                // 轨道矩形（内容区坐标）
+    int   knobCount = 1;
+    int   lo = 0;
+    int   hi = 100;
+    int   snapStep = 1;              // 吸附粒度（1 = 整数，10 = 十位，100 = 百位）
+    bool  enabled = true;
+    float alpha = 1.0f;
+    int   hotKnob = -1;              // 正在拖/悬停的珠子下标（-1 = 没有）
+
+    int  FromX(int x) const;         // 像素 -> 值（夹 + 吸附）
+    int  ToX(int v) const;           // 值 -> 像素
+    // 两颗珠子选哪颗：重合（或几乎重合）时一律左珠
+    static int NearestKnob(int x1, int x2, int x);
+    // 轨道命中（带容差，方便点偏一点也能拖）
+    bool HitTrack(POINT p, int padY = 8, int padX = 10) const;
+    // x1/x2 是两颗珠子（单珠时忽略 x2）；fillL/fillR 是已选段
+    void Draw(Gdiplus::Graphics& g, const Gdiplus::RectF& origin,
+        int x1, int x2, int fillL, int fillR) const;
+};
+
+// ----------------------------------------------------------- 下拉框 ----
+//
+// 自绘：闭合态一个胶囊（当前项 + 箭头），展开时列表**盖在下面的内容上**。
+// 展开进度走 Tween，所以展开/收起都有动画。**收起时按进度判断要不要画**，
+// 别按目标状态 —— 踩过：目标一翻 false 列表当场消失，收起就没动画了。
+struct Combo {
+    RECT   rc = {};                  // 闭合态（内容区坐标）
+    int    itemH = 30;
+    int    count = 0;
+    int    current = 0;
+    const wchar_t* const* names = nullptr;   // count 项
+    const wchar_t* const* descs = nullptr;   // 可以为 nullptr
+    bool   open = false;             // 目标状态
+    Tween  anim;                     // 展开进度 0..1
+    int    hotItem = -1;
+    float  alpha = 1.0f;
+
+    bool  Opened()  const { return open; }
+    bool  Visible() const { return anim.Value() > 0.02; }
+    float P() const { return (float)anim.Value(); }
+
+    void Open()  { open = true;  anim.Set(1.0, false); hotItem = -1; }
+    void Close() { open = false; anim.Set(0.0, false); hotItem = -1; }
+    void Sync(bool snap);            // 进页面时把动画直接摆到目标
+
+    RECT ItemRect(int i) const;
+    bool HitBox(POINT p) const;
+    int  HitItem(POINT p) const;     // -1 = 没点中任何一项
+
+    // 闭合那一条（含左边的标签和右上角的说明文字）
+    void DrawBox(Gdiplus::Graphics& g, const Gdiplus::RectF& origin,
+        const wchar_t* label) const;
+    // 展开的列表：画在所有内容之后（要盖住下面的行）
+    void DrawList(Gdiplus::Graphics& g, const Gdiplus::RectF& origin) const;
+};
+
+// --------------------------------------------------------- 侧边滚动条 ----
+struct ScrollBar {
+    RECT rc = {};                    // 轨道（内容区坐标）
+    int  contentH = 0;               // 内容总高
+    int  viewH = 0;                  // 视口高
+    int  maxOffset = 0;              // 最大滚动量
+    int  offset = 0;                 // 当前滚动量
+    int  grab = 0;                   // 按下时鼠标在滑块内的偏移
+    bool hot = false;
+
+    RECT ThumbRect() const;
+    bool HitTrack(POINT p) const;
+    bool HitThumb(POINT p) const;
+    // 拖动：由鼠标 y 反算新的 offset（已夹）
+    int  OffsetFromDrag(POINT p) const;
+    // 点轨道空白：翻到大致位置
+    int  OffsetFromClick(POINT p) const;
+    // 滚轮一格：返回新的 offset
+    int  OffsetFromWheel(int delta, int stepPx) const;
+
+    void Draw(Gdiplus::Graphics& g, const Gdiplus::RectF& origin) const;
+};
+
+// ---------------------------------------------------------- 2D 盘符格 ----
+// 盘符页那种"图标 + 主标题 + 副标题 + 选中态"的方块。
+struct Tile {
+    RECT  rc = {};
+    const wchar_t* title = L"";      // 盘符
+    const wchar_t* sub = L"";        // 已选 / 不选
+    Gdiplus::Bitmap* icon = nullptr; // 可以为空
+    bool  hot = false;
+    float alpha = 1.0f;
+    float progress = 0.0f;           // 选中进度（0..1，走 Tween）
+
+    bool Hit(POINT p) const;
+    void Draw(Gdiplus::Graphics& g, const Gdiplus::RectF& origin) const;
+};
+
+} // namespace ui
+
 } // namespace aero

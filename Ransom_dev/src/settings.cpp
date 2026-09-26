@@ -148,10 +148,16 @@ namespace {
             s.maxMs = t;
         }
 
-        // 赎金目标：存在 [10, 9999] 这个**并集**里。
-        // 具体生效范围按模式夹（普通 / 硬核各一段），那一步在 GoldGoal() 里做 ——
-        // 这里只挡住明显越界的手改 ini（比如有人写 99999）。
-        s.goldGoal = ClampInt(s.goldGoal, settings::kGoldMin, settings::kGoldHardMax);
+        // 赎金目标：**两条滑条各存一份**，各自夹到自己的段里。
+        // （升级成三态模式时从"一条共用滑条"拆出来的 —— 普通调 500、
+        //   硬核调 5000，互不干扰。）
+        s.goldGoalNormal   = ClampInt(s.goldGoalNormal,
+            settings::kGoldMin, settings::kGoldMax);
+        s.goldGoalHardcore = ClampInt(s.goldGoalHardcore,
+            settings::kGoldHardMin, settings::kGoldHardMax);
+
+        // 游戏模式：夹到合法枚举。认不出的值一律退回普通。
+        if (s.mode < 0 || s.mode >= settings::kModeCount) s.mode = settings::kModeNormal;
 
         // 关窗惩罚：同样存在并集 [0, 30000] 里，模式上限在 ChildCloseMs() 里夹。
         s.childCloseMs = ClampInt(s.childCloseMs, settings::kCloseMin, settings::kCloseHardMax);
@@ -195,6 +201,43 @@ namespace {
             const int t = s.extraLockMinMs;
             s.extraLockMinMs = s.extraLockMaxMs;
             s.extraLockMaxMs = t;
+        }
+
+        // ---- 金币撒哪些盘 ----
+        // 只留 "A".."Z" 的单字母（转大写），外加那个特殊的 "-"（空集标记）。
+        // 去重、排序；乱写的一律丢掉（"CC" / "1" / "C:\\" 都会被扔）。
+        {
+            std::vector<std::wstring> clean;
+            for (size_t i = 0; i < s.coinDrives.size(); ++i)
+            {
+                std::wstring t = s.coinDrives[i];
+
+                while (!t.empty() && (t.front() == L' ' || t.front() == L'\t'))
+                    t.erase(t.begin());
+                while (!t.empty() && (t.back() == L' ' || t.back() == L'\t' ||
+                    t.back() == L'\r' || t.back() == L'\n')) t.pop_back();
+
+                if (t == settings::kCoinDrivesNoneToken)
+                {
+                    // "-" = 一个都不撒：它单独成立，不跟别的项共存
+                    clean.clear();
+                    clean.push_back(t);
+                    break;
+                }
+
+                if (t.size() != 1) continue;
+                const wchar_t c = (wchar_t)towupper(t[0]);
+                if (c < L'A' || c > L'Z') continue;
+
+                t.assign(1, c);
+                bool dup = false;
+                for (size_t k = 0; k < clean.size(); ++k)
+                    if (clean[k] == t) { dup = true; break; }
+                if (!dup) clean.push_back(t);
+            }
+
+            if (clean.size() > 1) std::sort(clean.begin(), clean.end());
+            s.coinDrives.swap(clean);
         }
 
         // ---- 面额池 ----
@@ -250,6 +293,14 @@ namespace {
             pool += n;
         }
 
+        // 金币盘符清单同理："C,D" / "-" / 空串
+        std::wstring drives;
+        for (size_t i = 0; i < s.coinDrives.size(); ++i)
+        {
+            if (i) drives += L',';
+            drives += s.coinDrives[i];
+        }
+
         // ini 全文的缓冲区。
         //
         // 大小**必须留足**，而且不能靠"大概够了"：swprintf_s 的数组重载
@@ -285,19 +336,21 @@ namespace {
             L"idle_max=%d\n"
             L"\n"
             L"[game]\n"
-            L"; ransom goal in gold. Normal mode: 10-1000. Hardcore: 1000-9999\n"
-            L"; (values above 9999 are clamped). Affects both the win condition\n"
-            L"; and how much gold gets scattered across the desktop.\n"
+            L"; game mode: 0 = normal, 1 = hardcore, 2 = idle (NOT IMPLEMENTED YET;\n"
+            L"; picking it runs the normal show and only writes a log line).\n"
+            L"; 'hardcore=' below is kept in sync for older builds.\n"
+            L"mode=%d\n"
+            L"hardcore=%d\n"
+            L"; ransom goal in gold. Normal mode: 10-1000, hardcore: 1000-9999.\n"
+            L"; The two sliders in the UI are independent, so both are stored.\n"
+            L"; gold_goal is the effective value, written for older builds.\n"
+            L"gold_goal_normal=%d\n"
+            L"gold_goal_hardcore=%d\n"
             L"gold_goal=%d\n"
             L"; penalty for closing one ransom child window, in milliseconds.\n"
             L"; 0 = closing windows costs no time. Normal caps at 18000,\n"
-            L"; hardcore at 30000.\n"
+            L"; hardcore at 30000. Shared by both modes (one slider).\n"
             L"close_penalty_ms=%d\n"
-            L"; hardcore mode: 1 = 3-minute timer, gold in disk folders, more and\n"
-            L"; stickier popups, random locks on non-shortcut desktop items.\n"
-            L"; 0 = the original show. gold_goal above stays in use either way,\n"
-            L"; only its allowed range changes (see above).\n"
-            L"hardcore=%d\n"
             L"; fake coins (hardcore only). percent = chance a generated coin is\n"
             L"; fake, 0-100. The three weights below decide what gets corrupted:\n"
             L"; prefix \"Gold\", the amount digits, or both. They are weights, not\n"
@@ -328,18 +381,25 @@ namespace {
             L"; milliseconds, 900-18000. min == max means a fixed duration.\n"
             L"desk_lock_count=%d\n"
             L"desk_lock_min_ms=%d\n"
-            L"desk_lock_max_ms=%d\n",
+            L"desk_lock_max_ms=%d\n"
+            L"; which fixed drives gold gets scattered onto (hardcore only).\n"
+            L"; empty  = every fixed drive (the old behaviour);\n"
+            L"; \"C,D\"  = only those two;  \"-\" = no drive at all (desktop only).\n"
+            L"coin_drives=%s\n",
             s.bgmVol, s.sfxVol, s.masterVol,
             s.photosensitiveSafe ? 1 : 0,
             s.minMs, s.maxMs,
-            s.goldGoal,
+            s.mode,
+            (s.mode == settings::kModeHardcore) ? 1 : 0,
+            s.goldGoalNormal, s.goldGoalHardcore,
+            (s.mode == settings::kModeHardcore) ? s.goldGoalHardcore : s.goldGoalNormal,
             s.childCloseMs,
-            s.hardcore ? 1 : 0,
             s.fakePercent, s.fakePrefixPct, s.fakeSuffixPct, s.fakeBothPct,
             pool.c_str(),
             s.hardPopupMax,
             s.cursorGapMinMs, s.cursorGapMaxMs,
-            s.extraLockCount, s.extraLockMinMs, s.extraLockMaxMs);
+            s.extraLockCount, s.extraLockMinMs, s.extraLockMaxMs,
+            drives.c_str());
 
         FILE* f = nullptr;
         if (_wfopen_s(&f, path.c_str(), L"wb") != 0 || !f) return false;
@@ -381,14 +441,53 @@ namespace settings {
             g_set.minMs = ReadInt(path, L"show", L"idle_min", kDefaultMinMs);
             g_set.maxMs = ReadInt(path, L"show", L"idle_max", kDefaultMaxMs);
 
-            // 新增：赎金目标金币
-            g_set.goldGoal = ReadInt(path, L"game", L"gold_goal", kDefaultGoldGoal);
+            // ---- 游戏模式（三态）----
+            // 新键 mode= 优先；没有这个键的旧 ini 回落看 hardcore=1/0。
+            // 用 GetPrivateProfileStringW 判"键存不存在"—— GetPrivateProfileInt
+            // 分不清"没写"和"写了 0"。
+            {
+                wchar_t raw[32] = { 0 };
+                GetPrivateProfileStringW(L"game", L"mode", L"", raw, _countof(raw),
+                    path.c_str());
 
-            // 新增：关窗惩罚时长（毫秒）
+                if (raw[0] != 0)
+                {
+                    g_set.mode = _wtoi(raw);
+                }
+                else
+                {
+                    const bool hc = ReadInt(path, L"game", L"hardcore", 0) != 0;
+                    g_set.mode = hc ? kModeHardcore : kModeNormal;
+                }
+            }
+
+            // ---- 赎金目标：两条滑条各一份 ----
+            // 新键优先；只有旧 gold_goal= 时，按它落在哪一段塞进对应那条。
+            {
+                wchar_t raw[32] = { 0 };
+                GetPrivateProfileStringW(L"game", L"gold_goal_normal", L"", raw,
+                    _countof(raw), path.c_str());
+                const bool hasNormal = (raw[0] != 0);
+                if (hasNormal) g_set.goldGoalNormal = _wtoi(raw);
+
+                raw[0] = 0;
+                GetPrivateProfileStringW(L"game", L"gold_goal_hardcore", L"", raw,
+                    _countof(raw), path.c_str());
+                const bool hasHard = (raw[0] != 0);
+                if (hasHard) g_set.goldGoalHardcore = _wtoi(raw);
+
+                // 旧键兜底：>=1000 的算硬核那份，否则算普通那份
+                if (!hasNormal && !hasHard)
+                {
+                    const int legacy = ReadInt(path, L"game", L"gold_goal",
+                        kDefaultGoldGoal);
+                    if (legacy >= kGoldHardMin) g_set.goldGoalHardcore = legacy;
+                    else                        g_set.goldGoalNormal = legacy;
+                }
+            }
+
+            // 新增：关窗惩罚时长（毫秒）—— 两模式共用一条滑条，只有一个值
             g_set.childCloseMs = ReadInt(path, L"game", L"close_penalty_ms", kCloseNormalDefault);
-
-            // 新增：硬核模式开关
-            g_set.hardcore = ReadInt(path, L"game", L"hardcore", 0) != 0;
 
             // 新增：假金币比例与三种形态权重
             g_set.fakePercent   = ReadInt(path, L"game", L"fake_percent",    kDefaultFakePercent);
@@ -409,6 +508,36 @@ namespace settings {
                 kDefaultExtraLockMinMs);
             g_set.extraLockMaxMs = ReadInt(path, L"hardcore", L"desk_lock_max_ms",
                 kDefaultExtraLockMaxMs);
+
+            // 新增：[hardcore] coin_drives= 金币撒哪几个固定盘（逗号分隔的盘符）
+            {
+                wchar_t raw[128] = { 0 };
+                GetPrivateProfileStringW(L"hardcore", L"coin_drives", L"",
+                    raw, _countof(raw), path.c_str());
+
+                g_set.coinDrives.clear();
+
+                const std::wstring str = raw;
+                size_t pos = 0;
+                while (pos <= str.size())
+                {
+                    const size_t comma = str.find(L',', pos);
+                    std::wstring tok = (comma == std::wstring::npos)
+                        ? str.substr(pos)
+                        : str.substr(pos, comma - pos);
+
+                    while (!tok.empty() &&
+                        (tok.front() == L' ' || tok.front() == L'\t')) tok.erase(tok.begin());
+                    while (!tok.empty() &&
+                        (tok.back() == L' ' || tok.back() == L'\t' ||
+                            tok.back() == L'\r' || tok.back() == L'\n')) tok.pop_back();
+
+                    if (!tok.empty()) g_set.coinDrives.push_back(tok);
+
+                    if (comma == std::wstring::npos) break;
+                    pos = comma + 1;
+                }
+            }
 
             // 新增：金币面额池（逗号分隔的整数串）
             {
@@ -450,16 +579,23 @@ namespace settings {
         Sanitize(g_set);
         g_idleMs = PickIdleMs();
 
-        elog::Write(L"[settings] bgm %d%% / sfx %d%% / master %d%% / safe %s / idle %d-%dms / hardcore %s",
+        // 模式名字（日志用）：三态上线后这里统一打中文名
+        static const wchar_t* const kModeName[kModeCount] = {
+            L"普通", L"硬核", L"挂机（未实装，先按普通跑）"
+        };
+        const wchar_t* modeName = kModeName[(Mode() >= 0 && Mode() < kModeCount)
+            ? Mode() : 0];
+
+        elog::Write(L"[settings] bgm %d%% / sfx %d%% / master %d%% / safe %s / idle %d-%dms / 模式 %s（mode=%d）",
             g_set.bgmVol, g_set.sfxVol, g_set.masterVol,
             g_set.photosensitiveSafe ? L"on" : L"off",
             g_set.minMs, g_set.maxMs,
-            g_set.hardcore ? L"ON" : L"off");
+            modeName, g_set.mode);
 
         // 赎金 / 关窗惩罚 / 假币那几项按**实际生效值**打（也就是夹过之后的），
         // 手改 ini 写了个越界的数时，一眼就能看出程序实际用的是多少。
-        elog::Write(L"[settings] 赎金 %d（滑条值 %d，%s区间）/ 关窗惩罚 %dms（滑条值 %d）/ 假币 %d%%（前缀 %d / 后缀 %d / 都改 %d）",
-            GoldGoal(), g_set.goldGoal, g_set.hardcore ? L"硬核" : L"普通",
+        elog::Write(L"[settings] 赎金 %d（普通 %d / 硬核 %d）/ 关窗惩罚 %dms（共用滑条值 %d）/ 假币 %d%%（前缀 %d / 后缀 %d / 都改 %d）",
+            GoldGoal(), GoldGoalNormal(), GoldGoalHardcore(),
             ChildCloseMs(), g_set.childCloseMs,
             FakePercent(), FakePrefixPct(), FakeSuffixPct(), FakeBothPct());
 
@@ -468,6 +604,33 @@ namespace settings {
             CursorGapMinMs(), CursorGapMaxMs(),
             ExtraLockCount(), g_set.extraLockCount, ExtraLockCapacity(),
             ExtraLockMinMs(), ExtraLockMaxMs());
+
+        // 金币盘符：打的是**生效口径**（"全部固定盘" / 具体几个 / 一个都不撒）
+        {
+            if (CoinDrivesNone())
+            {
+                elog::Write(L"[settings] 金币只落桌面：用户在盘符页上勾了「一个盘都不撒」");
+            }
+            else
+            {
+                const std::vector<std::wstring>& dv = CoinDrives();
+                if (dv.empty())
+                {
+                    elog::Write(L"[settings] 金币盘符：未配置 -> 全部固定盘");
+                }
+                else
+                {
+                    std::wstring s2;
+                    for (size_t i = 0; i < dv.size(); ++i)
+                    {
+                        if (i) s2 += L',';
+                        s2 += dv[i];
+                    }
+                    elog::Write(L"[settings] 金币盘符：%s（共 %d 个）",
+                        s2.c_str(), (int)dv.size());
+                }
+            }
+        }
 
         // 面额池一行单独打：条数不定，拼成一个短串更直观
         {
@@ -543,22 +706,39 @@ namespace settings {
     int MaxMs() { return g_set.maxMs; }
     int GoldGoal()
     {
-        // 赎金目标**按模式夹**，而且这是唯一出口：
-        //   普通 -> [10, 1000]
-        //   硬核 -> [1000, 9999]（超过 9999 的部分直接砍掉）
+        // 赎金目标**按当前模式选那一条**，而且这是唯一出口：
+        //   普通（含挂机）-> goldGoalNormal  夹到 [10, 1000]
+        //   硬核          -> goldGoalHardcore 夹到 [1000, 9999]
         //
-        // 不再像以前那样"硬核无视用户值强行 5000" —— 现在硬核也由用户调，
-        // 只是可选区间整段上移（见 setup_ui 里那条共用滑条）。
-        return g_set.hardcore
-            ? ClampInt(g_set.goldGoal, kGoldHardMin, kGoldHardMax)
-            : ClampInt(g_set.goldGoal, kGoldMin, kGoldMax);
+        // 三态模式升级时把原来"一条共用滑条"拆成了两条独立的滑条，
+        // 两份值互不影响 —— 普通调 500、硬核调 5000，各存各的。
+        return g_set.IsHardcore()
+            ? ClampInt(g_set.goldGoalHardcore, kGoldHardMin, kGoldHardMax)
+            : ClampInt(g_set.goldGoalNormal, kGoldMin, kGoldMax);
+    }
+
+    int GoldGoalNormal()
+    {
+        return ClampInt(g_set.goldGoalNormal, kGoldMin, kGoldMax);
+    }
+
+    int GoldGoalHardcore()
+    {
+        return ClampInt(g_set.goldGoalHardcore, kGoldHardMin, kGoldHardMax);
+    }
+
+    int Mode()
+    {
+        if (g_set.mode < 0 || g_set.mode >= kModeCount) return kModeNormal;
+        return g_set.mode;
     }
 
     int ChildCloseMs()
     {
         // 同上，按模式夹上限：普通最多 18 秒，硬核最多 30 秒。0 是合法的
-        //（关窗口完全不扣时间）。
-        return g_set.hardcore
+        //（关窗口完全不扣时间）。**两模式共用一条滑条**（用户定的），
+        // 所以只有一个值，只是上限跟着模式变。
+        return g_set.IsHardcore()
             ? ClampInt(g_set.childCloseMs, kCloseMin, kCloseHardMax)
             : ClampInt(g_set.childCloseMs, kCloseMin, kCloseNormalMax);
     }
@@ -632,7 +812,24 @@ namespace settings {
         return (a > b) ? a : b;
     }
 
-    bool Hardcore() { return g_set.hardcore; }
+    // ---- 金币撒哪些盘 ----
+    const std::vector<std::wstring>& CoinDrives()
+    {
+        // Sanitize 已经把这份洗成"大写单字母、去重、有序"了；
+        // 但"-"（空集标记）不算盘符，从这里看就是空的。
+        static const std::vector<std::wstring> kEmpty;
+
+        if (CoinDrivesNone()) return kEmpty;
+        return g_set.coinDrives;
+    }
+
+    bool CoinDrivesNone()
+    {
+        return g_set.coinDrives.size() == 1 &&
+            g_set.coinDrives[0] == kCoinDrivesNoneToken;
+    }
+
+    bool Hardcore() { return g_set.IsHardcore(); }
 
     const std::vector<int>& CoinAmounts()
     {
@@ -643,7 +840,7 @@ namespace settings {
             kHardcoreCoinAmounts,
             kHardcoreCoinAmounts + kHardcoreCoinAmountCount);
 
-        return g_set.hardcore ? hcPool : g_set.coinAmounts;
+        return g_set.IsHardcore() ? hcPool : g_set.coinAmounts;
     }
 
     int PickIdleMs()

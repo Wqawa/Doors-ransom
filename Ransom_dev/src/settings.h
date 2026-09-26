@@ -28,6 +28,10 @@
 // ============================================================================
 #pragma once
 
+// std::wstring 是 Set::coinDrives 的元素类型（盘符清单）。
+// 这个头文件以前只用 std::vector<int>，所以一直没引 <string> —— 现在必须引，
+// 否则在只包含 settings.h 的翻译单元里 std::wstring 是不认识的类型。
+#include <string>
 #include <vector>
 
 namespace settings {
@@ -39,15 +43,31 @@ namespace settings {
 	const int kIntervalMinMs = 20;      // 两次遭遇战之间最短 20ms（几乎立刻）
 	const int kIntervalMaxMs = 90000;   // 最长 90s
 
+	// ---- 游戏模式 ----
+	//
+	// 原来是「硬核模式」一个布尔开关，现在升级成三态下拉框（界面在 setup_ui）。
+	//   普通 kModeNormal   —— 原版演出
+	//   硬核 kModeHardcore —— 困难版（3 分钟 / 假币 / 锁桌面 / 撒磁盘……）
+	//   挂机 kModeIdle     —— **还没实装**，先占位：能选、能存，
+	//                         真跑起来时按普通模式走，并在日志里记一行。
+	//
+	// 下游（popup / director / gold / overlay）读的仍然是 settings::Hardcore()，
+	// 它现在等价于 mode == kModeHardcore —— 语义没变，那些调用一行都不用改。
+	const int kModeNormal = 0;
+	const int kModeHardcore = 1;
+	const int kModeIdle = 2;
+	const int kModeCount = 3;
+
 	// ---- 赎金目标金币数 ----
 	// 这个值同时决定两件事：
 	//   * 付清赎金的判定阈值（director）
 	//   * 桌面散布金币的总额与面额分布（gold）
 	//
-	// 取值范围**按模式分两段**，但界面上共用同一条滑条：
+	// **普通和硬核各自独立存一份**（界面上也拆成了两条独立的滑条，
+	// 各自绑自己的取值函数，互不影响）：
 	//   普通：10 ~ 1000（原作 500）
 	//   硬核：1000 ~ 9999（硬核要付得多）
-	// 超过 9999 的部分一律砍掉 —— 夹在 GoldGoal() 里（唯一出口）。
+	// 超过各自上限的部分一律砍掉 —— 夹在 GoldGoal() 里（唯一出口）。
 	const int kGoldMin = 10;
 	const int kGoldMax = 1000;
 	const int kGoldHardMin = 1000;
@@ -139,6 +159,20 @@ namespace settings {
 	// 后来放弃了这个设计 —— 安全阀在两种模式下都是**按一次就停**。
 	// 相关的常量和提示文案都已经删掉了，别再按那条路改。
 
+	// ---- 硬核：金币撒哪些盘（设置界面那个 2D 盘符页勾的）----
+	//
+	// 硬核会把金币撒到各**固定盘**的顶层目录里。「撒哪几个盘」由用户在
+	// 设置界面的盘符页上勾（见 setup_ui 的 drive 页）。
+	//
+	// 三态语义（缺省 = 老行为，一行都不改）：
+	//   ini 没这个键 / 空串  -> 全部固定盘（老行为）
+	//   "C,D"                -> 只撒 C 和 D 这两个固定盘
+	//   "-"                  -> 一个盘都不撒（**显式的空集**）
+	//
+	// 为什么空串不能兼职表示"空集"：空串的含义是"没配过"，必须和"我就是要
+	// 一个都不撒"分得开 —— 否则用户把勾全去掉、重启后又变回全部盘，等于骗人。
+	const wchar_t* const kCoinDrivesNoneToken = L"-";
+
 	// ---- 默认值 ----
 	const int kDefaultBgmVol = 100;
 	const int kDefaultSfxVol = 100;
@@ -166,9 +200,10 @@ namespace settings {
 		int  minMs = kDefaultMinMs;
 		int  maxMs = kDefaultMaxMs;
 
-		// 赎金目标金币数。存的是"原始值"，实际生效范围按模式夹
-		// （普通 10-1000 / 硬核 1000-9999），见 GoldGoal()。
-		int  goldGoal = kDefaultGoldGoal;
+		// 赎金目标金币数：**普通 / 硬核各存一份**（滑条也是拆开的两条，
+		// 各自绑自己的取值函数）。生效值由 GoldGoal() 按当前模式选。
+		int  goldGoalNormal = kDefaultGoldGoal;
+		int  goldGoalHardcore = kHardcoreGoldGoal;
 
 		// 关掉一个勒索子窗口时倒计时往前扣多少毫秒（0 = 不扣）。
 		// 同样按模式夹上限：普通 <=18000，硬核 <=30000，见 ChildCloseMs()。
@@ -196,11 +231,24 @@ namespace settings {
 		int  extraLockMinMs = kDefaultExtraLockMinMs;
 		int  extraLockMaxMs = kDefaultExtraLockMaxMs;
 
-		// 硬核模式。开着的时候下面这些全都换一套：
-		//   3 分钟倒计时 / 赎金 1000-9999（默认 5000）/ 面额 <=100 / 假金币 /
-		//   弹窗更多更黏人 / 往磁盘顶层目录撒金币 / 随机锁非快捷方式。
-		// 所有子系统都只读 settings::Hardcore() 这一个来源（见 settings.cpp）。
-		bool hardcore = false;
+		// 金币撒哪些固定盘（在设置界面的盘符页上勾）。
+		// **空 = 全部固定盘**（老行为）；里面只放盘符字母，如 "C"、"D"；
+		// 只放一个 kCoinDrivesNoneToken 表示"一个盘都不撒"。
+		// 从 ini 的 [hardcore] coin_drives= 读（逗号分隔），
+		// 读取时会去重、转大写、排序。
+		std::vector<std::wstring> coinDrives;
+
+		// 游戏模式：kModeNormal / kModeHardcore / kModeIdle。
+		// 开着硬核时下面这些全都换一套：
+		//   3 分钟倒计时 / 赎金 1000-9999 / 面额 <=100 / 假金币 /
+		//   弹窗更多更黏人 / 往磁盘根目录撒金币 / 随机锁非快捷方式。
+		// 所有子系统都只读 settings::Hardcore() 这一个来源（见 settings.cpp）；
+		// 「挂机」还没实装，选中后按普通模式跑。
+		int  mode = kModeNormal;
+
+		// 当前是不是硬核（= mode == kModeHardcore）。
+		// 界面和 settings.cpp 内部都读这个，避免到处写 mode 比较。
+		bool IsHardcore() const { return mode == kModeHardcore; }
 
 		// 金币面额池。**空 = 用 kDefaultCoinAmounts 里的默认**。
 		// 从 ini 的 [game] coin_amounts= 读（逗号分隔，如 "10,50,325,500"）。
@@ -248,10 +296,20 @@ namespace settings {
 	bool PhotosensitiveSafe();
 	int  MinMs();
 	int  MaxMs();
-	// 赎金目标。**按模式夹过的最终值，也是唯一出口**：
-	//   普通 -> [10, 1000]，硬核 -> [1000, 9999]（超过 9999 的部分砍掉）。
-	// 所有判定和显示都必须读这个，别直接读 Set::goldGoal。
+
+	// 当前游戏模式（kModeNormal / kModeHardcore / kModeIdle），已夹到合法范围。
+	int  Mode();
+
+	// 赎金目标。**按当前模式选那一条、并夹过的最终值，也是唯一出口**：
+	//   普通 -> goldGoalNormal 夹到 [10, 1000]
+	//   硬核 -> goldGoalHardcore 夹到 [1000, 9999]
+	// 所有判定和显示都必须读这个，别直接读 Set 里那两个字段。
 	int  GoldGoal();
+
+	// 两条滑条各自的原始值（已夹过），给设置界面的两条独立滑条用。
+	// 注意它们是**互不影响**的两份数据：普通调 500、硬核调 5000，各存各的。
+	int  GoldGoalNormal();      // [kGoldMin, kGoldMax]
+	int  GoldGoalHardcore();    // [kGoldHardMin, kGoldHardMax]
 
 	// 关掉一个勒索子窗口的惩罚时长（毫秒），按模式夹过：
 	// 普通 -> [0, 18000]，硬核 -> [0, 30000]。
@@ -292,6 +350,14 @@ namespace settings {
 	// 注意：**只在第一次调用时扫一遍盘**，之后返回缓存值 ——
 	// 它被绘制循环读到，不能每次重绘都去翻目录。
 	int  DesktopItemCount();
+
+	// 金币撒哪些固定盘。**大写字母、去重、已排序**；空 = 全部固定盘。
+	// 含 kCoinDrivesNoneToken（"-"）时返回空（那种情况看 CoinDrivesNone()）。
+	const std::vector<std::wstring>& CoinDrives();
+
+	// 用户是不是**显式**勾了"一个盘都不撒"（ini 里存的是 "-"）。
+	// 为真时金币只落在桌面上，一个固定盘都不碰。
+	bool CoinDrivesNone();
 
 	// 硬核模式开关。
 	bool Hardcore();

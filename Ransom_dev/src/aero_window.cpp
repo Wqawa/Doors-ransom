@@ -1153,6 +1153,20 @@ namespace {
         //   * 阴影带（外面那 14px）本来就是透明区，点它等于点桌面
         //
         // 落在内容区之外的消息**不在这里吞掉**，继续往下走原有分支。
+        //
+        // 另外补了一条 WM_CAPTURECHANGED 的转发：第三方截屏工具（QQ / 微信
+        // 那种全屏覆盖层）会在我们拖滑条的中途把鼠标捕获抢走，于是我们
+        // **永远等不到 WM_LBUTTONUP**，自绘控件那边就一直停在"还在拖"的
+        // 状态（之后每次鼠标移动都被当成拖拽）。这条消息不带坐标，转发时
+        // 给一个 (0,0) 占位 —— 调用方只能用它做状态复位，别拿来做命中判定。
+        case WM_CAPTURECHANGED:
+            if (a && a->opt.onContentMouse)
+            {
+                const POINT none = { 0, 0 };
+                a->opt.onContentMouse(hwnd, msg, none, wp, a->opt.onContentMouseUser);
+            }
+            return 0;
+
         case WM_LBUTTONDOWN:
         case WM_LBUTTONUP:
         case WM_LBUTTONDBLCLK:
@@ -1823,5 +1837,623 @@ namespace aero {
     }
 
     int AliveCount() { return (int)g_windows.size(); }
+
+    // ========================================================================
+    //  aero::ui —— 自绘控件库
+    // ========================================================================
+    //
+    //  这一整块是从 setup_ui.cpp 搬过来的：按钮 / 滑条 / 复选框 / 下拉框 /
+    //  侧边滚动条 / 盘符格，连同**命中判定、拖拽与滚轮的数学、缓动动画、
+    //  配色**。搬的理由：自绘代码全堆在 setup_ui 里时，aero_window.cpp 只是
+    //  个空壳，别的窗口想用同一个按钮只能再抄一遍。
+    //
+    //  所有坐标都是**内容区坐标**（左上角 (0,0)，和 PaintFn 的 content 同源）；
+    //  绘制时传 origin 做平移，命中判定直接用裸坐标。
+    namespace ui {
+
+        // ------------------------------------------------------------ 缓动 ----
+        void Tween::Set(double v, bool snap, DWORD dur)
+        {
+            if (snap) { from = v; to = v; startMs = 0; return; }
+            if (v == to) return;                     // 已经在去这个目标的路上
+            from = Value();
+            to = v;
+            durMs = (dur < 30) ? kEaseMs : dur;      // 太短的时长跟瞬时没区别
+            startMs = GetTickCount();
+        }
+
+        double Tween::Value() const
+        {
+            if (startMs == 0) return to;
+            const DWORD el = GetTickCount() - startMs;
+            if (el >= durMs) return to;
+
+            const float p = (float)el / (float)durMs;
+            const float u = 1.0f - p;
+            const float t = 1.0f - u * u * u;        // ease-out cubic
+            return from + (to - from) * (double)t;
+        }
+
+        // ------------------------------------------------------------ 主题 ----
+        const Theme& DefaultTheme()
+        {
+            // 中性灰 + 纯红。三条原则：
+            //   * 背景 / 文字全部中性灰（R = G = B），不带冷暖倾向；
+            //   * 强调色是纯红 (255,0,0)，和 A-90 停牌的红同源；
+            //   * 底板 alpha 240：桌面只贡献 6%，明度关系可控。
+            static const Theme t = {
+                /* panelBg        */ Gdiplus::Color(240, 18, 18, 18),
+                /* panelEdge      */ Gdiplus::Color(90, 80, 80, 80),
+
+                /* textMain       */ Gdiplus::Color(255, 245, 245, 245),
+                /* textHint       */ Gdiplus::Color(250, 220, 220, 220),
+                /* textDim        */ Gdiplus::Color(235, 165, 165, 165),
+                /* textFaint      */ Gdiplus::Color(185, 130, 130, 130),
+
+                /* accent         */ Gdiplus::Color(255, 255, 0, 0),
+                /* accentSoft     */ Gdiplus::Color(150, 255, 0, 0),
+
+                /* trackBg        */ Gdiplus::Color(230, 45, 45, 45),
+                /* trackFill      */ Gdiplus::Color(255, 255, 0, 0),
+                /* knob           */ Gdiplus::Color(255, 245, 245, 245),
+                /* knobActive     */ Gdiplus::Color(255, 255, 80, 80),
+
+                /* trackBgOff     */ Gdiplus::Color(150, 60, 60, 60),
+                /* trackFillOff   */ Gdiplus::Color(120, 120, 120, 120),
+                /* knobOff        */ Gdiplus::Color(255, 150, 150, 150),
+
+                /* btnPrimary     */ Gdiplus::Color(200, 180, 0, 0),
+                /* btnPrimaryHot  */ Gdiplus::Color(240, 220, 0, 0),
+                /* btnPrimaryEdge */ Gdiplus::Color(255, 255, 0, 0),
+                /* btnSecondary   */ Gdiplus::Color(100, 50, 50, 50),
+                /* btnSecondaryHot*/ Gdiplus::Color(150, 80, 80, 80),
+                /* btnSecEdge     */ Gdiplus::Color(140, 130, 130, 130),
+                /* btnSecEdgeHot  */ Gdiplus::Color(220, 200, 200, 200),
+
+                /* checkEdge      */ Gdiplus::Color(180, 150, 150, 150),
+                /* checkEdgeHot   */ Gdiplus::Color(255, 255, 0, 0),
+
+                /* scrollTrack    */ Gdiplus::Color(120, 26, 26, 26),
+                /* scrollThumb    */ Gdiplus::Color(190, 120, 120, 120),
+                /* scrollThumbAct */ Gdiplus::Color(150, 255, 0, 0),
+
+                /* mixRed         */ Gdiplus::Color(255, 255, 0, 0),
+                /* mixGreen       */ Gdiplus::Color(255, 40, 200, 60),
+            };
+            return t;
+        }
+
+        // ------------------------------------------------------ 小工具 --------
+        float Clamp01(float v)
+        {
+            if (v < 0.0f) return 0.0f;
+            if (v > 1.0f) return 1.0f;
+            return v;
+        }
+
+        Gdiplus::Color LerpColor(const Gdiplus::Color& a, const Gdiplus::Color& b, float t)
+        {
+            if (t <= 0.0f) return a;
+            if (t >= 1.0f) return b;
+            const BYTE A = (BYTE)(a.GetA() + (b.GetA() - a.GetA()) * t + 0.5f);
+            const BYTE R = (BYTE)(a.GetR() + (b.GetR() - a.GetR()) * t + 0.5f);
+            const BYTE G = (BYTE)(a.GetG() + (b.GetG() - a.GetG()) * t + 0.5f);
+            const BYTE B = (BYTE)(a.GetB() + (b.GetB() - a.GetB()) * t + 0.5f);
+            return Gdiplus::Color(A, R, G, B);
+        }
+
+        Gdiplus::Color Fade(const Gdiplus::Color& c, float t)
+        {
+            const BYTE a = (BYTE)((float)c.GetA() * Clamp01(t) + 0.5f);
+            return Gdiplus::Color(a, c.GetR(), c.GetG(), c.GetB());
+        }
+
+        namespace {
+
+            void AddRound(Gdiplus::GraphicsPath& p, const Gdiplus::RectF& r, REAL radius)
+            {
+                REAL d = radius * 2.0f;
+                if (d > r.Width)  d = r.Width;
+                if (d > r.Height) d = r.Height;
+                if (d < 0) d = 0;
+
+                p.Reset();
+                p.StartFigure();
+                p.AddArc(r.X, r.Y, d, d, 180.0f, 90.0f);
+                p.AddArc(r.GetRight() - d, r.Y, d, d, 270.0f, 90.0f);
+                p.AddArc(r.GetRight() - d, r.GetBottom() - d, d, d, 0.0f, 90.0f);
+                p.AddArc(r.X, r.GetBottom() - d, d, d, 90.0f, 90.0f);
+                p.CloseFigure();
+            }
+
+            // 等宽字体族：素材里的 RobotoMono 由 entity_main 经 aero::SetTitleFont
+            // 注册；拿不到就退回 Consolas。
+            Gdiplus::FontFamily* MonoFamily()
+            {
+                static Gdiplus::FontFamily* fam = nullptr;
+                static bool tried = false;
+                if (!tried) { tried = true; fam = UiFontFamily(); }
+                return fam;
+            }
+
+        } // namespace
+
+        void FillRound(Gdiplus::Graphics& g, const Gdiplus::RectF& r, REAL radius,
+            const Gdiplus::Color& c)
+        {
+            Gdiplus::GraphicsPath p;
+            AddRound(p, r, radius);
+            Gdiplus::SolidBrush b(c);
+            g.FillPath(&b, &p);
+        }
+
+        void StrokeRound(Gdiplus::Graphics& g, const Gdiplus::RectF& r, REAL radius,
+            const Gdiplus::Color& c, REAL w)
+        {
+            Gdiplus::GraphicsPath p;
+            AddRound(p, r, radius);
+            Gdiplus::Pen pen(c, w);
+            g.DrawPath(&pen, &p);
+        }
+
+        void DrawPanel(Gdiplus::Graphics& g, const Gdiplus::RectF& rc)
+        {
+            FillRound(g, rc, 10.0f, DefaultTheme().panelBg);
+            StrokeRound(g, rc, 10.0f, DefaultTheme().panelEdge, 1.0f);
+        }
+
+        bool Hit(const RECT& r, const POINT& p)
+        {
+            return p.x >= r.left && p.x < r.right && p.y >= r.top && p.y < r.bottom;
+        }
+
+        void SetRectLocal(RECT& r, int x, int y, int w, int h)
+        {
+            r.left = x; r.top = y; r.right = x + w; r.bottom = y + h;
+        }
+
+        void DrawTextCjk(Gdiplus::Graphics& g, const wchar_t* s, const Gdiplus::RectF& rc,
+            float px, const Gdiplus::Color& c,
+            Gdiplus::StringAlignment align, int style)
+        {
+            Gdiplus::Font f(L"Microsoft YaHei", px, style, Gdiplus::UnitPixel);
+            Gdiplus::StringFormat fmt;
+            fmt.SetAlignment(align);
+            fmt.SetLineAlignment(Gdiplus::StringAlignmentCenter);
+            fmt.SetFormatFlags(Gdiplus::StringFormatFlagsNoWrap);
+            Gdiplus::SolidBrush b(c);
+            g.DrawString(s, -1, &f, rc, &fmt, &b);
+        }
+
+        void DrawTextMono(Gdiplus::Graphics& g, const wchar_t* s, const Gdiplus::RectF& rc,
+            float px, const Gdiplus::Color& c,
+            Gdiplus::StringAlignment align, int style)
+        {
+            Gdiplus::FontFamily* fam = MonoFamily();
+            Gdiplus::Font f = fam ? Gdiplus::Font(fam, px, style, Gdiplus::UnitPixel)
+                                  : Gdiplus::Font(L"Consolas", px, style, Gdiplus::UnitPixel);
+            Gdiplus::StringFormat fmt;
+            fmt.SetAlignment(align);
+            fmt.SetLineAlignment(Gdiplus::StringAlignmentCenter);
+            fmt.SetFormatFlags(Gdiplus::StringFormatFlagsNoWrap);
+            Gdiplus::SolidBrush b(c);
+            g.DrawString(s, -1, &f, rc, &fmt, &b);
+        }
+
+        // --------------------------------------------------------- 按钮 ------
+        bool Button::Hit(POINT p) const
+        {
+            return aero::ui::Hit(rc, p);
+        }
+
+        void Button::Draw(Gdiplus::Graphics& g, const Gdiplus::RectF& origin) const
+        {
+            const Theme& th = DefaultTheme();
+
+            const Gdiplus::RectF b(origin.X + (REAL)rc.left, origin.Y + (REAL)rc.top,
+                (REAL)(rc.right - rc.left), (REAL)(rc.bottom - rc.top));
+
+            // 灰掉的按钮：不参与高亮，底色和文字一起压暗
+            Gdiplus::Color fill, edge, text;
+            if (!enabled)
+            {
+                fill = th.trackBgOff;
+                edge = th.btnSecondaryEdge;
+                text = th.textFaint;
+            }
+            else
+            {
+                fill = primary ? (hot ? th.btnPrimaryHot : th.btnPrimary)
+                               : (hot ? th.btnSecondaryHot : th.btnSecondary);
+                edge = primary ? th.btnPrimaryEdge
+                               : (hot ? th.btnSecondaryEdgeHot : th.btnSecondaryEdge);
+                text = th.textMain;
+            }
+
+            FillRound(g, b, 7.0f, Fade(fill, alpha));
+            StrokeRound(g, b, 7.0f, Fade(edge, alpha), 1.4f);
+            DrawTextCjk(g, label, b, 15.0f, Fade(text, alpha),
+                Gdiplus::StringAlignmentCenter, Gdiplus::FontStyleBold);
+        }
+
+        // ------------------------------------------------------- 复选框 ------
+        bool Checkbox::Hit(POINT p) const
+        {
+            return aero::ui::Hit(rc, p);
+        }
+
+        void Checkbox::Draw(Gdiplus::Graphics& g, const Gdiplus::RectF& origin,
+            float progress) const
+        {
+            const Theme& th = DefaultTheme();
+
+            const Gdiplus::RectF box(origin.X + (REAL)rc.left, origin.Y + (REAL)rc.top,
+                20.0f, 20.0f);
+
+            FillRound(g, box, 4.0f, Fade(LerpColor(th.trackBg, th.accentSoft, progress), alpha));
+
+            const Gdiplus::Color edge = Fade(hot ? th.checkEdgeHot
+                : LerpColor(th.checkEdge, th.checkEdgeHot, progress), alpha);
+            StrokeRound(g, box, 4.0f, edge, 1.6f);
+
+            if (progress <= 0.02f) return;
+
+            // 对勾分两段"长"出来
+            const float s1 = Clamp01(progress / 0.55f);
+            const float s2 = Clamp01((progress - 0.55f) / 0.45f);
+
+            const REAL x0 = box.X + 5.0f, y0 = box.Y + 10.5f;
+            const REAL x1 = box.X + 8.5f, y1 = box.Y + 14.0f;
+            const REAL x2 = box.X + 15.0f, y2 = box.Y + 6.0f;
+
+            Gdiplus::Pen pen(Fade(Gdiplus::Color(255, 245, 245, 250), alpha), 2.6f);
+            pen.SetStartCap(Gdiplus::LineCapRound);
+            pen.SetEndCap(Gdiplus::LineCapRound);
+
+            if (s1 > 0.0f)
+            {
+                const REAL mx = x0 + (x1 - x0) * s1;
+                const REAL my = y0 + (y1 - y0) * s1;
+                g.DrawLine(&pen, x0, y0, mx, my);
+            }
+            if (s2 > 0.0f)
+            {
+                const REAL mx = x1 + (x2 - x1) * s2;
+                const REAL my = y1 + (y2 - y1) * s2;
+                g.DrawLine(&pen, x1, y1, mx, my);
+            }
+        }
+
+        // --------------------------------------------------------- 滑条 ------
+        int Slider::FromX(int x) const
+        {
+            double f = (double)(x - track.left) / (double)(track.right - track.left);
+            if (f < 0.0) f = 0.0;
+            if (f > 1.0) f = 1.0;
+
+            int v = lo + (int)std::lround(f * (hi - lo));
+
+            if (snapStep > 1)
+            {
+                v = (v / snapStep) * snapStep;
+                if (v < lo) v = lo;
+                if (v > hi) v = hi;
+            }
+            return v;
+        }
+
+        int Slider::ToX(int v) const
+        {
+            if (v < lo) v = lo;
+            if (v > hi) v = hi;
+
+            double f = (hi > lo) ? (double)(v - lo) / (double)(hi - lo) : 0.0;
+            if (f < 0.0) f = 0.0;
+            if (f > 1.0) f = 1.0;
+            return track.left + (int)std::lround(f * (track.right - track.left));
+        }
+
+        int Slider::NearestKnob(int x1, int x2, int x)
+        {
+            // 重合（或几乎重合）时一律选左珠：按距离选的话，鼠标偏右几个像素
+            // 就会选中右珠，而右珠被左珠夹着、往左拖不动 —— 表现为"有时能拖
+            // 有时拖不动"。
+            const int kOverlapEps = 6;
+            if (x2 - x1 <= kOverlapEps) return 0;
+
+            const int d1 = (x > x1) ? (x - x1) : (x1 - x);
+            const int d2 = (x > x2) ? (x - x2) : (x2 - x);
+            return (d1 <= d2) ? 0 : 1;
+        }
+
+        bool Slider::HitTrack(POINT p, int padY, int padX) const
+        {
+            return p.y >= track.top - padY && p.y < track.bottom + padY &&
+                p.x >= track.left - padX && p.x < track.right + padX;
+        }
+
+        void Slider::Draw(Gdiplus::Graphics& g, const Gdiplus::RectF& origin,
+            int x1, int x2, int fillL, int fillR) const
+        {
+            const Theme& th = DefaultTheme();
+
+            const REAL cy = origin.Y + (REAL)track.top + 9.0f;   // 轨道高 18，取中线
+            const REAL x0 = origin.X + (REAL)track.left;
+            const REAL xN = origin.X + (REAL)track.right;
+
+            const Gdiplus::Color bgC = Fade(enabled ? th.trackBg : th.trackBgOff, alpha);
+            const Gdiplus::Color fillC = Fade(enabled ? th.trackFill : th.trackFillOff, alpha);
+            const Gdiplus::Color knobC = Fade(enabled ? th.knob : th.knobOff, alpha);
+
+            {
+                Gdiplus::RectF t(x0, cy - 3.0f, xN - x0, 6.0f);
+                FillRound(g, t, 3.0f, bgC);
+            }
+            if (fillR > fillL)
+            {
+                Gdiplus::RectF f(origin.X + (REAL)fillL, cy - 3.0f,
+                    (REAL)(fillR - fillL), 6.0f);
+                FillRound(g, f, 3.0f, fillC);
+            }
+            {
+                Gdiplus::SolidBrush dim(Fade(th.textFaint, alpha));
+                g.FillRectangle(&dim, x0, cy - 6.0f, 1.0f, 12.0f);
+                g.FillRectangle(&dim, xN - 1.0f, cy - 6.0f, 1.0f, 12.0f);
+            }
+
+            const int kKnobR = 8;
+            const int xs[2] = { x1, x2 };
+            for (int i = 0; i < knobCount; ++i)
+            {
+                const REAL kx = origin.X + (REAL)xs[i];
+                const Gdiplus::Color c = Fade(
+                    (enabled && i == hotKnob) ? th.knobActive : knobC, alpha);
+
+                Gdiplus::SolidBrush b(c);
+                g.FillEllipse(&b, kx - kKnobR, cy - kKnobR, kKnobR * 2.0f, kKnobR * 2.0f);
+
+                Gdiplus::Pen edge(Fade(Gdiplus::Color(200, 30, 20, 24), alpha), 1.6f);
+                g.DrawEllipse(&edge, kx - kKnobR, cy - kKnobR, kKnobR * 2.0f, kKnobR * 2.0f);
+            }
+        }
+
+        // ------------------------------------------------------- 下拉框 ------
+        void Combo::Sync(bool snap)
+        {
+            anim.Set(open ? 1.0 : 0.0, snap);
+        }
+
+        RECT Combo::ItemRect(int i) const
+        {
+            RECT r;
+            SetRectLocal(r, rc.left, rc.bottom + i * itemH, rc.right - rc.left, itemH);
+            return r;
+        }
+
+        bool Combo::HitBox(POINT p) const
+        {
+            return aero::ui::Hit(rc, p);
+        }
+
+        int Combo::HitItem(POINT p) const
+        {
+            for (int i = 0; i < count; ++i)
+                if (aero::ui::Hit(ItemRect(i), p)) return i;
+            return -1;
+        }
+
+        void Combo::DrawBox(Gdiplus::Graphics& g, const Gdiplus::RectF& origin,
+            const wchar_t* label) const
+        {
+            if (alpha <= 0.004f) return;
+
+            const Theme& th = DefaultTheme();
+            const REAL w = (REAL)(rc.right - rc.left + 18);   // 左边空出来给标签
+
+            Gdiplus::RectF t(origin.X + (REAL)rc.left - 18.0f, origin.Y + (REAL)rc.top - 20.0f,
+                w, 18.0f);
+            DrawTextCjk(g, label, t, 14.0f, Fade(th.textMain, alpha));
+
+            // 右上角：当前项的一句话说明（切换时跟着变）
+            if (descs && current >= 0 && current < count)
+                DrawTextCjk(g, descs[current], t, 12.0f,
+                    Fade(current == 1 ? th.accent : th.textDim, alpha),
+                    Gdiplus::StringAlignmentFar);
+
+            const Gdiplus::RectF box(origin.X + (REAL)rc.left, origin.Y + (REAL)rc.top,
+                (REAL)(rc.right - rc.left), (REAL)(rc.bottom - rc.top));
+
+            const bool hot = false;   // 悬停高亮由调用方的 hotItem 之外的 hot 标志决定
+            FillRound(g, box, 7.0f, Fade(hot ? th.btnSecondaryHot : th.btnSecondary, alpha));
+            StrokeRound(g, box, 7.0f,
+                Fade(th.btnSecondaryEdge, alpha), 1.4f);
+
+            if (names && current >= 0 && current < count)
+            {
+                Gdiplus::RectF tt(box.X + 14.0f, box.Y, box.Width - 40.0f, box.Height);
+                DrawTextCjk(g, names[current], tt, 15.0f, Fade(th.textMain, alpha),
+                    Gdiplus::StringAlignmentNear, Gdiplus::FontStyleBold);
+            }
+
+            // 右侧箭头：展开时朝上
+            {
+                const REAL ax = box.GetRight() - 20.0f;
+                const REAL ay = box.Y + box.Height * 0.5f;
+                const REAL d = 4.5f;
+                const bool up = open;
+
+                Gdiplus::PointF p1(ax - d, up ? ay + d * 0.6f : ay - d * 0.6f);
+                Gdiplus::PointF p2(ax, up ? ay - d * 0.6f : ay + d * 0.6f);
+                Gdiplus::PointF p3(ax + d, up ? ay + d * 0.6f : ay - d * 0.6f);
+
+                Gdiplus::Pen pen(Fade(th.textHint, alpha), 1.8f);
+                pen.SetStartCap(Gdiplus::LineCapRound);
+                pen.SetEndCap(Gdiplus::LineCapRound);
+                g.DrawLine(&pen, p1, p2);
+                g.DrawLine(&pen, p2, p3);
+            }
+        }
+
+        void Combo::DrawList(Gdiplus::Graphics& g, const Gdiplus::RectF& origin) const
+        {
+            const float p = P();
+            // 门槛用**还在不在画面上**（进度），不是目标状态 —— 收起时目标
+            // 已经是 false 了，但进度还没走完，这 180ms 得继续画。
+            if (p <= 0.02f) return;
+            if (count <= 0 || !names) return;
+
+            const Theme& th = DefaultTheme();
+
+            const REAL x = origin.X + (REAL)rc.left;
+            const REAL y = origin.Y + (REAL)rc.bottom;
+
+            Gdiplus::RectF bg(x, y, (REAL)(rc.right - rc.left), (REAL)(itemH * count) * p);
+            FillRound(g, bg, 8.0f, Fade(th.panelBg, 0.98f));
+            StrokeRound(g, bg, 8.0f, Fade(th.btnSecondaryEdgeHot, p), 1.2f);
+
+            g.SetClip(Gdiplus::RectF(bg.X, bg.Y, bg.Width, bg.Height),
+                Gdiplus::CombineModeIntersect);
+
+            for (int i = 0; i < count; ++i)
+            {
+                const RECT ir = ItemRect(i);
+                const Gdiplus::RectF it(origin.X + (REAL)ir.left, origin.Y + (REAL)ir.top,
+                    (REAL)(ir.right - ir.left), (REAL)(ir.bottom - ir.top));
+                if (it.Y > bg.GetBottom()) break;
+
+                const bool cur = (i == current);
+                const bool hot = (i == hotItem);
+
+                if (hot && !cur)
+                    FillRound(g, it, 6.0f, Fade(th.btnSecondaryHot, p));
+
+                if (cur)
+                {
+                    Gdiplus::SolidBrush bar(Fade(th.accent, p));
+                    g.FillRectangle(&bar, it.X + 6.0f, it.Y + 8.0f, 3.0f, it.Height - 16.0f);
+                }
+
+                Gdiplus::RectF tt(it.X + 18.0f, it.Y, it.Width - 28.0f, it.Height);
+                DrawTextCjk(g, names[i], tt, 14.0f,
+                    Fade(cur ? th.accent : (hot ? th.textMain : th.textHint), p),
+                    Gdiplus::StringAlignmentNear,
+                    cur ? Gdiplus::FontStyleBold : Gdiplus::FontStyleRegular);
+
+                if (descs)
+                    DrawTextCjk(g, descs[i], tt, 11.0f,
+                        Fade(th.textFaint, p), Gdiplus::StringAlignmentFar);
+            }
+
+            g.ResetClip();
+        }
+
+        // --------------------------------------------------- 侧边滚动条 ------
+        RECT ScrollBar::ThumbRect() const
+        {
+            const int th = rc.bottom - rc.top;
+
+            int h = (contentH > 0)
+                ? (int)((double)th * (double)viewH / (double)contentH) : th;
+            if (h < 30) h = 30;
+            if (h > th) h = th;
+
+            const int span = th - h;
+            const int y = rc.top + ((maxOffset > 0 && span > 0)
+                ? (int)((double)span * (double)offset / (double)maxOffset) : 0);
+
+            RECT r;
+            SetRectLocal(r, rc.left, y, rc.right - rc.left, h);
+            return r;
+        }
+
+        bool ScrollBar::HitTrack(POINT p) const { return aero::ui::Hit(rc, p); }
+        bool ScrollBar::HitThumb(POINT p) const { return aero::ui::Hit(ThumbRect(), p); }
+
+        int ScrollBar::OffsetFromDrag(POINT p) const
+        {
+            const RECT th = ThumbRect();
+            const int span = (rc.bottom - rc.top) - (th.bottom - th.top);
+            if (span <= 0 || maxOffset <= 0) return 0;
+
+            const int y = p.y - grab - rc.top;
+            int v = (int)((double)y * (double)maxOffset / (double)span);
+            if (v < 0) v = 0;
+            if (v > maxOffset) v = maxOffset;
+            return v;
+        }
+
+        int ScrollBar::OffsetFromClick(POINT p) const
+        {
+            const int th = rc.bottom - rc.top;
+            if (th <= 0) return 0;
+
+            const double f = (double)(p.y - rc.top) / (double)th;
+            int v = (int)(f * maxOffset);
+            if (v < 0) v = 0;
+            if (v > maxOffset) v = maxOffset;
+            return v;
+        }
+
+        int ScrollBar::OffsetFromWheel(int delta, int stepPx) const
+        {
+            int v = offset + ((delta > 0) ? -stepPx : stepPx);
+            if (v < 0) v = 0;
+            if (v > maxOffset) v = maxOffset;
+            return v;
+        }
+
+        void ScrollBar::Draw(Gdiplus::Graphics& g, const Gdiplus::RectF& origin) const
+        {
+            const Theme& th = DefaultTheme();
+
+            const Gdiplus::RectF track(origin.X + (REAL)rc.left, origin.Y + (REAL)rc.top,
+                (REAL)(rc.right - rc.left), (REAL)(rc.bottom - rc.top));
+            FillRound(g, track, 6.0f, th.scrollTrack);
+
+            if (maxOffset <= 0) return;
+
+            const RECT t = ThumbRect();
+            const Gdiplus::RectF thumb(origin.X + (REAL)t.left, origin.Y + (REAL)t.top,
+                (REAL)(t.right - t.left), (REAL)(t.bottom - t.top));
+            FillRound(g, thumb, 6.0f, hot ? th.scrollThumbActive : th.scrollThumb);
+        }
+
+        // --------------------------------------------------------- 格子 ------
+        bool Tile::Hit(POINT p) const { return aero::ui::Hit(rc, p); }
+
+        void Tile::Draw(Gdiplus::Graphics& g, const Gdiplus::RectF& origin) const
+        {
+            const Theme& th = DefaultTheme();
+
+            const Gdiplus::RectF t(origin.X + (REAL)rc.left, origin.Y + (REAL)rc.top,
+                (REAL)(rc.right - rc.left), (REAL)(rc.bottom - rc.top));
+
+            FillRound(g, t, 8.0f, Fade(LerpColor(th.trackBg, th.accentSoft, progress), alpha));
+            StrokeRound(g, t, 8.0f,
+                Fade(hot ? th.checkEdgeHot
+                         : LerpColor(th.btnSecondaryEdge, th.btnPrimaryEdge, progress), alpha),
+                1.4f);
+
+            if (icon)
+            {
+                Gdiplus::RectF ib(t.X + (t.Width - 32.0f) * 0.5f, t.Y + 7.0f, 32.0f, 32.0f);
+                g.DrawImage(icon, ib);
+            }
+
+            {
+                Gdiplus::RectF tt(t.X, t.Y + 41.0f, t.Width, 20.0f);
+                DrawTextMono(g, title, tt, 17.0f,
+                    Fade((progress > 0.5f || hot) ? th.textMain : th.textDim, alpha),
+                    Gdiplus::StringAlignmentCenter, Gdiplus::FontStyleBold);
+            }
+            {
+                Gdiplus::RectF st(t.X, t.Y + 60.0f, t.Width, 14.0f);
+                DrawTextCjk(g, sub, st, 10.0f,
+                    Fade(progress > 0.5f ? th.accent : th.textFaint, alpha),
+                    Gdiplus::StringAlignmentCenter);
+            }
+        }
+
+    } // namespace ui
 
 } // namespace aero

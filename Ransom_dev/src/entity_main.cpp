@@ -451,11 +451,12 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int)
             demo.maxMs = 3600;
             demo.photosensitiveSafe = true;
 
-            // 硬核开着的那一套：赎金滑块的可选区间整段上移（1000-9999）、
-            // 关窗惩罚滑条到 30 秒上限、那四条假金币滑条解锁。
-            // 想看普通态的排版就把 hardcore 改成 false。
-            demo.hardcore = true;
-            demo.goldGoal = 5000;             // 硬核段的中点附近
+            // 硬核模式的那一套：赎金滑条换成硬核那条（1000-9999）、
+            // 关窗惩罚滑条到 30 秒上限、硬核专属那几行全部展开。
+            // 想看普通态就把 mode 改成 settings::kModeNormal。
+            demo.mode = settings::kModeHardcore;
+            demo.goldGoalNormal = 620;        // 普通那条也给个非默认值
+            demo.goldGoalHardcore = 5000;     // 硬核段的中点附近
             demo.childCloseMs = 30000;        // 顶到硬核上限
             demo.fakePercent = 35;
             demo.fakePrefixPct = 40;

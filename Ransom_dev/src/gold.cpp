@@ -32,7 +32,7 @@ namespace {
 // 直接落在桌面根目录（而不是文件夹里）的金币比例，百分比。
 // 桌面是「明面上」的位置，玩家一低头就能看到几枚；
 // 其余仍然散进各顶层文件夹，保持翻找的节奏。
-// 硬核下候选位置多了各磁盘顶层目录，桌面更需要"露面"，所以比例调高。
+// 硬核下候选位置多了各磁盘**根目录**，桌面更需要"露面"，所以比例调高。
 const int kDesktopRootPercentNormal = 25;
 const int kDesktopRootPercentHard = 60;
 
@@ -259,9 +259,53 @@ bool IsSystemDirName(const std::wstring& name)
     return false;
 }
 
-// limit：最多收多少个目录。塞满一个项目的盘上顶层目录可能非常多，
-// 不设上限的话每次生成都要遍历一遍，太亏。
-void ScanFixedDriveRoots(std::vector<std::wstring>& out, int limit)
+// 这个盘符在不在「允许撒金币」的范围内？（设置界面那个盘符页勾出来的）
+//
+// 三态（见 settings.h 里 kCoinDrivesNoneToken 的说明）：
+//   CoinDrivesNone()   -> 谁都不算（金币只落桌面）
+//   列表为空（没配过） -> 全部固定盘
+//   否则               -> 只认列表里那几个
+bool DriveAllowed(wchar_t letter)
+{
+    if (settings::CoinDrivesNone()) return false;
+
+    const std::vector<std::wstring>& allow = settings::CoinDrives();
+    if (allow.empty()) return true;
+
+    const wchar_t up = (wchar_t)towupper(letter);
+    for (size_t i = 0; i < allow.size(); ++i)
+        if (allow[i].size() == 1 && allow[i][0] == up) return true;
+
+    return false;
+}
+
+// 这个目录能不能写？（**不建测试文件**：直接以 GENERIC_WRITE 打开目录本身）
+//
+// 为什么必须探一下：金币现在直接落在**盘根**上，而 C:\ 的 ACL 默认不给
+// 普通用户建文件 —— 不探的话那一整轮的写入会全失败，而 dirs 又不是空的，
+// Spawn 的"没有可写位置"兜底不会触发，结果是整场一枚金币都生不出来。
+// 打开目录需要 FILE_FLAG_BACKUP_SEMANTICS，权限不够时返回 ACCESS_DENIED。
+bool CanWriteDir(const std::wstring& dir)
+{
+    HANDLE h = CreateFileW(dir.c_str(), GENERIC_WRITE,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+        nullptr, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, nullptr);
+
+    if (h == INVALID_HANDLE_VALUE) return false;
+    CloseHandle(h);
+    return true;
+}
+
+// 硬核的额外落点：**各固定盘的根目录本身**（D:\ 这种），不再往下面的
+// 文件夹里塞。用户明确要求过："金币直接在磁盘顶目录（比如 D:/）下面直接生成，
+// 不要去摸下面的文件夹了"。
+//
+// forSpawn=true  —— 生成路径：只扫盘符页上勾了的盘，而且**只要盘根**。
+// forSpawn=false —— 清理路径：扫全部固定盘，而且**盘根 + 顶层文件夹都扫**。
+//   两个理由：
+//     * 清理必须全盘扫，否则用户把某个盘的勾去掉之后，撒在那儿的金币收不回来；
+//     * 早期版本的金币是撒在 D:\某文件夹 里的，光扫盘根收不回它们（旧残留）。
+void ScanFixedDriveRoots(std::vector<std::wstring>& out, int limit, bool forSpawn)
 {
     const DWORD mask = GetLogicalDrives();
 
@@ -269,11 +313,35 @@ void ScanFixedDriveRoots(std::vector<std::wstring>& out, int limit)
     {
         if (!(mask & (1u << d))) continue;
 
-        wchar_t root[8] = { (wchar_t)(L'A' + d), L':', L'\\', 0 };
+        const wchar_t letter = (wchar_t)(L'A' + d);
+        wchar_t root[8] = { letter, L':', L'\\', 0 };
 
         // 只碰固定盘：U 盘 / 光驱 / 网络盘不动（拔掉就没了，还会误伤别人）
         if (GetDriveTypeW(root) != DRIVE_FIXED) continue;
 
+        // 用户在盘符页上没勾这个盘 -> 生成时不往这儿撒
+        if (forSpawn && !DriveAllowed(letter)) continue;
+
+        // ---- 盘根本身 ----
+        // 注意这里**不走** IsSkippableDir / IsSystemDirName 那两道过滤：
+        // 那两个是给"顶层文件夹"用的，盘根的属性位不代表它不能写。
+        {
+            const std::wstring dir = root;
+            if (!CanWriteDir(dir))
+            {
+                elog::Write(L"[gold] %s 根目录写不进去（权限/只读），跳过这个盘",
+                    dir.c_str());
+            }
+            else
+            {
+                out.push_back(dir);
+            }
+        }
+
+        // ---- 生成路径到此为止：不摸下面的文件夹 ----
+        if (forSpawn) continue;
+
+        // ---- 清理路径：把顶层文件夹也扫一遍（回收旧版本撒在里面的金币）----
         const std::wstring pattern = std::wstring(root) + L"*";
 
         WIN32_FIND_DATAW fd;
@@ -293,20 +361,22 @@ void ScanFixedDriveRoots(std::vector<std::wstring>& out, int limit)
     }
 }
 
-void CollectTargets(std::vector<std::wstring>& out)
+void CollectTargets(std::vector<std::wstring>& out, bool forSpawn = true)
 {
     out.clear();
     ScanOneDesktop(CSIDL_DESKTOPDIRECTORY,       out);
     ScanOneDesktop(CSIDL_COMMON_DESKTOPDIRECTORY, out);
 
-    // 硬核：再加上各固定盘的顶层目录（上限 200 个）。
-    // 普通模式保持原样，一行不多扫。
-    if (settings::Hardcore()) ScanFixedDriveRoots(out, 200);
+    // 硬核：再加上各固定盘的**根目录**（普通模式一行不多扫）。
+    //
+    // forSpawn=false（清理路径）时不看盘符页的勾选、并额外扫顶层文件夹 ——
+    // 理由见 ScanFixedDriveRoots 的注释。
+    if (settings::Hardcore()) ScanFixedDriveRoots(out, 200, forSpawn);
 }
 
-// 桌面根目录本身。金币会**少量**直接撒在桌面上（见 Spawn 里的比例），
-// 主体仍然散在各顶层文件夹里——外面随手就能捡到两枚，
-// 剩下的还是得一个个文件夹翻。
+// 桌面根目录本身。金币会**一部分**直接撒在桌面上（见 Spawn 里的比例），
+// 主体散在桌面各顶层文件夹与（硬核下）各磁盘根目录里 ——
+// 外面随手就能捡到两枚，剩下的还是得翻。
 void CollectDesktopRoots(std::vector<std::wstring>& out)
 {
     out.clear();
@@ -422,6 +492,17 @@ void MakeFakeStem(int amount, int mask, std::wstring& out)
 
 // 挑一个不冲突的文件名。**绝不覆盖已存在的文件。**
 //
+// 拼 "目录 + 文件名"。**目录末尾可能已经带了反斜杠**（固定盘的根目录就是
+// "D:\"），再无条件加一个会拼出 "D:\\Gold_50.lnk" —— Windows 自己认这种
+// 双斜杠，但这条路径要写进清单、还要跟后面对回来比字符串，脏着不划算。
+std::wstring JoinPath(const std::wstring& dir, const std::wstring& name)
+{
+    std::wstring s = dir;
+    if (!s.empty() && s.back() != L'\\' && s.back() != L'/') s += L'\\';
+    s += name;
+    return s;
+}
+
 // stem 由调用方给（真金币是 "Gold_50"，假金币是同形替换过的变体）。
 // fake = true 时**不加数字后缀**：加了后缀会把"看名字辨真假"这件事糊掉，
 // 撞名就干脆跳过这一次生成（调用方 continue）。反正少一颗不影响大局。
@@ -437,7 +518,7 @@ bool PickFreeName(const std::wstring& dir, const std::wstring& stem,
         if (suffix == 0) swprintf_s(name, L"%s.lnk", stem.c_str());
         else             swprintf_s(name, L"%s_%d.lnk", stem.c_str(), suffix);
 
-        const std::wstring full = dir + L"\\" + name;
+        const std::wstring full = JoinPath(dir, name);
 
         // 已存在就换下一个候选名——**不覆盖**
         if (GetFileAttributesW(full.c_str()) != INVALID_FILE_ATTRIBUTES) continue;
@@ -718,14 +799,15 @@ bool IsOurCoin(const std::wstring& lnkPath)
 // 不依赖任何清单文件：直接扫候选目录，找出「目标指向本程序
 // 且参数像金币」的快捷方式删掉。清单写不出去时（受限环境）这条路径仍然有效。
 //
-// 注意候选目录来自 CollectTargets()，所以硬核下它**自动覆盖各磁盘顶层目录**
-// —— 这条很关键：硬核把金币撒到了 C:\ D:\ 的顶层文件夹里，
-// 没有这一步的话，被强杀之后那些金币就再也清不掉了。
-// 判据始终是 IsOurCoin（目标 + --pay/--token），不会误删别人的东西。
+// 注意候选目录来自 CollectTargets(false) —— 传 false 是因为清理**不看**
+// 盘符页的勾选，硬核下它覆盖**所有**固定盘的顶层目录：
+//   * 被强杀之后残留的金币必须能全部收回来，用户后来把某个盘的勾去掉
+//     也不能成为"那儿的金币收不回来"的理由；
+//   * 判据始终是 IsOurCoin（目标 + --pay/--token），不会误删别人的东西。
 int RemoveOrphans()
 {
     std::vector<std::wstring> dirs;
-    CollectTargets(dirs);
+    CollectTargets(dirs, false);
 
     // 桌面根目录也要扫：金币现在也可能直接落在那里
     std::vector<std::wstring> roots;
@@ -735,7 +817,7 @@ int RemoveOrphans()
     int n = 0;
     for (size_t d = 0; d < dirs.size(); ++d)
     {
-        const std::wstring pattern = dirs[d] + L"\\*.lnk";
+        const std::wstring pattern = JoinPath(dirs[d], L"*.lnk");
 
         WIN32_FIND_DATAW fd;
         HANDLE h = FindFirstFileW(pattern.c_str(), &fd);
@@ -744,7 +826,7 @@ int RemoveOrphans()
         do {
             if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) continue;
 
-            const std::wstring full = dirs[d] + L"\\" + fd.cFileName;
+            const std::wstring full = JoinPath(dirs[d], fd.cFileName);
             if (!IsOurCoin(full)) continue;
 
             if (DeleteFileW(full.c_str()))
@@ -929,8 +1011,10 @@ int Spawn(int goal)
     {
         ++guard;
 
-        // 大多数金币散进桌面上的顶层文件夹，一定比例直接落在桌面上。
-        // 假金币不占这个名额（它不计入 roundSum，所以不会把循环提前喂饱）。
+        // 落点在 dirs 里随机挑：普通模式是桌面上的顶层文件夹，
+        // 硬核是「桌面顶层文件夹 + 各固定盘根目录」的合集；
+        // 一定比例直接落在桌面上（roots）。假金币不占名额
+        //（它不计入 roundSum，所以不会把循环提前喂饱）。
         const int rootPct = hc ? kDesktopRootPercentHard : kDesktopRootPercentNormal;
         const bool onDesktop =
             !roots.empty() && (dirs.empty() || (rand() % 100) < rootPct);
@@ -1036,8 +1120,10 @@ int Spawn(int goal)
         elog::Write(L"[gold] ……另有 %d 次写入失败（多为权限不足）", failed - 3);
 
     elog::Write(L"[gold] 生成真金币 %d 个 + 假币 %d 个，真币本轮总额 %d（目标 %d），"
-        L"候选 %d 个文件夹 + %d 个桌面根，真币上限 %d 颗，%s模式",
-        made, fakeMade, roundSum, target, (int)dirs.size(), (int)roots.size(),
+        L"候选落点 %d 个（桌面顶层文件夹%s）+ %d 个桌面根，真币上限 %d 颗，%s模式",
+        made, fakeMade, roundSum, target, (int)dirs.size(),
+        hc ? L" + 各固定盘根目录" : L"",
+        (int)roots.size(),
         maxCoins, hc ? L"硬核" : L"普通");
     for (size_t i = 0; i < g_coins.size() && i < 20; ++i)
         elog::Write(L"[gold]    %d  %s  [%s%s]",
