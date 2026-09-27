@@ -125,9 +125,10 @@ the run is decided here:
 
 ![The setup window: photosensitivity notice, background music, sound effects, hardcore mode, time between jumpscares, ransom goal, child-window punishment, fake coin ratio, fake coin mix](docs/screenshots/setup.png)
 
-Top to bottom: photosensitivity notice → background music → sound effects → **hardcore mode** →
-time between jumpscares (random range) → ransom goal → child-window punishment duration →
-fake coin ratio → fake coin mix.
+Top to bottom: **language** → photosensitivity notice → background music → sound effects →
+**game mode** (normal / hardcore / idle) → time between jumpscares (random range) → ransom goal
+(normal and hardcore, one slider each) → child-window punishment duration → fake coin ratio →
+fake coin mix → … → gold drive scope (hardcore only, opens the 2D drive page).
 
 After you press "start" there is one more **pre-show notice** (titled "emergency notice" in normal mode, and
 "hardcore mode warning" in hardcore): it echoes back the values you just chose and puts the escape hotkey
@@ -140,6 +141,44 @@ After you press "start" there is one more **pre-show notice** (titled "emergency
 
 Parameters are stored in `%LOCALAPPDATA%\Ransom_dev\settings.ini`. To skip the setup window and start straight
 away with the previous values, use `--no-setup`.
+
+## Languages (language packs)
+
+Every piece of text you can see lives in **`assets\lang\*.lang`** — not a single string is hard-coded
+in C++. The top row of the setup window, **Language**, is a drop-down that takes effect the moment you
+pick it, and is **written to `settings.ini` right then** (`[ui] language=`). Only that one key is
+written, so you do not have to click START first — otherwise picking a language and closing the window
+would quietly revert on the next launch.
+
+Language packs travel the same road as images and audio: `tools\gen_assets.ps1` compiles them into
+RCDATA resources inside the exe, so the build output stays a single file. Two ship in the repo:
+
+| File | Code | Shown in the drop-down |
+|---|---|---|
+| `assets/lang/zh-CN.lang` | `zh-CN` | 简体中文 (the default, and the fallback for missing keys) |
+| `assets/lang/en-US.lang` | `en-US` | English |
+
+**Adding a language means adding a file — not a line of C++**:
+
+1. Copy `assets/lang/zh-CN.lang` and rename it `<code>.lang` (say `ja-JP.lang`);
+2. Change `meta.name` to the language's own name (that is what the drop-down shows) and translate
+   the values. Do **not** touch the key names — the code looks strings up by name;
+3. Drop it back into `assets\lang\` and rebuild. The drop-down gains an entry on its own.
+
+The format (the same notes are at the top of every pack):
+
+* One `key = value` per line; lines starting with `#` or `;` are comments, blank lines are ignored;
+* **No C++ escaping in values**: a single backslash (`C:\ D:\`) and a single percent sign (`50%`);
+* The exception is **format strings** (values containing `%d` / `%.1f` / `%s` / `%c`): the number,
+  order and type of placeholders must not change — translate the words, move the placeholders across
+  verbatim; a literal percent sign is still `%%`;
+* A forgotten key is harmless: it falls back to the `zh-CN` pack, so nothing goes blank or crashes;
+* **A whole pack going missing** (you deleted or renamed the `.lang`, or the ini holds a typo) is
+  handled too: the next launch falls back to `en-US` instead of failing to open the UI or printing
+  raw key names everywhere.
+
+The Chinese text inside `elog::Write` is **not** part of the packs: that is diagnostic output written
+to the log file, which players never see, and it exists in Chinese only.
 
 ## Safety valve and rollback
 
@@ -248,7 +287,7 @@ you caught. `--tolerance N` loosens it.
 | `--no-guardian` | Do not start the two-process watchdog (for debugging; also skipped automatically when a debugger is attached) |
 | `--no-setup` | Do not show the setup window or the pre-show notice; start straight from `settings.ini` |
 | `--diag PATH` | Write the diagnostic log to a file. A GUI subsystem has no console, so this is how you debug |
-| `--face-demo MODE` | Show one face only: `idle` / `stop` / `attack` / `thanks` / `loading` |
+| `--face-demo MODE` | Show one face only: `idle` / `stop` / `attack` / `loading` |
 | `--face-dump DIR` | Export the procedurally generated faces to PNG and exit |
 | `--audio-dump PATH` | Render every sound effect offline to a WAV and exit (for checking waveforms) |
 | `--theme-dump PATH` | Export the processed theme song to a WAV and exit (for listening) |
@@ -262,6 +301,47 @@ you caught. `--tolerance N` loosens it.
 | `--clean-gold` | Just scan for and delete leftover gold shortcuts, then exit |
 | `--restore` | Restore confiscated shortcuts from the Recycle Bin using the manifest, then exit |
 | `--image-dir DIR` / `--audio-dir DIR` | Override the asset directories (by default assets come from the embedded resources) |
+
+## How it compares to similar projects
+
+> Checked on 2026-09-27, from each repository's public information (GitHub API / file listings /
+> READMEs / source keywords). **Line counts are estimated at 32 bytes per line** (this repo's is
+> measured), and anything marked "not verified" simply had no evidence — nothing here is guessed.
+> Skip to "What makes this one different" for the short version.
+
+### Identity and technology
+
+| Project | Language / stack | Build output | Repo size | Source size | Activity |
+|---|---|---|---|---|---|
+| **This repo** | C++20 + Win32 + GDI+ | **Single 7.7MB exe**, every asset embedded, no runtime to install | 16.2MB (6.8MB of assets) | 41 files / **16,133 lines** (measured) | In development locally; [public repo](https://github.com/Wqawa/Doors-ransom) pushed 09-26 |
+| [Ixars/ransomdoors](https://github.com/Ixars/ransomdoors) | C# / WPF (.NET) | Needs the .NET runtime; build output is committed straight into the repo | **598MB** (.dll 364MB, seven .exe files 56MB, .resources 151MB — **the whole build tree is committed**) | 24 files ≈3.2k lines | Created 09-02, **last push 09-09**; 102★ / 36 forks, 51 open issues |
+| [khoichon/rans0m-crossplatform](https://github.com/khoichon/rans0m-crossplatform) | JS / Electron (libuiohook for global input hooks) | Windows / macOS / Linux | 50MB (assets **reused verbatim from Ixars**) | 23 files ≈2.9k lines | 09-19 → 09-20; 3★ |
+| [masashira0212-stack](https://github.com/masashira0212-stack/Doors-Ransom-A-90-Simulation) | Python + tkinter | `ransom.exe` + `ransom_setting.exe` (PyInstaller) | 6.25MB | 19 files ≈10k lines (lots of tests) | 09-04 → 09-07; 14★ / 7 forks |
+| [deepcoolforce23/Ransom-Doors](https://github.com/deepcoolforce23/Ransom-Doors) | Python + Qt | Source only | 11.8MB (7MB audio) | 3 files ≈6k lines | 09-12 → **09-24 (still active)**; 0★ |
+| [CagriLo3169/A-90-Ransom-GDI](https://github.com/CagriLo3169/A-90-Ransom-GDI) | Not verified (**no source in the repo**) | Only `Source-Code.tar.gz` (6MB) + `dist.zip` (20MB) | 24.9MB | — | 09-07 → 09-08; 3★ |
+| [Kovax00/Ransomware-POC-Doors](https://github.com/Kovax00/Ransomware-POC-Doors) ⚠️ | Python | Source only | 18.8MB (16.8MB of wav) | 12 files ≈1.6k lines | Created and pushed 09-06; 1★ |
+| [gidrobater/RansomDoorsPrank](https://github.com/gidrobater/RansomDoorsPrank) / [calamoy/ransom-doors](https://github.com/calamoy/ransom-doors) | — | — | **Empty repositories** | — | — |
+
+### Behaviour and how much you can tune
+
+| Project | How faithful it is | Configuration | What it does to your desktop | Exit / restore |
+|---|---|---|---|---|
+| **This repo** | The full chain: face appears → stop-sign check → jumpscare → loading bar → gold ransom; original assets, with procedurally generated fallbacks | Setup window (three game modes, a dozen sliders, the 2D drive page) + `settings.ini` + command-line switches + **language packs** | **Only ever writes `.lnk` files**, locks desktop icons with an overlay, sends shortcuts to the Recycle Bin; **never actually encrypts anything**; gold can be limited to chosen drives | Safety valve `Ctrl+Alt+Shift+Q` stops it on a single press; all four exit paths restore everything; `--restore` / `--clean-gold` as manual fallbacks |
+| Ixars | Full chain plus a rare `.crucifix` that clears the ransom instantly; coins are `.gold1`–`.gold6` **files** dropped in your user folders; changes the cursor and **turns the wallpaper dark red** | Config window; **opt-in** "crash on death" (really runs `shutdown /s /t 0`) and "run command on death" | Writes files into user folders, changes wallpaper and cursor | Failing just resets by default; shutdown / arbitrary commands are opt-in and off out of the box |
+| khoichon | A port of Ixars (self-described line-by-line); `config.json` is **interchangeable with the original** | Electron config; coins go to Desktop/Downloads, or into a temporary "drawer" directory instead | Drops coin files, changes the wallpaper | Wallpaper has explicit safety rules ("it used to leave the wallpaper stuck dark"); **`restore()` runs on every exit path** |
+| masashira0212 | Warning / STOP / LOADING / success and failure shows plus a desktop overlay (Japanese project, with a Japanese PC guide) | **Separate settings app** (timer seconds, popup scale, rebindable hotkeys) + a pile of test scripts + an AV-false-positive review | **Covers desktop icon slots (including non-`.lnk` shell items)**, changes the wallpaper, registers global hotkeys | A "Restore desktop" button and hotkey; plus a `recovery_watchdog.py` watchdog |
+| deepcoolforce23 | Leans horror: you open drop-down menus on randomly spawning windows hunting for a coin; corrupted entries lose instantly, glitch windows teleport around | Not verified | **Moves your files into `%APPDATA%\RansomIconData`**, leaves a stop-sign shortcut pretending they are "encrypted", changes the wallpaper, and **drops `WindowsSecurityHealth.lnk` into your startup folder** | Win and the files come back; ships `icon_backup.json` and `restore_desktop_icons()` |
+| CagriLo3169 | Claims to be a harmless visual simulator; the README lists 25 Win32 GDI screen effects | Not verified | Not verified (source is inside the archives) | Not verified |
+| Kovax00 ⚠️ | **Really encrypts**: ChaCha20-Poly1305 + RSA-OAEP; **shuts the machine down** if you miss the 24-hour deadline; ships `decrypt_tool.py` | Not verified | Actually rewrites your files (encryption) | Only the private key plus all five coins get you back; the author labels it "not a simulation, irreversible" |
+
+### What makes this one different
+
+- **The artifact**: the only one here that is **native Win32, a single exe, with no runtime to install**. Ixars needs .NET (and carries 598MB of build output in its repo), khoichon needs Electron, masashira and deepcool need Python plus a packer.
+- **How far it goes on your desktop**: only this repo and masashira0212 genuinely cover desktop icons; deepcoolforce23 goes further and moves files around **and plants a startup shortcut**; **only Kovax00 really encrypts** (its own author writes a destructive-effects warning) — the exact anti-pattern this project's red line forbids (write `.lnk` only, never encrypt).
+- **The way out**: this is the only project whose public documentation spells out the whole set — a one-press safety valve, four exit paths that all restore, plus `--restore` / `--clean-gold`. khoichon also does restore seriously (every exit path), and masashira0212 ships a restore button and a watchdog.
+- **Tuning and languages**: only this one has a dozen tunables in a setup UI with a 2D drive page and a `settings.ini`, and **only this one has language packs**.
+
+> Two things not verified yet: [R4NS0M SIMULATOR](https://gamejolt.com/games/r4ns0m/1098499) (NatureStudio) on itch.io / GameJolt is a **game-style fangame** ("collect gold, pay the ransom, get your files back") that leaves your system alone — no stack details found; and the Android build by robotkjgh could not be located at all.
 
 ## Project layout
 

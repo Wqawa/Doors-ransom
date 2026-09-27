@@ -17,7 +17,6 @@
 
 #include <windows.h>
 
-#include <algorithm>
 #include <map>
 
 namespace {
@@ -120,7 +119,6 @@ void BuildIndex()
             if      (tag == "ROOT") kind = assets::KIND_ROOT;
             else if (tag == "IMG")  kind = assets::KIND_IMAGE;
             else if (tag == "AUD")  kind = assets::KIND_AUDIO;
-            else if (tag == "LANG") kind = assets::KIND_LANG;
 
             const int id = atoi(t2 + 1);
             if (kind >= 0 && id > 0)
@@ -274,45 +272,13 @@ std::wstring Where(Kind k, const wchar_t* name)
     if (g_diskDir[k].empty())
     {
         const wchar_t* sub = (k == KIND_IMAGE) ? L"image/"
-                           : (k == KIND_AUDIO) ? L"audio/"
-                           : (k == KIND_LANG)  ? L"lang/" : L"";
+                           : (k == KIND_AUDIO) ? L"audio/" : L"";
         std::wstring s = L"exe 内嵌资源 assets/";
         s += sub;
         s += name;
         return s;
     }
     return g_diskDir[k] + name;
-}
-
-std::vector<std::wstring> List(Kind k)
-{
-    std::vector<std::wstring> out;
-    if (k < 0 || k >= KIND_COUNT) return out;
-
-    if (!g_diskDir[k].empty())
-    {
-        WIN32_FIND_DATAW fd;
-        HANDLE h = FindFirstFileW((g_diskDir[k] + L"*").c_str(), &fd);
-        if (h == INVALID_HANDLE_VALUE) return out;
-
-        do {
-            if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) continue;
-            out.push_back(fd.cFileName);
-        } while (FindNextFileW(h, &fd));
-
-        FindClose(h);
-    }
-    else
-    {
-        BuildIndex();
-        // map 按名字排序，所以这里出来的就是排好序的
-        for (std::map<std::wstring, int>::const_iterator it = g_index[k].begin();
-             it != g_index[k].end(); ++it)
-            out.push_back(it->first);
-    }
-
-    std::sort(out.begin(), out.end());
-    return out;
 }
 
 int EmbeddedCount()

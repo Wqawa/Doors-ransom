@@ -191,6 +191,7 @@
     <ClCompile Include="src\audio_clip.cpp" />
     <ClCompile Include="src\entity_log.cpp" />
     <ClCompile Include="src\assets.cpp" />
+    <ClCompile Include="src\lang.cpp" />
     <ClCompile Include="src\image_blob.cpp" />
     <ClCompile Include="src\ui_layout.cpp" />
     <ClCompile Include="src\settings.cpp" />
@@ -199,6 +200,7 @@
   <ItemGroup>
     <ClInclude Include="src\aero_window.h" />
     <ClInclude Include="src\assets.h" />
+    <ClInclude Include="src\lang.h" />
     <ClInclude Include="src\guardian.h" />
     <ClInclude Include="src\image_blob.h" />
     <ClInclude Include="src\audio.h" />

@@ -385,13 +385,7 @@ namespace {
             L"; which fixed drives gold gets scattered onto (hardcore only).\n"
             L"; empty  = every fixed drive (the old behaviour);\n"
             L"; \"C,D\"  = only those two;  \"-\" = no drive at all (desktop only).\n"
-            L"coin_drives=%s\n"
-            L"\n"
-            L"[ui]\n"
-            L"; interface language: the file name (without .lang) of one of the\n"
-            L"; packs in assets\\lang, e.g. zh-CN or en-US. An unknown value\n"
-            L"; falls back to the default pack at startup.\n"
-            L"language=%s\n",
+            L"coin_drives=%s\n",
             s.bgmVol, s.sfxVol, s.masterVol,
             s.photosensitiveSafe ? 1 : 0,
             s.minMs, s.maxMs,
@@ -405,65 +399,17 @@ namespace {
             s.hardPopupMax,
             s.cursorGapMinMs, s.cursorGapMaxMs,
             s.extraLockCount, s.extraLockMinMs, s.extraLockMaxMs,
-            drives.c_str(),
-            s.language.empty() ? settings::kDefaultLanguage : s.language.c_str());
+            drives.c_str());
 
         FILE* f = nullptr;
         if (_wfopen_s(&f, path.c_str(), L"wb") != 0 || !f) return false;
+
         // 写 UTF-16LE + BOM：GetPrivateProfileIntW 认，记事本也能正确显示
         // 别的程序写进来的注释（纯 UTF-8 的中文会被记事本按 ANSI 读成乱码）。
         const unsigned char bom[2] = { 0xFF, 0xFE };
         fwrite(bom, 1, 2, f);
         fwrite(buf, sizeof(wchar_t), wcslen(buf), f);
         fclose(f);
-        return true;
-    }
-
-    // 把 ini 里 `language=` 那一行的值换掉，**其余一个字符都不动**。
-    // 给「选了语言就立刻记住」用（见 settings::SaveLanguage）。
-    //
-    // 只认我们自己写出来的那种文件（UTF-16LE + BOM，见上面的 WriteIni）；
-    // 认不出来就返回 false，调用方退回整份重写。
-    bool PatchIniLanguage(const std::wstring& path, const wchar_t* value)
-    {
-        FILE* f = nullptr;
-        if (_wfopen_s(&f, path.c_str(), L"rb") != 0 || !f) return false;
-
-        fseek(f, 0, SEEK_END);
-        const long bytes = ftell(f);
-        fseek(f, 0, SEEK_SET);
-        if (bytes < 2) { fclose(f); return false; }
-
-        std::vector<wchar_t> raw((size_t)bytes / 2);
-        const size_t got = fread(raw.data(), 2, raw.size(), f);
-        fclose(f);
-        if (got != raw.size()) return false;
-        if (raw[0] != 0xFEFF) return false;          // 不是我们写的 UTF-16 + BOM
-
-        std::wstring text(raw.begin() + 1, raw.end());
-
-        // 找 `language=` 那一行：要么在文件开头，要么紧跟一个换行
-        size_t start = std::wstring::npos;
-        if (text.compare(0, 9, L"language=") == 0) start = 0;
-        else
-        {
-            const size_t nl = text.find(L"\nlanguage=");
-            if (nl != std::wstring::npos) start = nl + 1;
-        }
-        if (start == std::wstring::npos) return false;   // 老 ini 里没有 [ui] 段
-
-        size_t end = text.find(L'\n', start);
-        if (end == std::wstring::npos) end = text.size();
-
-        text.replace(start, end - start, std::wstring(L"language=") + value);
-
-        FILE* o = nullptr;
-        if (_wfopen_s(&o, path.c_str(), L"wb") != 0 || !o) return false;
-
-        const unsigned char bom[2] = { 0xFF, 0xFE };
-        fwrite(bom, 1, 2, o);
-        fwrite(text.c_str(), sizeof(wchar_t), text.size(), o);
-        fclose(o);
         return true;
     }
 
@@ -513,15 +459,6 @@ namespace settings {
                     const bool hc = ReadInt(path, L"game", L"hardcore", 0) != 0;
                     g_set.mode = hc ? kModeHardcore : kModeNormal;
                 }
-            }
-
-            // ---- 界面语言（[ui] language=，语言包代号，见 lang.h）----
-            // 空 / 没这个键 = 用默认语言 zh-CN（老 ini 就是这种情况）。
-            {
-                wchar_t raw[64] = { 0 };
-                GetPrivateProfileStringW(L"ui", L"language", L"", raw, _countof(raw),
-                    path.c_str());
-                if (raw[0] != 0) g_set.language = raw;
             }
 
             // ---- 赎金目标：两条滑条各一份 ----
@@ -737,28 +674,6 @@ namespace settings {
         return ok;
     }
 
-    bool SaveLanguage(const wchar_t* code)
-    {
-        const std::wstring path = ResolveFilePath();
-        if (path.empty()) return false;
-
-        const std::wstring value = (code && *code) ? code : kDefaultLanguage;
-
-        // g_set 也要跟上 —— 本次运行里 settings::Language() 读的就是它
-        g_set.language = value;
-
-        if (PatchIniLanguage(path, value.c_str()))
-        {
-            elog::Write(L"[settings] 界面语言已单独记下: %s", value.c_str());
-            return true;
-        }
-
-        // 兜底：文件不在 / 格式不认 / 老 ini 里没有 [ui] 段 —— 整份写一次。
-        // 这条路上界面里别的改动也会一起落盘，可以接受：文件本来就要重写。
-        elog::Write(L"[settings] 单键改写不可用，整份重写 ini（语言 %s）", value.c_str());
-        return Save();
-    }
-
     void ApplyAudio()
     {
         audio::SetMaster(g_set.masterVol);
@@ -816,14 +731,6 @@ namespace settings {
     {
         if (g_set.mode < 0 || g_set.mode >= kModeCount) return kModeNormal;
         return g_set.mode;
-    }
-
-    const wchar_t* Language()
-    {
-        // 空串（老 ini / 刚 ResetToDefault 之后）一律当默认语言，
-        // 免得 lang::SetCurrentCode("") 找不到包、界面卡在无处可退的状态。
-        if (g_set.language.empty()) return kDefaultLanguage;
-        return g_set.language.c_str();
     }
 
     int ChildCloseMs()

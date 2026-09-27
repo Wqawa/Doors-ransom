@@ -47,8 +47,7 @@ $nextId          = 1001
 $groups = @(
     @{ Tag = 'ROOT'; Sub = '' },
     @{ Tag = 'IMG';  Sub = 'image' },
-    @{ Tag = 'AUD';  Sub = 'audio' },
-    @{ Tag = 'LANG'; Sub = 'lang' }
+    @{ Tag = 'AUD';  Sub = 'audio' }
 )
 
 $rc   = New-Object System.Collections.Generic.List[string]

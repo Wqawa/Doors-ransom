@@ -1,0 +1,172 @@
+# ============================================================================
+#  简体中文语言包（zh-CN）
+# ============================================================================
+#
+#  这个文件是**界面上所有能看到的字**的唯一来源。改措辞就改这儿，
+#  C++ 代码一行都不用动；改完重新编译一次就生效。
+#
+#  ---- 怎么加一种新语言 ----
+#
+#  把本文件拷一份、改名（比如 ja-JP.lang）、把右边的值翻译掉，丢回
+#  assets\lang\ 再编译 —— 设置界面「界面语言」的下拉框里会自动多一项。
+#  文件名（去掉 .lang）就是语言代号，也是 settings.ini 里存的值。
+#
+#  ---- 格式 ----
+#
+#    * 一行一条：`键 = 值`。键不要改，那是代码按名字取的。
+#    * `#` 或 `;` 开头的行是注释，空行忽略。
+#    * 左右两边的空格会被自动去掉，值里**不要**刻意留首尾空格。
+#    * **值里不需要转义**：反斜杠写一个就行（`C:\ D:\`），百分号也写一个（`50%`）。
+#      例外见下面「格式串」。
+#    * 某条键不写 / 写错键名 -> 自动退回中文那一份，界面不会崩，也不会空白。
+#
+#  ---- 格式串（值里带 %d / %.1f / %s / %c 的那些）----
+#
+#  这些值是当 printf 格式串用的：**占位符的个数、顺序、类型不能动**，
+#  动了那行数字就会错位。词句部分随便改，占位符原样搬过去即可。
+#  想写一个真正的百分号（不是占位符）要写成 %%。
+#
+#  ---- 没进这个文件的字 ----
+#
+#  诊断日志（elog::Write 里的中文）不在这儿：那是排查用的，玩家看不到。
+# ============================================================================
+
+
+# ---- 元信息 ----
+meta.code = zh-CN
+meta.name = 简体中文
+
+# ---- 窗口标题 ----
+ui.win.settings = Ransom_dev — 启动设置
+ui.win.drives = Ransom_dev — 金币生成范围
+ui.win.notice = Ransom_dev — 用前注意
+ui.win.hardcore = Ransom_dev — 硬核模式：Welcome
+
+# ---- 设置窗口：头部 ----
+ui.set.title = 启动设置
+ui.set.lede = 请在这里修改具体参数
+
+# ---- 设置窗口：界面语言（下拉框）----
+ui.lbl.lang = 界面语言
+
+# ---- 设置窗口：游戏模式（下拉框）----
+ui.lbl.mode = 游戏模式
+ui.mode.name.0 = 普通
+ui.mode.name.1 = 硬核
+ui.mode.name.2 = 挂机
+ui.mode.desc.0 = 原版难度
+ui.mode.desc.1 = 更难的挑战
+ui.mode.desc.2 = 挂机（未实装）
+
+# ---- 设置窗口：行标签 ----
+ui.lbl.safe = 光敏安全模式（癫痫模式）
+ui.desc.safe = 压低整屏亮度跳变与闪烁
+ui.lbl.bgm = 背景音乐
+ui.lbl.sfx = 音效
+ui.lbl.hard = 硬核模式
+ui.hard.on = 已开启
+ui.hard.off = 更难的挑战
+
+ui.lbl.idle = 跳杀间隔（随机区间）
+ui.lbl.gold = 赎金目标金币（普通）
+ui.lbl.gold.hc = 赎金目标金币（硬核）
+ui.lbl.close = 关窗惩罚时长
+ui.lbl.fake.pct = 假金币比例
+ui.lbl.fake.mix = 假币形态配比（前 / 后 / 全）
+
+ui.lbl.hardwin = 硬核模式同时最多弹窗数
+ui.lbl.cursor = 阻挡鼠标弹窗的生成间隔（随机区间）
+ui.lbl.locknum = 桌面锁定非INK的数量上限
+ui.lbl.lockdur = 桌面锁定时长（随机区间）
+
+ui.lbl.drives = 金币生成磁盘范围（硬核）
+ui.btn.drives = 选择生成金币的磁盘…
+ui.btn.drives.off = 需开启硬核模式
+
+# ---- 设置窗口：磁盘范围那一行的当前值 ----
+ui.drives.all = 全部固定盘
+ui.drives.none = 只落桌面
+ui.drives.sum = %s（%d 个盘）
+
+# ---- 设置窗口：滑条两端 / 中点的刻度文字 ----
+ui.scale.0 = 0
+ui.scale.10 = 10
+ui.scale.30 = 30
+ui.scale.500 = 500
+ui.scale.1000 = 1000
+ui.scale.5000 = 5000
+ui.scale.9999 = 9999
+ui.scale.200pct = 200%
+ui.scale.100pct = 100%
+ui.scale.0pct = 0%
+ui.scale.20ms = 20ms
+ui.scale.45s = 45s
+ui.scale.90s = 90s
+ui.scale.09s = 0.9s
+ui.scale.18s = 18s
+ui.scale.30s = 30s
+ui.scale.22def = 22（默认）
+ui.scale.mixend = 100（右段=都改）
+
+# ---- 设置窗口：数值显示格式（格式串）----
+ui.pct = %d%%
+ui.ms.fixed = %d-%d ms（固定）
+ui.ms.range = %d-%d ms（%.2f-%.2f 秒）
+ui.sec.fixed = %.1f 秒（固定）
+ui.sec.range = %.1f-%.1f 秒
+ui.sec.one = %.1f 秒
+ui.close.zero = 0（关窗不扣时间）
+ui.count = %d 个
+ui.mix.triple = %d / %d / %d
+ui.lockcap = %d（桌面可锁 %d 项）
+
+# ---- 设置窗口：底部按钮与提示 ----
+ui.btn.reset = 恢复默认
+ui.btn.start = 开 始
+ui.key.settings = 可以按 Ctrl + Alt + Shift + %c 抢救。
+
+# ---- 盘符页（设置窗口的第二个界面）----
+ui.drv.title = 金币生成磁盘范围
+ui.drv.sub1 = 勾上的固定盘，硬核模式会生成金币。
+ui.drv.sub2 = U 盘 / 光驱 / 网络盘不参与；不选 = 只落桌面。
+ui.drv.empty = 本设备上没有固定盘，金币只能在桌面上。
+ui.drv.picked = 已选
+ui.drv.skipped = 不选
+ui.drv.letter = %c:
+ui.drv.back = ← 返回设置
+ui.drv.none = 反选
+ui.drv.all = 全选
+ui.key.drives = 设置硬核金币拓展位置；可以按 Ctrl + Alt + Shift + %c 抢救。
+
+# ---- 二级警告屏：硬核（mode 1）----
+ui.hc.title = 硬核模式：用前注意
+ui.hc.lede = 这是硬核模式，基于原版的困难版：
+ui.hc.l1 = · 倒计时 3 分钟；赎金 %d Gold、关窗惩罚 %.1f 秒
+ui.hc.l2 = · 桌面文件和文件夹会被随机锁住 %.1f-%.1f 秒（同时最多 %d 个）
+ui.hc.l3 = · 金币会拓展放入 C:\ D:\ 这类固定盘内，会有假金币
+ui.hc.l4 = · 假币占真币的 %d%%：前缀改 %d / 后缀改 %d / 两个都改 %d
+ui.hc.l5 = · 弹窗最多 %d 个，每 %.1f-%.1f 秒会出来一个弹窗阻挡你鼠标
+ui.hc.l6 = · 祝你好运
+
+# ---- 二级警告屏：普通（mode 0）----
+ui.n.title = 用前注意
+ui.n.lede = 这个版本会导致桌面INK问题：
+ui.n.line1 = 桌面INK会被标记成「已加密」、目前开着的窗口会被收进任务栏、
+ui.n.line2 = 满屏弹窗会挡住你正在做的事。超时没付清的话，
+ui.n.line3 = 桌面INK会被丢进回收站（可以还原）。
+ui.n.summary = 本轮：赎金 %d Gold ／ 跳杀间隔 %d-%dms ／ 关窗惩罚 %.1f 秒。
+
+# ---- 二级警告屏：两屏共用（逃课框 / 脚注 / 按钮）----
+ui.escape = 抢救：Ctrl + Alt + Shift + %c
+ui.escape.desc = 这是全局热键，用于抢救。
+ui.foot1 = 如果意外导致Ransom未还原INK：Ransom_dev.exe --restore ，
+ui.foot2 = --clean-gold 清掉残留的金币文件。
+ui.btn.back = ← 返回上一级
+ui.btn.ok = 开 始
+ui.btn.ok.hc = 开 始
+
+# ---- 窗口标题栏的系统菜单（aero_window.cpp）----
+menu.restore = 还原(&R)
+menu.minimize = 最小化(&N)
+menu.maximize = 最大化(&X)
+menu.close = 关闭(&C)

@@ -755,6 +755,27 @@ namespace {
                 break;
             }
 
+            case face::FACE_THANKS:
+            {
+                const int bw = 460, bh = 190;
+                RectF box((REAL)(w - bw) / 2.0f, (REAL)(h - bh) / 2.0f, (REAL)bw, (REAL)bh);
+
+                SolidBrush body(Color(252, 240, 240, 240));
+                g.FillRectangle(&body, box);
+                Pen edge(Color(255, 90, 90, 90), 1.0f);
+                g.DrawRectangle(&edge, box.X, box.Y, box.Width, box.Height);
+
+                Font ft(L"Microsoft YaHei", 20.0f, FontStyleBold, UnitPixel);
+                Font fb(L"Microsoft YaHei", 15.0f, FontStyleRegular, UnitPixel);
+                SolidBrush dark(Color(255, 30, 30, 30));
+                SolidBrush mid(Color(255, 70, 70, 70));
+
+                g.DrawString(L"谢谢。", -1, &ft, PointF(box.X + 32.0f, box.Y + 40.0f), &dark);
+                g.DrawString(L"你的物品已解冻。", -1, &fb, PointF(box.X + 34.0f, box.Y + 92.0f), &mid);
+                g.DrawString(L"……暂时。", -1, &fb, PointF(box.X + 34.0f, box.Y + 122.0f), &mid);
+                break;
+            }
+
             default: break;
             }
         }
@@ -1124,6 +1145,22 @@ namespace face {
 
     void SpawnIdle(DWORD lifeMs) { SpawnAnywhere(lifeMs); }
     void ShowAttack(DWORD lifeMs) { ShowAttackShaking(lifeMs); }
+
+    void ShowThanks(DWORD lifeMs)
+    {
+        if (!g_driver) return;
+        g_idleShowStop = false;
+        g_idleStopHideAt = 0;
+        g_idleBlackout = false;
+
+        const DWORD now = GetTickCount();
+        g_mode = FACE_THANKS;
+        g_modeEnd = lifeMs ? (now + lifeMs) : 0;
+        g_modeStart = now;
+        g_frame = 0;
+        elog::Write(L"[face] 致谢画面");
+        Render();
+    }
 
     void Hide()
     {

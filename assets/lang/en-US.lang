@@ -1,0 +1,151 @@
+# ============================================================================
+#  English language pack (en-US)
+# ============================================================================
+#
+#  Same as zh-CN.lang: the file name (minus .lang) is the language code shown
+#  in the "Language" dropdown, and every value here is what the UI prints.
+#  Format notes live in zh-CN.lang -- read that one first.
+#
+#  Keys are shared across packs; never rename them, only translate the values.
+#  Placeholders (%d / %.1f / %s / %c) must stay, in the same order.
+# ============================================================================
+
+
+# ---- meta ----
+meta.code = en-US
+meta.name = English
+
+# ---- window titles ----
+ui.win.settings = Ransom_dev — Setup
+ui.win.drives = Ransom_dev — Gold drive scope
+ui.win.notice = Ransom_dev — Read this first
+ui.win.hardcore = Ransom_dev — Hardcore: Welcome
+
+# ---- settings window: header ----
+ui.set.title = Setup
+ui.set.lede = Tune the parameters here
+
+# ---- settings window: language ----
+ui.lbl.lang = Language
+
+# ---- settings window: game mode ----
+ui.lbl.mode = Game mode
+ui.mode.name.0 = Normal
+ui.mode.name.1 = Hardcore
+ui.mode.name.2 = Idle
+ui.mode.desc.0 = Original difficulty
+ui.mode.desc.1 = A harder challenge
+ui.mode.desc.2 = Idle (not implemented)
+
+# ---- settings window: row labels ----
+ui.lbl.safe = Photosensitivity-safe mode (epilepsy)
+ui.desc.safe = Dampens full-screen brightness swings and flicker
+ui.lbl.bgm = Background music
+ui.lbl.sfx = Sound effects
+ui.lbl.hard = Hardcore mode
+ui.hard.on = On
+ui.hard.off = A harder challenge
+
+ui.lbl.idle = Jumpscare interval (random range)
+ui.lbl.gold = Ransom goal in gold (normal)
+ui.lbl.gold.hc = Ransom goal in gold (hardcore)
+ui.lbl.close = Closing penalty duration
+ui.lbl.fake.pct = Fake coin ratio
+ui.lbl.fake.mix = Fake coin mix (prefix / digits / both)
+
+ui.lbl.hardwin = Hardcore: max popups at once
+ui.lbl.cursor = Cursor-blocking popup interval (random range)
+ui.lbl.locknum = Max locked desktop shortcuts
+ui.lbl.lockdur = Desktop lock duration (random range)
+
+ui.lbl.drives = Gold drive scope (hardcore)
+ui.btn.drives = Choose the drives…
+ui.btn.drives.off = Requires hardcore mode
+
+# ---- settings window: drive row value ----
+ui.drives.all = All fixed drives
+ui.drives.none = Desktop only
+ui.drives.sum = %s (%d drives)
+
+# ---- settings window: slider ticks ----
+ui.scale.0 = 0
+ui.scale.10 = 10
+ui.scale.30 = 30
+ui.scale.500 = 500
+ui.scale.1000 = 1000
+ui.scale.5000 = 5000
+ui.scale.9999 = 9999
+ui.scale.200pct = 200%
+ui.scale.100pct = 100%
+ui.scale.0pct = 0%
+ui.scale.20ms = 20ms
+ui.scale.45s = 45s
+ui.scale.90s = 90s
+ui.scale.09s = 0.9s
+ui.scale.18s = 18s
+ui.scale.30s = 30s
+ui.scale.22def = 22 (default)
+ui.scale.mixend = 100 (right = both)
+
+# ---- settings window: value formats ----
+ui.pct = %d%%
+ui.ms.fixed = %d-%d ms (fixed)
+ui.ms.range = %d-%d ms (%.2f-%.2f s)
+ui.sec.fixed = %.1f s (fixed)
+ui.sec.range = %.1f-%.1f s
+ui.sec.one = %.1f s
+ui.close.zero = 0 (closing costs no time)
+ui.count = %d items
+ui.mix.triple = %d / %d / %d
+ui.lockcap = %d (%d lockable)
+
+# ---- settings window: footer ----
+ui.btn.reset = Reset
+ui.btn.start = START
+ui.key.settings = Press Ctrl + Alt + Shift + %c to bail out.
+
+# ---- drive page ----
+ui.drv.title = Gold drive scope
+ui.drv.sub1 = Hardcore scatters gold onto the checked fixed drives.
+ui.drv.sub2 = USB / optical / network drives are excluded; nothing checked = desktop only.
+ui.drv.empty = No fixed drives on this machine — gold can only land on the desktop.
+ui.drv.picked = Yes
+ui.drv.skipped = No
+ui.drv.letter = %c:
+ui.drv.back = ← Back to settings
+ui.drv.none = Invert
+ui.drv.all = Select all
+ui.key.drives = Where hardcore scatters gold; press Ctrl + Alt + Shift + %c to bail out.
+
+# ---- second-level notice: hardcore (mode 1) ----
+ui.hc.title = Hardcore mode: read this first
+ui.hc.lede = This is hardcore, a harder take on the original:
+ui.hc.l1 = · 3 minute countdown; %d Gold ransom, %.1f s penalty per closed window
+ui.hc.l2 = · Desktop files and folders get randomly locked for %.1f-%.1f s (up to %d at once)
+ui.hc.l3 = · Gold is scattered onto fixed drives like C:\ and D:\, and some coins are fake
+ui.hc.l4 = · Fake coins are %d%% of the real ones: %d prefix / %d digits / %d both
+ui.hc.l5 = · Up to %d popups, and one goes off on your cursor every %.1f-%.1f s
+ui.hc.l6 = · Good luck
+
+# ---- second-level notice: normal (mode 0) ----
+ui.n.title = Read this first
+ui.n.lede = This version messes with your desktop shortcuts:
+ui.n.line1 = Desktop shortcuts get tagged “encrypted”, open windows get pulled into the taskbar,
+ui.n.line2 = and the wall of popups blocks whatever you are doing. If you run out of time,
+ui.n.line3 = your desktop shortcuts go to the Recycle Bin (you can restore them).
+ui.n.summary = This round: %d Gold ransom / %d-%d ms jumpscare gap / %.1f s close penalty.
+
+# ---- second-level notice: shared bits ----
+ui.escape = Bail out: Ctrl + Alt + Shift + %c
+ui.escape.desc = This is a global hotkey, for bailing out.
+ui.foot1 = If Ransom fails to restore your shortcuts: Ransom_dev.exe --restore ,
+ui.foot2 = --clean-gold wipes leftover coin files.
+ui.btn.back = ← Back
+ui.btn.ok = START
+ui.btn.ok.hc = START
+
+# ---- window title-bar menu (aero_window.cpp) ----
+menu.restore = &Restore
+menu.minimize = Mi&nimize
+menu.maximize = Ma&ximize
+menu.close = &Close

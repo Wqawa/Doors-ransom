@@ -52,3 +52,5 @@ AUD	ransom_success.ogg	1051
 AUD	Ransom_theme_remix.ogg	1052
 AUD	Ransom_UI_-_Error_(80099403859001).ogg	1053
 AUD	Ransomgold_increase_(97004792231127).ogg	1054
+LANG	en-US.lang	1055
+LANG	zh-CN.lang	1056

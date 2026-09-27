@@ -186,10 +186,6 @@ RECT RectOf(HWND hwnd);
 // 请求重绘（内容变化时调）。
 void Repaint(HWND hwnd);
 
-// 换标题栏文字 + 窗口标题（都会立刻重绘）。
-// 给"界面语言变了"用：标题在 Options 里是建窗时定下的，之后要改只能走这儿。
-void SetTitle(HWND hwnd, const wchar_t* title);
-
 // 当前存活的窗口数（调试用）。
 int AliveCount();
 

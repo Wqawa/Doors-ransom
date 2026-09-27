@@ -15,7 +15,6 @@ namespace face {
         FACE_IDLE,
         FACE_STOP,
         FACE_ATTACK,
-        FACE_THANKS,
         FACE_LOADING,
     };
 
@@ -56,9 +55,6 @@ namespace face {
 
     // 加载画面：走条 fillMs + FINISH 停留 finishMs。
     void ShowLoading(DWORD fillMs, DWORD finishMs);
-
-    // 致谢画面。
-    void ShowThanks(DWORD lifeMs);
 
     void SpawnIdle(DWORD lifeMs);    // = SpawnAnywhere 别名
 

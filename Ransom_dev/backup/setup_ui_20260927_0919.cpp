@@ -39,7 +39,6 @@
 #include "aero_window.h"
 #include "audio.h"
 #include "entity_log.h"
-#include "lang.h"          // 界面上的字全从语言包取（见下面那张"文案表"）
 #include "settings.h"
 
 #include <cmath>
@@ -162,160 +161,166 @@ namespace {
     using aero::ui::Tile;
 
     // ========================================================================
-    //  文案表 —— 名字 -> 语言包里的键
+    //  文案表 —— 界面上所有能看到的字都集中在这一块
     // ========================================================================
     //
-    //  **真正的中文/英文现在住在 assets\lang\*.lang 里**（见 lang.h）。这一块
-    //  只剩"代码里叫什么名"对应"包里哪条键"的映射，所以改措辞要去改那些
-    //  .lang 文件，**不用改这个 cpp**。
-    //
-    //  为什么做成宏而不是 `const wchar_t*` 常量：语言是运行时可切的
-    //  （设置界面最上面那个下拉框），文字必须**每帧现取**才跟得上；
-    //  常量在启动时就定死了，切完语言界面不会变。
+    //  润色文案只改这一块，下面的绘制代码一行都不用动。
     //
     //  约定：
     //    * `TXT_` 开头的是**整句**，拿去直接画；
     //    * `FMT_` 开头的是**格式串**，里面有 %d / %.1f / %s / %c 这些占位符。
-    //      占位符的**个数、顺序、类型不能动**（动了那行数字就会错位甚至崩）。
-    //      这几条现在只约束语言包里的值（包里不用写 C++ 转义，一个 % 就是一个 %，
-    //      真要一个百分号还是写 %%）。
+    //      占位符的**个数、顺序、类型不能动**（动了那行数字就会错位甚至崩），
+    //      词句部分随便改，占位符原样留着就行。
+    //    * 一律 `const wchar_t* const`，别换成 std::wstring —— 这层不做动态分配。
     //
-    //  ---- 加一条新文案 ----
-    //    1. 这里加 `#define TXT_XXX lang::T(L"ui.xxx")`；
-    //    2. 每个 .lang 包里加一行 `ui.xxx = ...`（漏了会退回 zh-CN 那份，
-    //       连 zh-CN 都漏就会在界面上直接显示 "ui.xxx"，一眼看得出来）。
+    //  ---- 改文案时的两个雷区 ----
+    //    1. **整句里不要写百分号**（TXT_ 那些）。它们是被当作格式串传给
+    //       swprintf_s 的，多一个 % 就会去吃一个不存在的参数。要写百分号
+    //       请写成 %% 或者用 FMT_ 里现成的那几个。
+    //    2. **反斜杠要写两个**。比如硬核警告里那条 `C:\\ D:\\`，写成单反斜杠
+    //       就成了 C++ 的转义序列，编译过不去。
     //
-    //  注：`elog::Write` 里的中文**没进语言包**：那是写进日志文件的诊断信息，
-    //  玩家看不到，只有中文一份。要改那些请直接在调用处改。
+    //  注：`elog::Write` 里的中文**没进这张表**：那是写进日志文件的诊断信息，
+    //  玩家看不到。要改那些请直接在调用处改。
     //
     //  ---- 窗口标题 ----
-    #define TXT_WIN_SETTINGS       lang::T(L"ui.win.settings")
-    #define TXT_WIN_DRIVES         lang::T(L"ui.win.drives")
-    #define TXT_WIN_NOTICE         lang::T(L"ui.win.notice")
-    #define TXT_WIN_HARDCORE       lang::T(L"ui.win.hardcore")
+    const wchar_t* const TXT_WIN_SETTINGS  = L"Ransom_dev — 启动设置";
+    const wchar_t* const TXT_WIN_DRIVES    = L"Ransom_dev — 金币生成范围";
+    const wchar_t* const TXT_WIN_NOTICE    = L"Ransom_dev — 用前注意";
+    const wchar_t* const TXT_WIN_HARDCORE  = L"Ransom_dev — 硬核模式：Welcome";
 
     // ---- 设置窗口：头部 ----
-    #define TXT_SET_TITLE          lang::T(L"ui.set.title")
-    #define TXT_SET_LEDE           lang::T(L"ui.set.lede")
-
-    // ---- 设置窗口：界面语言（下拉框）----
-    // 选项不是写死的：有几个语言包就有几项（lang::Init 扫 assets\lang 得来），
-    // 所以在设置界面里加一种语言**不用改这个文件**。
-    #define TXT_LBL_LANG           lang::T(L"ui.lbl.lang")
+    const wchar_t* const TXT_SET_TITLE     = L"启动设置";
+    const wchar_t* const TXT_SET_LEDE      = L"请在这里修改具体参数";
 
     // ---- 设置窗口：游戏模式（下拉框）----
-    #define TXT_LBL_MODE           lang::T(L"ui.lbl.mode")
+    const wchar_t* const TXT_LBL_MODE      = L"游戏模式";
     // 三项的名字 / 一句话说明。顺序必须和 settings::kModeNormal / kModeHardcore /
     // kModeIdle 一致（想加第四种模式就往后追一项）。
-    // 见 ui.mode.name.0 .. ui.mode.name.2（值在语言包里）
-    // 见 ui.mode.desc.0 .. ui.mode.desc.2（值在语言包里）
+    const wchar_t* const TXT_MODE_NAME[3]  = { L"普通", L"硬核", L"挂机" };
+    const wchar_t* const TXT_MODE_DESC[3]  = {
+        L"原版难度", L"更难的挑战", L"挂机（未实装）"
+    };
 
     // ---- 设置窗口：行标签 ----
-    #define TXT_LBL_SAFE           lang::T(L"ui.lbl.safe")
-    #define TXT_DESC_SAFE          lang::T(L"ui.desc.safe")
-    #define TXT_LBL_BGM            lang::T(L"ui.lbl.bgm")
-    #define TXT_LBL_SFX            lang::T(L"ui.lbl.sfx")
-    #define TXT_LBL_HARD           lang::T(L"ui.lbl.hard")
-    #define TXT_HARD_ON            lang::T(L"ui.hard.on")
-    #define TXT_HARD_OFF           lang::T(L"ui.hard.off")
+    const wchar_t* const TXT_LBL_SAFE      = L"光敏安全模式（癫痫模式）";
+    const wchar_t* const TXT_DESC_SAFE     = L"压低整屏亮度跳变与闪烁";
+    const wchar_t* const TXT_LBL_BGM       = L"背景音乐";
+    const wchar_t* const TXT_LBL_SFX       = L"音效";
+    const wchar_t* const TXT_LBL_HARD      = L"硬核模式";
+    const wchar_t* const TXT_HARD_ON       = L"已开启";
+    const wchar_t* const TXT_HARD_OFF      = L"更难的挑战";
 
-    #define TXT_LBL_IDLE           lang::T(L"ui.lbl.idle")
-    #define TXT_LBL_GOLD           lang::T(L"ui.lbl.gold")
-    #define TXT_LBL_GOLD_HC        lang::T(L"ui.lbl.gold.hc")
-    #define TXT_LBL_CLOSE          lang::T(L"ui.lbl.close")
-    #define TXT_LBL_FAKE_PCT       lang::T(L"ui.lbl.fake.pct")
-    #define TXT_LBL_FAKE_MIX       lang::T(L"ui.lbl.fake.mix")
+    const wchar_t* const TXT_LBL_IDLE      = L"跳杀间隔（随机区间）";
+    const wchar_t* const TXT_LBL_GOLD      = L"赎金目标金币（普通）";
+    const wchar_t* const TXT_LBL_GOLD_HC   = L"赎金目标金币（硬核）";
+    const wchar_t* const TXT_LBL_CLOSE     = L"关窗惩罚时长";
+    const wchar_t* const TXT_LBL_FAKE_PCT  = L"假金币比例";
+    const wchar_t* const TXT_LBL_FAKE_MIX  = L"假币形态配比（前 / 后 / 全）";
 
-    #define TXT_LBL_HARDWIN        lang::T(L"ui.lbl.hardwin")
-    #define TXT_LBL_CURSOR         lang::T(L"ui.lbl.cursor")
-    #define TXT_LBL_LOCKNUM        lang::T(L"ui.lbl.locknum")
-    #define TXT_LBL_LOCKDUR        lang::T(L"ui.lbl.lockdur")
+    const wchar_t* const TXT_LBL_HARDWIN   = L"硬核模式同时最多弹窗数";
+    const wchar_t* const TXT_LBL_CURSOR    = L"阻挡鼠标弹窗的生成间隔（随机区间）";
+    const wchar_t* const TXT_LBL_LOCKNUM   = L"桌面锁定非INK的数量上限";
+    const wchar_t* const TXT_LBL_LOCKDUR   = L"桌面锁定时长（随机区间）";
 
-    #define TXT_LBL_DRIVES         lang::T(L"ui.lbl.drives")
-    #define TXT_BTN_DRIVES         lang::T(L"ui.btn.drives")
-    #define TXT_BTN_DRIVES_OFF     lang::T(L"ui.btn.drives.off")
+    const wchar_t* const TXT_LBL_DRIVES    = L"金币生成磁盘范围（硬核）";
+    const wchar_t* const TXT_BTN_DRIVES    = L"选择生成金币的磁盘…";
+    const wchar_t* const TXT_BTN_DRIVES_OFF= L"需开启硬核模式";
 
     // ---- 设置窗口：磁盘范围那一行的当前值 ----
-    #define TXT_DRIVES_ALL         lang::T(L"ui.drives.all")
-    #define TXT_DRIVES_NONE        lang::T(L"ui.drives.none")
-    #define FMT_DRIVES_SUM         lang::T(L"ui.drives.sum")
+    const wchar_t* const TXT_DRIVES_ALL    = L"全部固定盘";
+    const wchar_t* const TXT_DRIVES_NONE   = L"只落桌面";
+    const wchar_t* const FMT_DRIVES_SUM    = L"%s（%d 个盘）";
 
     // ---- 设置窗口：滑条两端 / 中点的刻度文字 ----
-    #define TXT_SCALE_0            lang::T(L"ui.scale.0")
-    #define TXT_SCALE_10           lang::T(L"ui.scale.10")
-    #define TXT_SCALE_30           lang::T(L"ui.scale.30")
-    #define TXT_SCALE_500          lang::T(L"ui.scale.500")
-    #define TXT_SCALE_1000         lang::T(L"ui.scale.1000")
-    #define TXT_SCALE_5000         lang::T(L"ui.scale.5000")
-    #define TXT_SCALE_9999         lang::T(L"ui.scale.9999")
-    #define TXT_SCALE_200PCT       lang::T(L"ui.scale.200pct")
-    #define TXT_SCALE_100PCT       lang::T(L"ui.scale.100pct")
-    #define TXT_SCALE_0PCT         lang::T(L"ui.scale.0pct")
-    #define TXT_SCALE_20MS         lang::T(L"ui.scale.20ms")
-    #define TXT_SCALE_45S          lang::T(L"ui.scale.45s")
-    #define TXT_SCALE_90S          lang::T(L"ui.scale.90s")
-    #define TXT_SCALE_09S          lang::T(L"ui.scale.09s")
-    #define TXT_SCALE_18S          lang::T(L"ui.scale.18s")
-    #define TXT_SCALE_30S          lang::T(L"ui.scale.30s")
-    #define TXT_SCALE_22DEF        lang::T(L"ui.scale.22def")
-    #define TXT_SCALE_MIXEND       lang::T(L"ui.scale.mixend")
+    const wchar_t* const TXT_SCALE_0       = L"0";
+    const wchar_t* const TXT_SCALE_10      = L"10";
+    const wchar_t* const TXT_SCALE_30      = L"30";
+    const wchar_t* const TXT_SCALE_500     = L"500";
+    const wchar_t* const TXT_SCALE_1000    = L"1000";
+    const wchar_t* const TXT_SCALE_5000    = L"5000";
+    const wchar_t* const TXT_SCALE_9999    = L"9999";
+    const wchar_t* const TXT_SCALE_200PCT  = L"200%";
+    const wchar_t* const TXT_SCALE_100PCT  = L"100%";
+    const wchar_t* const TXT_SCALE_0PCT    = L"0%";
+    const wchar_t* const TXT_SCALE_20MS    = L"20ms";
+    const wchar_t* const TXT_SCALE_45S     = L"45s";
+    const wchar_t* const TXT_SCALE_90S     = L"90s";
+    const wchar_t* const TXT_SCALE_09S     = L"0.9s";
+    const wchar_t* const TXT_SCALE_18S     = L"18s";
+    const wchar_t* const TXT_SCALE_30S     = L"30s";
+    const wchar_t* const TXT_SCALE_22DEF   = L"22（默认）";
+    const wchar_t* const TXT_SCALE_MIXEND  = L"100（右段=都改）";
 
     // ---- 设置窗口：数值显示格式 ----
-    #define FMT_PCT                lang::T(L"ui.pct")
-    #define FMT_MS_FIXED           lang::T(L"ui.ms.fixed")
-    #define FMT_MS_RANGE           lang::T(L"ui.ms.range")
-    #define FMT_SEC_FIXED          lang::T(L"ui.sec.fixed")
-    #define FMT_SEC_RANGE          lang::T(L"ui.sec.range")
-    #define FMT_SEC_ONE            lang::T(L"ui.sec.one")
-    #define FMT_CLOSE_ZERO         lang::T(L"ui.close.zero")
-    #define FMT_COUNT              lang::T(L"ui.count")
-    #define FMT_MIX_TRIPLE         lang::T(L"ui.mix.triple")
-    #define FMT_LOCKCAP            lang::T(L"ui.lockcap")
+    const wchar_t* const FMT_PCT           = L"%d%%";
+    const wchar_t* const FMT_MS_FIXED      = L"%d-%d ms（固定）";
+    const wchar_t* const FMT_MS_RANGE      = L"%d-%d ms（%.2f-%.2f 秒）";
+    const wchar_t* const FMT_SEC_FIXED     = L"%.1f 秒（固定）";
+    const wchar_t* const FMT_SEC_RANGE     = L"%.1f-%.1f 秒";
+    const wchar_t* const FMT_SEC_ONE       = L"%.1f 秒";
+    const wchar_t* const FMT_CLOSE_ZERO    = L"0（关窗不扣时间）";
+    const wchar_t* const FMT_COUNT         = L"%d 个";
+    const wchar_t* const FMT_MIX_TRIPLE    = L"%d / %d / %d";
+    const wchar_t* const FMT_LOCKCAP       = L"%d（桌面可锁 %d 项）";
 
     // ---- 设置窗口：底部按钮与提示 ----
-    #define TXT_BTN_RESET          lang::T(L"ui.btn.reset")
-    #define TXT_BTN_START          lang::T(L"ui.btn.start")
-    #define FMT_KEY_SETTINGS       lang::T(L"ui.key.settings")
+    const wchar_t* const TXT_BTN_RESET     = L"恢复默认";
+    const wchar_t* const TXT_BTN_START     = L"开 始";
+    const wchar_t* const FMT_KEY_SETTINGS  =
+        L"可以按 Ctrl + Alt + Shift + %c 抢救。";
 
     // ---- 盘符页（设置窗口的第二个界面）----
-    #define TXT_DRV_TITLE          lang::T(L"ui.drv.title")
-    #define TXT_DRV_SUB1           lang::T(L"ui.drv.sub1")
-    #define TXT_DRV_SUB2           lang::T(L"ui.drv.sub2")
-    #define TXT_DRV_EMPTY          lang::T(L"ui.drv.empty")
-    #define TXT_DRV_PICKED         lang::T(L"ui.drv.picked")
-    #define TXT_DRV_SKIPPED        lang::T(L"ui.drv.skipped")
-    #define FMT_DRV_LETTER         lang::T(L"ui.drv.letter")
-    #define TXT_DRV_BACK           lang::T(L"ui.drv.back")
-    #define TXT_DRV_NONE           lang::T(L"ui.drv.none")
-    #define TXT_DRV_ALL            lang::T(L"ui.drv.all")
-    #define FMT_KEY_DRIVES         lang::T(L"ui.key.drives")
+    const wchar_t* const TXT_DRV_TITLE     = L"金币生成磁盘范围";
+    const wchar_t* const TXT_DRV_SUB1      =
+        L"勾上的固定盘，硬核模式会生成金币。";
+    const wchar_t* const TXT_DRV_SUB2      =
+        L"U 盘 / 光驱 / 网络盘不参与；不选 = 只落桌面。";
+    const wchar_t* const TXT_DRV_EMPTY     = L"本设备上没有固定盘，金币只能在桌面上。";
+    const wchar_t* const TXT_DRV_PICKED    = L"已选";
+    const wchar_t* const TXT_DRV_SKIPPED   = L"不选";
+    const wchar_t* const FMT_DRV_LETTER    = L"%c:";
+    const wchar_t* const TXT_DRV_BACK      = L"← 返回设置";
+    const wchar_t* const TXT_DRV_NONE      = L"反选";
+    const wchar_t* const TXT_DRV_ALL       = L"全选";
+    const wchar_t* const FMT_KEY_DRIVES    =
+        L"设置硬核金币拓展位置；可以按 Ctrl + Alt + Shift + %c 抢救。";
 
     // ---- 二级警告屏：硬核（mode 1）----
-    #define TXT_HC_TITLE           lang::T(L"ui.hc.title")
-    #define TXT_HC_LEDE            lang::T(L"ui.hc.lede")
-    #define FMT_HC_L1              lang::T(L"ui.hc.l1")
-    #define FMT_HC_L2              lang::T(L"ui.hc.l2")
-    #define TXT_HC_L3              lang::T(L"ui.hc.l3")
-    #define FMT_HC_L4              lang::T(L"ui.hc.l4")
-    #define FMT_HC_L5              lang::T(L"ui.hc.l5")
-    #define TXT_HC_L6              lang::T(L"ui.hc.l6")
+    const wchar_t* const TXT_HC_TITLE      = L"硬核模式：用前注意";
+    const wchar_t* const TXT_HC_LEDE       = L"这是硬核模式，基于原版的困难版：";
+    const wchar_t* const FMT_HC_L1         =
+        L"· 倒计时 3 分钟；赎金 %d Gold、关窗惩罚 %.1f 秒";
+    const wchar_t* const FMT_HC_L2         =
+        L"· 桌面文件和文件夹会被随机锁住 %.1f-%.1f 秒（同时最多 %d 个）";
+    const wchar_t* const TXT_HC_L3         =
+        L"· 金币会拓展放入 C:\\ D:\\ 这类固定盘内，会有假金币";
+    const wchar_t* const FMT_HC_L4         =
+        L"· 假币占真币的 %d%%：前缀改 %d / 后缀改 %d / 两个都改 %d";
+    const wchar_t* const FMT_HC_L5         =
+        L"· 弹窗最多 %d 个，每 %.1f-%.1f 秒会出来一个弹窗阻挡你鼠标";
+    const wchar_t* const TXT_HC_L6         = L"· 祝你好运";
 
     // ---- 二级警告屏：普通（mode 0）----
-    #define TXT_N_TITLE            lang::T(L"ui.n.title")
-    #define TXT_N_LEDE             lang::T(L"ui.n.lede")
-    #define TXT_N_LINE1            lang::T(L"ui.n.line1")
-    #define TXT_N_LINE2            lang::T(L"ui.n.line2")
-    #define TXT_N_LINE3            lang::T(L"ui.n.line3")
-    #define FMT_N_SUMMARY          lang::T(L"ui.n.summary")
+    const wchar_t* const TXT_N_TITLE       = L"用前注意";
+    const wchar_t* const TXT_N_LEDE        = L"这个版本会导致桌面INK问题：";
+    const wchar_t* const TXT_N_LINE1       =
+        L"桌面INK会被标记成「已加密」、目前开着的窗口会被收进任务栏、";
+    const wchar_t* const TXT_N_LINE2       = L"满屏弹窗会挡住你正在做的事。超时没付清的话，";
+    const wchar_t* const TXT_N_LINE3       = L"桌面INK会被丢进回收站（可以还原）。";
+    const wchar_t* const FMT_N_SUMMARY     =
+        L"本轮：赎金 %d Gold ／ 跳杀间隔 %d-%dms ／ 关窗惩罚 %.1f 秒。";
 
     // ---- 二级警告屏：两屏共用（逃课框 / 脚注 / 按钮）----
-    #define FMT_ESCAPE             lang::T(L"ui.escape")
-    #define TXT_ESCAPE_DESC        lang::T(L"ui.escape.desc")
-    #define TXT_FOOT1              lang::T(L"ui.foot1")
-    #define TXT_FOOT2              lang::T(L"ui.foot2")
-    #define TXT_BTN_BACK           lang::T(L"ui.btn.back")
-    #define TXT_BTN_OK             lang::T(L"ui.btn.ok")
-    #define TXT_BTN_OK_HC          lang::T(L"ui.btn.ok.hc")
+    const wchar_t* const FMT_ESCAPE        = L"抢救：Ctrl + Alt + Shift + %c";
+    const wchar_t* const TXT_ESCAPE_DESC   =
+        L"这是全局热键，用于抢救。";
+    const wchar_t* const TXT_FOOT1         =
+        L"如果意外导致Ransom未还原INK：Ransom_dev.exe --restore ，";
+    const wchar_t* const TXT_FOOT2         = L"--clean-gold 清掉残留的金币文件。";
+    const wchar_t* const TXT_BTN_BACK      = L"← 返回上一级";
+    const wchar_t* const TXT_BTN_OK        = L"开 始";
+    const wchar_t* const TXT_BTN_OK_HC     = L"开 始";
 
     // ========================================================================
     //  缓动动画
@@ -548,8 +553,7 @@ namespace {
         //
         //  行的顺序 = 数组顺序。想调整顺序就动这里，别去改绘制代码。
         enum RowId {
-            ROW_LANG = 0,    // 界面语言（下拉框）—— 排在最前：看不懂当前语言时第一眼就能找到
-            ROW_SAFE,        // 光敏安全模式（复选框）
+            ROW_SAFE = 0,    // 光敏安全模式（复选框）
             ROW_BGM,         // 背景音乐
             ROW_SFX,         // 音效
             ROW_MODE,        // 游戏模式（下拉框：普通 / 硬核 / 挂机）
@@ -633,7 +637,7 @@ namespace {
         setup_ui::Verdict g_verdict = setup_ui::VERDICT_ERROR;
         int   g_panicVk = 'Q';
 
-        enum Hot { HOT_NONE = 0, HOT_RESET, HOT_START, HOT_DRIVES, HOT_COMBO, HOT_COMBO_LANG, HOT_DRV_ALL, HOT_DRV_NONE, HOT_DRV_BACK };
+        enum Hot { HOT_NONE = 0, HOT_RESET, HOT_START, HOT_DRIVES, HOT_COMBO, HOT_DRV_ALL, HOT_DRV_NONE, HOT_DRV_BACK };
         int   g_hot = HOT_NONE;
 
         // 当前是哪个界面：0 = 设置列表，1 = 2D 盘符页。
@@ -754,48 +758,7 @@ namespace {
         //  全局实例 + 每帧把矩形和当前项同步过去的胶水。
         const int kComboW = 260;           // 闭合态下拉框宽度（须和 Combo.rc 一致）
         const int kComboItemH = 30;        // 展开时每一项的高度
-        Combo g_combo;                     // 游戏模式
-
-        // 界面语言那个下拉框。和上面那个是**两个独立实例**（各展开各的），
-        // 但同时只允许展开一个 —— 见 OpenLangCombo / OpenCombo。
-        Combo g_comboLang;
-
-        // 控件要的是 `const wchar_t* const*`（整张表），项数又是运行期才知道的
-        // （语言 = 资源里的包数量），所以名字先攒进这两个 vector，再把 data()
-        // 交给控件。**每帧重填**：点了语言之后名字本身也变了。
-        std::vector<const wchar_t*> g_modeNames;
-        std::vector<const wchar_t*> g_modeDescs;
-        std::vector<const wchar_t*> g_langNames;
-
-        // 按键名取词：ui.mode.name.0 / ui.mode.desc.0 / ...
-        const wchar_t* ModeText(const wchar_t* fmt, int i)
-        {
-            wchar_t key[32];
-            swprintf_s(key, fmt, i);
-            return lang::T(key);
-        }
-
-        void SyncComboNames()
-        {
-            g_modeNames.resize((size_t)settings::kModeCount);
-            g_modeDescs.resize((size_t)settings::kModeCount);
-            for (int i = 0; i < settings::kModeCount; ++i)
-            {
-                g_modeNames[(size_t)i] = ModeText(L"ui.mode.name.%d", i);
-                g_modeDescs[(size_t)i] = ModeText(L"ui.mode.desc.%d", i);
-            }
-            g_combo.names = g_modeNames.data();
-            g_combo.descs = g_modeDescs.data();
-
-            // 语言列表：有几个包就有几项，名字用包里的 meta.name
-            const int n = lang::Count();
-            g_langNames.resize((size_t)(n > 0 ? n : 0));
-            for (int i = 0; i < n; ++i) g_langNames[(size_t)i] = lang::Name(i);
-
-            g_comboLang.names = g_langNames.empty() ? nullptr : g_langNames.data();
-            g_comboLang.descs = nullptr;
-            g_comboLang.count = n;
-        }
+        Combo g_combo;
 
         int GoldRow()
         {
@@ -832,40 +795,17 @@ namespace {
         //
         //  矩形依赖 RowY（行高在切模式时会动）和滚动偏移，所以每帧都要重算；
         //  这些包装放在这里是因为它们要用 RowY / ViewOffset。
-        //
-        //  两个下拉框（语言 / 游戏模式）共用下面这个内部函数，只有行号和
-        //  "当前项"的来源不同。
-        void SyncOneCombo(Combo& c, int row, int count, int current)
-        {
-            SyncComboNames();
-
-            RECT r;
-            SetRectLocal(r, kTrackLeft, ViewOffset() + RowY(row) + kLabelH + 2,
-                kComboW, kCheckH);
-
-            c.rc      = r;
-            c.itemH   = kComboItemH;
-            c.count   = count;
-            c.current = (current >= 0 && current < count) ? current : 0;
-        }
-
-        int LangComboCount() { return lang::Count(); }
-
-        // 当前语言在列表里的下标（找不到就 0 —— 控件总得有个合法值画出来）
-        int LangComboCurrent()
-        {
-            const int i = lang::IndexOfCode(g_edit.language.c_str());
-            return (i >= 0) ? i : 0;
-        }
-
         void SyncCombo()
         {
-            SyncOneCombo(g_combo, ROW_MODE, settings::kModeCount, g_edit.mode);
-        }
+            RECT r;
+            SetRectLocal(r, kTrackLeft, ViewOffset() + RowY(ROW_MODE) + kLabelH + 2,
+                kComboW, kCheckH);
 
-        void SyncLangCombo()
-        {
-            SyncOneCombo(g_comboLang, ROW_LANG, LangComboCount(), LangComboCurrent());
+            g_combo.rc      = r;
+            g_combo.itemH   = kComboItemH;
+            g_combo.count   = settings::kModeCount;
+            g_combo.current = (g_edit.mode >= 0 && g_edit.mode < settings::kModeCount)
+                ? g_edit.mode : 0;
         }
 
         // 下面这几个包装只是让调用点读起来跟以前一样（逻辑全在控件里）
@@ -873,19 +813,8 @@ namespace {
         bool ComboVisible() { SyncCombo(); return g_combo.Visible(); }
         RECT ComboRect() { SyncCombo(); return g_combo.rc; }
         RECT ComboItemRect(int i) { SyncCombo(); return g_combo.ItemRect(i); }
-
-        bool LangComboOpened() { SyncLangCombo(); return g_comboLang.Opened(); }
-        bool LangComboVisible() { SyncLangCombo(); return g_comboLang.Visible(); }
-        RECT LangComboRect() { SyncLangCombo(); return g_comboLang.rc; }
-        RECT LangComboItemRect(int i) { SyncLangCombo(); return g_comboLang.ItemRect(i); }
-
-        // 开一个就关掉另一个：两列表画在同一个位置（都盖在行上），同时展开
-        // 会打成一团，命中判定也说不清谁优先。
-        // 这里直接调控件的 Close()（不绕包装函数），免得被声明顺序卡住。
-        void OpenCombo()     { SyncCombo(); SyncLangCombo(); g_comboLang.Close(); g_combo.Open(); }
-        void CloseCombo()    { SyncCombo(); g_combo.Close(); }
-        void OpenLangCombo() { SyncLangCombo(); SyncCombo(); g_combo.Close(); g_comboLang.Open(); }
-        void CloseLangCombo() { SyncLangCombo(); g_comboLang.Close(); }
+        void OpenCombo() { SyncCombo(); g_combo.Open(); }
+        void CloseCombo() { SyncCombo(); g_combo.Close(); }
 
         bool InView(POINT p)
         {
@@ -1430,49 +1359,6 @@ namespace {
                 kName[old], kName[mode]);
         }
 
-        // 切换界面语言。**立刻生效**：界面上每个字都是每帧现取的（见文案表），
-        // 所以只要重绘一遍就全变了；标题栏例外，那是建窗时定死的，得手动换。
-        // 新语言同时记进 g_edit.language —— 点「开始」时随其它设置一起落盘。
-        void RetitleForPage()
-        {
-            if (!g_hwnd) return;
-            aero::SetTitle(g_hwnd, (g_page == 1) ? TXT_WIN_DRIVES : TXT_WIN_SETTINGS);
-        }
-
-        void SetLanguage(int i)
-        {
-            if (i < 0 || i >= lang::Count()) return;
-            if (lang::CurrentIndex() == i) return;
-
-            lang::SetCurrent(i);
-            g_edit.language = lang::Code(i);
-            RetitleForPage();
-            PushLive();
-
-            // **选完立刻单独落盘**（不走 Save()，不碰界面里其它还没提交的值）——
-            // 语言是显示偏好，用户选完很可能直接把窗口关了去开演，那时候
-            // 不该还记着上一种语言。
-            settings::SaveLanguage(lang::Code(i));
-        }
-
-        // 按 g_edit.language 把语言真的套上去。
-        // 给「恢复默认」用：ResetToDefault 会把 language 复位成 zh-CN，
-        // 但 lang 模块不会自己跟着走 —— 不补这一下，下拉框会显示"简体中文"、
-        // 界面却还是英文（两边各读各的）。
-        //
-        // 那个包要是没了（老 ini / 用户把 .lang 删了），改用兜底语言（英文优先）
-        // 并把 g_edit 也改成它，免得下拉框停在一个不存在的项上。
-        void ApplyLanguageFromEdit()
-        {
-            const int found  = lang::IndexOfCode(g_edit.language.c_str());
-            const int target = (found >= 0) ? found : lang::FallbackIndex();
-            if (target < 0) return;
-
-            if (target != lang::CurrentIndex()) lang::SetCurrent(target);
-            g_edit.language = lang::Code(target);
-            RetitleForPage();
-        }
-
         // rowY 传 RowY(ROW_xxx)（行的 y 是算出来的，不是常数）。
         // alpha = 这一行的显示进度（切换模式时淡入淡出），1 = 完全不透明。
         void DrawSliderRow(Graphics& g, const RectF& rc, int rowY,
@@ -1622,21 +1508,10 @@ namespace {
             g_combo.DrawBox(g, rc, TXT_LBL_MODE);
         }
 
-        void DrawLangCombo(Graphics& g, const RectF& rc, float alpha)
-        {
-            SyncLangCombo();
-            g_comboLang.alpha = alpha;
-            g_comboLang.DrawBox(g, rc, TXT_LBL_LANG);
-        }
-
         void DrawComboList(Graphics& g, const RectF& rc)
         {
-            // 两个列表都在这儿画（谁展开画谁，同时只会有一个展开）
             SyncCombo();
             g_combo.DrawList(g, rc);
-
-            SyncLangCombo();
-            g_comboLang.DrawList(g, rc);
         }
 
         // ---- 主绘制 ----
@@ -1702,12 +1577,6 @@ namespace {
             // 每一行都按自己的显示进度画：切模式时旧行缩高 + 淡出、
             // 新行展开 + 淡入，所以下面的块都是 "if (a > 0) { ... Fade(..., a) }"。
             // 行位置一律用 RowY(ROW_xxx)，不再有固定 y 常量。
-
-            // ---- 界面语言（下拉框）----
-            {
-                const float a = RowAlpha(ROW_LANG);
-                DrawLangCombo(g, rc, a);
-            }
 
             // ---- 光敏安全 ----
             {
@@ -2378,15 +2247,7 @@ namespace {
 
             // 下拉框展开着的时候，列表里的项优先高亮；点到别处不高亮任何东西
             // （免得鼠标划过下面的滑条还有反馈，看起来像能点）
-            g_comboLang.hotItem = -1;
-
-            if (LangComboOpened())
-            {
-                for (int i = 0; i < LangComboCount(); ++i)
-                    if (Hit(LangComboItemRect(i), p)) { g_comboLang.hotItem = i; break; }
-                h = HOT_NONE;
-            }
-            else if (ComboOpened())
+            if (ComboOpened())
             {
                 g_combo.hotItem = -1;
                 for (int i = 0; i < settings::kModeCount; ++i)
@@ -2396,8 +2257,7 @@ namespace {
             else
             {
                 g_combo.hotItem = -1;
-                if (Hit(LangComboRect(), p)) h = HOT_COMBO_LANG;
-                else if (Hit(ComboRect(), p)) h = HOT_COMBO;
+                if (Hit(ComboRect(), p)) h = HOT_COMBO;
                 else if (Hit(DrivesHit(), p)) h = HOT_DRIVES;
             }
 
@@ -2489,32 +2349,8 @@ namespace {
             {
                 // ---- 下拉框优先 ----
                 //
-                // 展开着的时候，列表盖在下面的行上：点列表选一项、点别处收起，
+                // 展开着的时候，列表盖在下面的行上：点列表选模式、点别处收起，
                 // 这两种情况都**不能**再让下面的滑条/按钮接走这一下。
-                //
-                // 语言那个排在最上面，先判它（两个列表同时只会展开一个，这里
-                // 只是给"谁先接"定个固定次序）。
-                if (LangComboOpened())
-                {
-                    for (int i = 0; i < LangComboCount(); ++i)
-                    {
-                        if (!Hit(LangComboItemRect(i), p)) continue;
-                        if (!InView(p)) continue;
-
-                        CloseLangCombo();
-                        SetLanguage(i);             // 界面当场换成新语言
-                        aero::Repaint(hwnd);
-                        return;
-                    }
-
-                    CloseLangCombo();
-                    aero::Repaint(hwnd);
-                    return;
-                }
-
-                // 正在收起（目标已经关了、进度还没走完）：这一下也吃掉
-                if (LangComboVisible()) return;
-
                 if (ComboOpened())
                 {
                     for (int i = 0; i < settings::kModeCount; ++i)
@@ -2546,11 +2382,6 @@ namespace {
                 {
                     settings::ResetToDefault();
                     g_edit = settings::Current();
-
-                    // 语言也是设置之一，复位后要**真的切回去**（见
-                    // ApplyLanguageFromEdit 的说明）
-                    ApplyLanguageFromEdit();
-
                     // 缓动：所有滑条、复选框、行显隐一起"滑"到默认值。
                     SyncAllTweens(false);
                     PushLive();
@@ -2564,14 +2395,6 @@ namespace {
                     g_edit.photosensitiveSafe = !g_edit.photosensitiveSafe;
                     g_tSafe.Set(g_edit.photosensitiveSafe ? 1.0 : 0.0, false);
                     PushLive();
-                    aero::Repaint(hwnd);
-                    return;
-                }
-
-                // ---- 界面语言：点开下拉框 ----
-                if (Hit(LangComboRect(), p))
-                {
-                    OpenLangCombo();
                     aero::Repaint(hwnd);
                     return;
                 }
@@ -2749,18 +2572,8 @@ namespace {
 
             const int step = (delta > 0) ? 1 : -1;
 
-            // 下拉框展开着的时候，滚轮改成"上下切选项" —— 列表本来就是选东西的，
+            // 下拉框展开着的时候，滚轮改成"上下切模式" —— 列表本来就是选模式的，
             // 这时候还去滚下面的内容会很怪。
-            if (LangComboOpened())
-            {
-                int i = LangComboCurrent() + step;
-                if (i < 0) i = 0;
-                if (i >= LangComboCount()) i = LangComboCount() - 1;
-                SetLanguage(i);
-                aero::Repaint(hwnd);
-                return;
-            }
-
             if (ComboOpened())
             {
                 int m = g_edit.mode + step;
@@ -2786,9 +2599,8 @@ namespace {
                 }
 
                 // 模式下拉框**不接受滚轮**（展开时另说，见上面）：
-                // 这么重的开关被滚轮误触翻掉太容易了。语言同理。
+                // 这么重的开关被滚轮误触翻掉太容易了。
                 if (Hit(ComboRect(), p)) return;
-                if (Hit(LangComboRect(), p)) return;
 
                 const RECT bt = BgmTrack();
                 const RECT st = SfxTrack();
@@ -3388,40 +3200,12 @@ namespace setup_ui {
         g_pendingPage = -1;
         g_drvHot = -1;
         g_combo.count = settings::kModeCount;
+        g_combo.names = TXT_MODE_NAME;
+        g_combo.descs = TXT_MODE_DESC;
         g_combo.itemH = kComboItemH;
         g_combo.open  = false;
         g_combo.hotItem = -1;
         g_combo.Sync(true);
-
-        // 语言下拉框同理：**有几项是运行期知道的**（内嵌语言包的数量），
-        // 所以这里只把状态摆正，选项文字由 SyncComboNames 每帧去填。
-        g_comboLang.itemH   = kComboItemH;
-        g_comboLang.open    = false;
-        g_comboLang.hotItem = -1;
-        g_comboLang.Sync(true);
-
-        // 上次选的语言现在就摆上。ini 里没有 / 那个包被删了 -> 改用兜底语言
-        //（英文优先，见 lang::FallbackIndex），并把它写回 g_edit ——
-        // 否则下拉框会停在一个不存在的项上，点「开始」还会把那个坏代号存回去。
-        {
-            const int want = lang::IndexOfCode(g_edit.language.c_str());
-            if (want >= 0)
-            {
-                lang::SetCurrent(want);
-            }
-            else
-            {
-                const int fb = lang::FallbackIndex();
-                if (fb >= 0) lang::SetCurrent(fb);
-                elog::Write(L"[setup] 语言包 %s 不存在，自动改用 %s",
-                    g_edit.language.c_str(), lang::CurrentCode());
-            }
-
-            g_edit.language = lang::CurrentCode();
-        }
-        SyncComboNames();
-        SyncLangCombo();
-
         FreeDrives();
 
         // 窗口第一帧就显示正确的值，不让它从 0 滑上来。

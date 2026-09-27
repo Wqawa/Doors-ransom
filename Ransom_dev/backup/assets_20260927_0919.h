@@ -24,7 +24,6 @@ enum Kind
     KIND_ROOT = 0,   // assets 根目录：main_window.ini / payup.ini / *.ico / *.ttf
     KIND_IMAGE,      // assets/image/
     KIND_AUDIO,      // assets/audio/
-    KIND_LANG,       // assets/lang/：语言包 *.lang（见 lang.cpp）
     KIND_COUNT
 };
 
@@ -51,11 +50,6 @@ bool Get(Kind k, const wchar_t* name, Blob& out);
 // 按通配符找第一个文件名（只支持 "*.ext" 和精确文件名）。
 // 找不到返回空串。图标、字体都用它找——不写死文件名，改名也不会失效。
 std::wstring FindFirst(Kind k, const wchar_t* pattern);
-
-// 列出这一类里的**全部**文件名（内嵌走资源清单，读盘走目录枚举），
-// 按名字排好序。语言包靠它枚举（见 lang::Init）——这样往 assets\lang\
-// 里丢一个新语言包，重编译后界面上的语言列表就自动多一项，不用改代码。
-std::vector<std::wstring> List(Kind k);
 
 // 日志用：这份素材从哪儿来（"内嵌资源" 或完整路径）
 std::wstring Where(Kind k, const wchar_t* name);

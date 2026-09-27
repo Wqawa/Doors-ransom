@@ -159,13 +159,6 @@ namespace settings {
 	// 后来放弃了这个设计 —— 安全阀在两种模式下都是**按一次就停**。
 	// 相关的常量和提示文案都已经删掉了，别再按那条路改。
 
-	// ---- 界面语言（设置界面最上面那个下拉框）----
-	//
-	// 存的是**语言包代号**，和 assets\lang\<代号>.lang 的文件名一致
-	// （见 lang.h）。程序启动时拿它去 lang::SetCurrentCode()；找不到那个
-	// 包就退回默认语言 zh-CN —— 用户把语言包删了也不会打不开界面。
-	const wchar_t* const kDefaultLanguage = L"zh-CN";
-
 	// ---- 硬核：金币撒哪些盘（设置界面那个 2D 盘符页勾的）----
 	//
 	// 硬核会把金币撒到各**固定盘**的顶层目录里。「撒哪几个盘」由用户在
@@ -257,11 +250,6 @@ namespace settings {
 		// 界面和 settings.cpp 内部都读这个，避免到处写 mode 比较。
 		bool IsHardcore() const { return mode == kModeHardcore; }
 
-		// 界面语言：语言包代号（"zh-CN" / "en-US" / ……）。
-		// 从 ini 的 [ui] language= 读；空串 = 用 kDefaultLanguage。
-		// 界面上的下拉框改的就是这个字段，取值走 settings::Language()。
-		std::wstring language = kDefaultLanguage;
-
 		// 金币面额池。**空 = 用 kDefaultCoinAmounts 里的默认**。
 		// 从 ini 的 [game] coin_amounts= 读（逗号分隔，如 "10,50,325,500"）。
 		// 读取时会自动排序去重、夹到合法范围。
@@ -291,14 +279,6 @@ namespace settings {
 	// 目录不存在会自动建。失败只写日志，不弹窗。
 	bool Save();
 
-	// **只把「界面语言」这一项立刻记下来**，其它键一个都不动。
-	//
-	// 为什么不直接调 Save()：语言是显示偏好，在设置界面里一选就该记住 ——
-	// 用户很可能选完就把窗口关了（不点「开始」）。而 Save() 会把界面上**所有**
-	// 当前值一起落盘，那违背「关窗口中止 = 不落盘」这条约定（还有「恢复默认」
-	// 只改内存不落盘），所以这里走单键改写。
-	bool SaveLanguage(const wchar_t* code);
-
 	// 把当前设置推给各个子系统（音量 + 光敏安全）。
 	// 在「窗口建好之后、演出开始之前」调一次；
 	// director 每轮回到 PHASE_IDLE 时也会再调一次（见 director.cpp）。
@@ -319,10 +299,6 @@ namespace settings {
 
 	// 当前游戏模式（kModeNormal / kModeHardcore / kModeIdle），已夹到合法范围。
 	int  Mode();
-
-	// 界面语言的语言包代号（永远非空：没配过就是 kDefaultLanguage）。
-	// 注意它只管"用户选了哪个"，真正的取词走 lang::T()。
-	const wchar_t* Language();
 
 	// 赎金目标。**按当前模式选那一条、并夹过的最终值，也是唯一出口**：
 	//   普通 -> goldGoalNormal 夹到 [10, 1000]

@@ -75,6 +75,9 @@
     <ClCompile Include="src\assets.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
+    <ClCompile Include="src\lang.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
     <ClCompile Include="src\image_blob.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
@@ -99,6 +102,9 @@
       <Filter>头文件</Filter>
     </ClInclude>
     <ClInclude Include="src\assets.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="src\lang.h">
       <Filter>头文件</Filter>
     </ClInclude>
     <ClInclude Include="src\image_blob.h">

@@ -69,4 +69,8 @@
 1053 RCDATA "../assets/audio/Ransom_UI_-_Error_(80099403859001).ogg"
 1054 RCDATA "../assets/audio/Ransomgold_increase_(97004792231127).ogg"
 
-// 54 resources, 6960948 bytes
+// ---- assets/lang/ ----
+1055 RCDATA "../assets/lang/en-US.lang"
+1056 RCDATA "../assets/lang/zh-CN.lang"
+
+// 56 resources, 6973035 bytes

@@ -24,3 +24,6 @@ Thumbs.db
 desktop.ini
 *.tmp
 *.bak
+
+# ---- 本机工具目录（DSH 的会话/记忆数据，只属于这台机器）----
+.dsh-meow/

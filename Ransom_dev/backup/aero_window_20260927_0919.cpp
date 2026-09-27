@@ -19,7 +19,6 @@
 #include "aero_window.h"
 
 #include "entity_log.h"
-#include "lang.h"          // 系统菜单那几项的文字（见 ShowSystemMenu）
 
 #include <windowsx.h>      // GET_X_LPARAM / GET_Y_LPARAM
 #include <cmath>
@@ -1045,13 +1044,11 @@ namespace {
         if (a->maximized) flagsRestore |= MF_GRAYED;
         else              flagsMaximize |= MF_GRAYED;
 
-        // 菜单文字也走语言包（跟随设置界面里选的语言）。
-        // aero 是窗口库，只依赖 lang 这个"取词"模块，不反向依赖 setup_ui。
-        AppendMenuW(menu, flagsRestore, SC_RESTORE, lang::T(L"menu.restore"));
-        AppendMenuW(menu, MF_STRING, SC_MINIMIZE, lang::T(L"menu.minimize"));
-        AppendMenuW(menu, flagsMaximize, SC_MAXIMIZE, lang::T(L"menu.maximize"));
+        AppendMenuW(menu, flagsRestore, SC_RESTORE, L"还原(&R)");
+        AppendMenuW(menu, MF_STRING, SC_MINIMIZE, L"最小化(&N)");
+        AppendMenuW(menu, flagsMaximize, SC_MAXIMIZE, L"最大化(&X)");
         AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
-        AppendMenuW(menu, MF_STRING, SC_CLOSE, lang::T(L"menu.close"));
+        AppendMenuW(menu, MF_STRING, SC_CLOSE, L"关闭(&C)");
 
         SetMenuDefaultItem(menu, SC_CLOSE, FALSE);
 
@@ -1837,19 +1834,6 @@ namespace aero {
     {
         AeroWnd* a = hwnd ? From(hwnd) : nullptr;
         if (a && !a->anim.active) PaintWindow(a);
-    }
-
-    void SetTitle(HWND hwnd, const wchar_t* title)
-    {
-        AeroWnd* a = hwnd ? From(hwnd) : nullptr;
-        if (!a) return;
-
-        a->opt.title = title ? title : L"";
-
-        // 窗口自己的标题：任务栏 / Alt+Tab 显示的是它（我们自绘的标题栏
-        // 画的是 opt.title，所以两处都要更新）。
-        SetWindowTextW(hwnd, a->opt.title.c_str());
-        Repaint(hwnd);
     }
 
     int AliveCount() { return (int)g_windows.size(); }

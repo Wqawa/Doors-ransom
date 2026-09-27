@@ -119,8 +119,9 @@ Ransom_dev.exe
 
 ![启动设置窗口：光敏安全、背景音乐、音效、硬核模式、每次跳杀间隔、赎金目标、关窗惩罚时长、假金币比例、假币形态配比](docs/screenshots/setup.png)
 
-从上到下：光敏安全提示 → 背景音乐 → 音效 → **硬核模式** → 每次跳杀间隔（随机区间）→ 赎金目标 →
-关窗惩罚时长 → 假金币比例 → 假币形态配比。
+从上到下：**界面语言** → 光敏安全提示 → 背景音乐 → 音效 → **游戏模式**（普通 / 硬核 / 挂机）→
+每次跳杀间隔（随机区间）→ 赎金目标（普通 / 硬核各一条）→ 关窗惩罚时长 → 假金币比例 →
+假币形态配比 → …… → 金币生成磁盘范围（硬核专属，点进去是 2D 盘符页）。
 
 点「开始」之后还有一屏**开演前提示**（普通模式叫「应急提示」，硬核模式换成「硬核模式警告」）：
 它把你刚选的数值回声一遍，并把退出口诀 `Ctrl + Alt + Shift + Q` 摆在最显眼的位置。
@@ -131,6 +132,41 @@ Ransom_dev.exe
 > 窗口底部那两个按钮不参与滚动，永远看得见。
 
 参数存在 `%LOCALAPPDATA%\Ransom_dev\settings.ini`。想跳过设置直接用上次的值开演，用 `--no-setup`。
+
+## 多语言（语言包）
+
+界面上所有能看到的字都住在 **`assets\lang\*.lang`** 里，代码里一个字都不写死。
+设置界面最上面那一行「界面语言」是个下拉框，**选中立刻生效**，并且**当场就记进**
+`settings.ini` 的 `[ui] language=`（只写这一项，不用等点「开始」——不然选完直接把
+窗口关了，下次启动又会变回去）。
+
+语言包跟图片、音频走同一条路：`tools\gen_assets.ps1` 把它编成 exe 的 RCDATA 资源，
+所以产物照样是单文件。仓库里自带两种：
+
+| 文件 | 代号 | 下拉框里显示 |
+|---|---|---|
+| `assets/lang/zh-CN.lang` | `zh-CN` | 简体中文（默认，也是其它语言缺词时的兜底） |
+| `assets/lang/en-US.lang` | `en-US` | English |
+
+**加一种新语言 = 加一个文件，一行 C++ 都不用改**：
+
+1. 拷一份 `assets/lang/zh-CN.lang`，改名成 `<代号>.lang`（比如 `ja-JP.lang`）；
+2. 把 `meta.name` 改成这门语言自己的写法（下拉框里显示的就是它），
+   再把右边的值翻译掉。键名**不要动**，那是代码按名字取的；
+3. 丢回 `assets\lang\` 重新编译一次。下拉框里就自动多出这一项。
+
+格式（文件开头也有同样的说明）：
+
+* 一行一条 `键 = 值`；`#` 或 `;` 开头是注释，空行忽略；
+* **值里不用写 C++ 转义**：反斜杠写一个（`C:\ D:\`）、百分号也写一个（`50%`）；
+* 例外是**格式串**（值里带 `%d` / `%.1f` / `%s` / `%c` 的那些）：占位符的个数、
+  顺序、类型不能动 —— 词句随便改，占位符原样搬过去；真要一个百分号还是写 `%%`；
+* 某条键漏翻了不要紧：会自动退回 `zh-CN` 那一份，界面不会空白也不会崩。
+* **整个包都没了**（你把那个 `.lang` 删了、改名了，或者 ini 里存了个拼错的代号）：
+  下次启动会自动改用 `en-US` 那一份兜底，而不是**打不开界面**或者满屏显示键名。
+
+`elog::Write` 里的中文**不在语言包里**：那是写进日志文件的诊断信息，玩家看不到，
+只有中文一份。
 
 ## 安全阀与回滚
 
@@ -214,7 +250,7 @@ Ransom_dev.exe
                                          付清 │                               │ 超时
                                               ▼                               ▼
                                         付清 PAID                       惩罚 PUNISH
-                                      致谢画面 + 全部还原            jumpscare + 快捷方式进回收站
+                                      付钱演出 + 全部还原           jumpscare + 快捷方式进回收站
 ```
 
 「动了」的判定很宽：鼠标位移超过容差（默认 20px）、按了键、都会被抓。
@@ -235,7 +271,7 @@ Ransom_dev.exe
 | `--no-guardian` | 不启动双进程看守（调试时用；挂着调试器时也会自动跳过） |
 | `--no-setup` | 不弹启动设置和开演前提示，直接用 `settings.ini` 里的值开演 |
 | `--diag PATH` | 把诊断日志写到文件。GUI 子系统没有控制台，排查全靠这个 |
-| `--face-demo MODE` | 只显示某一张脸：`idle` / `stop` / `attack` / `thanks` / `loading` |
+| `--face-demo MODE` | 只显示某一张脸：`idle` / `stop` / `attack` / `loading` |
 | `--face-dump DIR` | 把程序生成的脸导出成 PNG 后退出 |
 | `--audio-dump PATH` | 把全部音效离线渲染成 WAV 后退出（验波形用） |
 | `--theme-dump PATH` | 把处理后的主题曲导成 WAV 后退出（试听用） |
@@ -249,6 +285,46 @@ Ransom_dev.exe
 | `--clean-gold` | 只扫描并删除遗留的金币快捷方式，然后退出 |
 | `--restore` | 按清单把被没收的快捷方式从回收站还原，然后退出 |
 | `--image-dir DIR` / `--audio-dir DIR` | 覆盖素材目录（默认从 exe 内嵌资源里取） |
+
+## 同类项目对比
+
+> 2026-09-27 实查。数据来自各仓库的公开信息（GitHub API / 文件清单 / README / 源码关键词）。
+> **行数按 32B/行粗估**（本仓库是实测），标「未核实」的就是没找到证据，没有替人脑补。
+> 想看结论直接跳到最后一段「我们不一样在哪」。
+
+### 身份与技术
+
+| 项目 | 语言 / 技术栈 | 产物形态 | 仓库体积 | 源码量 | 更新活跃度 |
+|---|---|---|---|---|---|
+| **本仓库** | C++20 + Win32 + GDI+ | **单文件 exe 7.7MB**，素材全内嵌、不依赖任何运行时 | 16.2MB（素材 6.8MB） | 41 个文件 / **16,133 行**（实测） | 本地在改；[公开仓库](https://github.com/Wqawa/Doors-ransom) 09-26 |
+| [Ixars/ransomdoors](https://github.com/Ixars/ransomdoors) | C# / WPF（.NET） | 要 .NET 运行时；发布产物直接躺在仓库里 | **598MB**（.dll 364MB、7 个 exe 56MB、.resources 151MB——**构建产物全提交了**） | 24 个文件 ≈3.2k 行 | 09-02 建、**09-09 起停更**；102★ / 36 fork、51 个 open issue |
+| [khoichon/rans0m-crossplatform](https://github.com/khoichon/rans0m-crossplatform) | JS / Electron（libuiohook 做全局输入钩子） | Win / macOS / Linux 三平台 | 50MB（**素材直接复用 Ixars 的**） | 23 个文件 ≈2.9k 行 | 09-19 → 09-20；3★ |
+| [masashira0212-stack](https://github.com/masashira0212-stack/Doors-Ransom-A-90-Simulation) | Python + tkinter | `ransom.exe` + `ransom_setting.exe`（PyInstaller） | 6.25MB | 19 个文件 ≈10k 行（含大量测试） | 09-04 → 09-07；14★ / 7 fork |
+| [deepcoolforce23/Ransom-Doors](https://github.com/deepcoolforce23/Ransom-Doors) | Python + Qt | 源码 | 11.8MB（音频 7MB） | 3 个文件 ≈6k 行 | 09-12 → **09-24（还在动）**；0★ |
+| [CagriLo3169/A-90-Ransom-GDI](https://github.com/CagriLo3169/A-90-Ransom-GDI) | 未核实（**源码没进仓库**） | 只有 `Source-Code.tar.gz` 6MB + `dist.zip` 20MB | 24.9MB | — | 09-07 → 09-08；3★ |
+| [Kovax00/Ransomware-POC-Doors](https://github.com/Kovax00/Ransomware-POC-Doors) ⚠️ | Python | 源码 | 18.8MB（wav 16.8MB） | 12 个文件 ≈1.6k 行 | 09-06 建、当天发；1★ |
+| [gidrobater/RansomDoorsPrank](https://github.com/gidrobater/RansomDoorsPrank) ／ [calamoy/ransom-doors](https://github.com/calamoy/ransom-doors) | — | — | **空仓库** | — | — |
+
+### 行为与自由度
+
+| 项目 | 还原程度 | 自由度 | 对桌面的修改 | 退出 / 还原 |
+|---|---|---|---|---|
+| **本仓库** | 脸浮现 → 停牌判定 → 跳杀 → 加载条 → 金币赎金，全套；原版素材，缺素材时程序生成回退 | 设置界面（三态模式、十几项滑条、2D 盘符页）+ `settings.ini` + 一堆命令行开关 + **语言包** | **只写 `.lnk`**、桌面覆盖层锁图标、快捷方式进回收站；**永不真加密**；撒金币可限定盘符 | 安全阀 `Ctrl+Alt+Shift+Q` 一次即停；退出四条路径全还原；`--restore` / `--clean-gold` |
+| Ixars | 全套 + 彩蛋 `.crucifix`（找到直接清账）；金币是 `.gold1`~`.gold6` **文件**撒在用户目录；改光标、**壁纸变暗红** | 配置窗口；**opt-in** 可开「崩溃」（真跑 `shutdown /s /t 0`）或「执行任意命令」 | 往用户文件夹撒文件、改壁纸、改光标 | 默认只是重置；关机/执行命令是可选开关，关掉就没事 |
+| khoichon | 照抄 Ixars（自述 line-by-line），`config.json` 与原版**互通** | Electron 配置；金币可撒 Desktop/Downloads，也可以改撒进一个临时「抽屉」目录 | 撒金币文件 + 改壁纸 | 壁纸有专门的安全规则（自述"以前会把壁纸卡在暗红"），**每条退出路径都 restore** |
+| masashira0212 | 警告 / STOP / LOADING / 成功·失败演出 + 桌面覆盖层（日文项目，带日文 PC 指南） | **独立设置窗口**（计时秒数、弹窗缩放、热键可改）+ 一堆测试脚本 + 杀软误报复盘 | **覆盖桌面图标格（含非 `.lnk` 的 Shell 项）**、改壁纸、注册全局热键 | 有「Restore desktop」按钮和热键；另有 `recovery_watchdog.py` 看门狗 |
+| deepcoolforce23 | 走恐怖路线：玩法改成在乱弹的窗口里开下拉菜单找金币，有 corrupted entry 直接判负、glitch 窗口乱飞 | 未核实 | 把文件**移进 `%APPDATA%\RansomIconData`** 并留一个带停牌图标的快捷方式冒充「已加密」、改壁纸、**往启动项塞 `WindowsSecurityHealth.lnk`** | 赢了文件回来；有 `icon_backup.json` 和 `restore_desktop_icons()` |
+| CagriLo3169 | 自称无害视觉模拟，README 列了 25 个 Win32 GDI 屏幕特效 | 未核实 | 未核实（源码在压缩包里） | 未核实 |
+| Kovax00 ⚠️ | **真加密**：ChaCha20-Poly1305 + RSA-OAEP；24 小时不付**直接关机**；带 `decrypt_tool.py` | 未核实 | 真改文件（加密） | 只能靠私钥 + 5 枚金币解密；作者自己标了「不是模拟、不可逆」 |
+
+### 我们不一样在哪
+
+- **产物**：同行里唯一**原生 Win32、单文件 exe、不依赖任何运行时**的。Ixars 要 .NET（而且仓库里塞了 598MB 构建产物），khoichon 要 Electron，masashira 和 deepcool 要 Python + 打包器。
+- **对桌面下手的程度**：真覆盖桌面图标的只有本仓库和 masashira0212；deepcoolforce23 更进一步，会把文件挪走并**往启动项里塞一个 lnk**；**真加密的只有 Kovax00**（作者自己都写了破坏性警告）——正好是本仓库那条红线（只写 `.lnk`、绝不真加密）的反面教材。
+- **退路**：把「安全阀一次即停 + 退出四条路径必还原 + `--restore` / `--clean-gold` 命令行兜底」成套写清楚的，公开说明里只有这一份。khoichon 也认真做了 restore（退出路径全覆盖），masashira 有恢复按钮和看门狗。
+- **可调项与语言**：设置界面里能调十几项、还带 2D 盘符页和 `settings.ini` 的只有这一份；**多语言包也只有这一份**。
+
+> 还没核实的两项：itch.io / GameJolt 上的 [R4NS0M SIMULATOR](https://gamejolt.com/games/r4ns0m/1098499)（NatureStudio）是个**游戏型 fangame**（"收集金币、付赎金、拿回文件"），不碰系统，技术栈没查到；另一个 Android 版（作者 robotkjgh）完全没查到页面。
 
 ## 项目结构
 

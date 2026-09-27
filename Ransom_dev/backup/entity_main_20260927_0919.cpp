@@ -47,7 +47,6 @@
 #include "face.h"
 #include "fx.h"
 #include "gold.h"
-#include "lang.h"
 #include "motion.h"
 #include "recycle.h"
 #include "settings.h"
@@ -232,7 +231,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int)
     //   --no-guardian          不启动双进程看守（调试时用；有调试器时也会自动跳过）
     //   --no-setup             不弹启动设置和应急提示，直接用 ini 里的值开演
     //   --tolerance N          鼠标容差像素（默认 10）
-    //   --face-demo MODE       只显示某张脸：idle/stop/attack/loading
+    //   --face-demo MODE       只显示某张脸：idle/stop/attack/thanks/loading
     //   --face-dump DIR        把程序生成的素材导出成 PNG 后退出（验证外观用）
     //   --clean-gold           只扫描并删除遗留的金币快捷方式，然后退出
     //   --restore              从回收站按清单还原被没收的快捷方式，然后退出
@@ -340,27 +339,6 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int)
     // 真正把设置**推给子系统**（音量 + 光敏安全）仍要等 GDI+ 起来之后
     // （fx::SetPhotosensitiveSafe 会碰覆盖层），所以文件后面还有一次 Apply。
     settings::Load();
-
-    // ---- 界面语言：扫内嵌语言包，把用户上次选的那种摆上 ----
-    //
-    // 排在 settings::Load() 之后（要读 language=），排在所有建窗/画字之前
-    // —— 设置界面、警告屏、窗口标题都从语言包里取词，晚一步就会先画出一屏
-    // 默认语言的字再跳变。
-    //
-    // 选的那种包不在（被删了 / 改名了 / ini 里存了个拼错的代号）：**自动改用
-    // 兜底语言**（英文优先，见 lang::FallbackIndex），只写一行日志 ——
-    // 界面绝不能因为一个语言包没了就打不开或者满屏键名。
-    lang::Init();
-    if (!lang::SetCurrentCode(settings::Language()))
-    {
-        const int fb = lang::FallbackIndex();
-        if (fb >= 0) lang::SetCurrent(fb);
-
-        elog::Write(L"[lang] 设置里选的 %s 没有对应的语言包，自动改用 %s",
-            settings::Language(), lang::CurrentCode());
-    }
-    elog::Write(L"[lang] 语言包 %d 个；ini 选的是 %s，实际生效 %s",
-        lang::Count(), settings::Language(), lang::CurrentCode());
 
     // ---- 手动清理模式：扫掉所有遗留的金币快捷方式然后退出 ----
     if (cleanGold)
@@ -779,6 +757,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int)
         if      (_wcsicmp(faceDemo, L"idle")   == 0) face::SpawnIdle(0);
         else if (_wcsicmp(faceDemo, L"stop")   == 0) face::ShowStopSign(0);
         else if (_wcsicmp(faceDemo, L"attack") == 0) face::ShowAttack(0);
+        else if (_wcsicmp(faceDemo, L"thanks") == 0) face::ShowThanks(0);
         // 加载画面演示：故意把走条拉到 4 秒，方便截图看进度曲线、
         // 抖动幅度和条宽（正常演出里这一段只有 1.3 秒，很难抓帧）。
         else if (_wcsicmp(faceDemo, L"loading") == 0) face::ShowLoading(4000, 800);
