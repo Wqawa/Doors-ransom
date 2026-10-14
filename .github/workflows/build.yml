@@ -1,13 +1,19 @@
 # ============================================================================
 #  build.yml —— 在 GitHub 云端（Windows Server 2025 + Visual Studio 2026）编译
 #
-#  一次运行做三件事：
+#  一次运行做四件事：
 #    1. 用 MSBuild 编译 Release|Win32 与 Release|x64 两个配置
-#    2. 把两个产物重命名后放进 output\<编译完成时间>\
+#    2. 自测：把两个产物用【全部命令行参数】各跑一遍（tools\selftest.ps1），
+#       渲染出 PNG + 真实桌面截屏，并收一份 selftest-report.md
+#    3. 把两个产物重命名后放进 output\<编译完成时间>\
 #         Ransom_dev_x32.exe   <- build\Win32\Release\Ransom_dev.exe
 #         Ransom_dev_x64.exe   <- build\x64\Release\Ransom_dev.exe
 #       同时写一份 build-info.txt（时间、提交、哈希）
-#    3. 把 output\ 提交并推回本仓库
+#    4. 把 output\ 提交并推回本仓库
+#
+#  步骤顺序是刻意的：自测放在"收集产物"之前，产物收集放在"提交"之前，
+#  而"让 job 变红"放在最后 —— 这样即使自测挂了，产物和截图也一定能上传出去，
+#  不会出现"程序有问题 -> runner 直接销毁 -> 什么都看不到"。
 #
 #  触发方式：
 #    - 手动：仓库 Actions 页面 -> Build -> Run workflow
@@ -32,6 +38,10 @@ on:
         description: '只保留最近 N 份产物（0 = 全部保留，不删任何东西）'
         required: false
         default: '0'
+      commit_screenshots:
+        description: '把自测截图也提交进仓库（1 = 是；0 = 只放 Artifacts，报告仍进仓库）'
+        required: false
+        default: '0'
   push:
     branches: [ main ]
     paths-ignore:
@@ -48,6 +58,7 @@ concurrency:
 
 env:
   KEEP_LAST: ${{ github.event.inputs.keep_last || '0' }}
+  COMMIT_SCREENSHOTS: ${{ github.event.inputs.commit_screenshots || '0' }}
 
 jobs:
   build:
@@ -85,7 +96,33 @@ jobs:
           }
 
       # ----------------------------------------------------------------------
-      # 2. 收集产物到 output\<编译完成时间>\
+      # 2. 自测：两个产物 × 全部命令行参数
+      #    具体用例矩阵在 tools\selftest.ps1 里，分成两类：
+      #      [A] 自己"导完就退出"的模式（--ui-preview / --setup-ui / --fx-dump /
+      #          --face-dump / --audio-dump / --theme-dump / --clean-gold /
+      #          --restore / --pay ...）—— 有明确退出码，直接断言。
+      #      [B] 开窗后挂在消息循环里的模式（--face-demo / --phase）—— 永远
+      #          不自己退，只能定时截屏再强杀。跑这类必须带 --no-guardian
+      #          （否则强杀会被看门狗判成"被强杀"再演一场惩罚）和 --no-lockdown。
+      #
+      #    这步故意用 continue-on-error：脚本自己内部已经判定了每个用例的
+      #    通过与否，并把失败写进 selftest-report.md / ::error 注解。这里不让
+      #    它立刻中断 job，是为了让后面的"收集产物"和"上传截图"照常跑到 ——
+      #    runner 一销毁，证据就没了。真正的"变红"放在最后一步，等一切都传完。
+      # ----------------------------------------------------------------------
+      - name: 自测（全部命令行参数 + 截图）
+        id: selftest
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          # 不加 -AllowFailures：脚本有失败就如实 exit 1。
+          # 这是刻意让 outcome='failure'，好让最后那步判定整个 job 失败。
+          # 而 continue-on-error 保证 job 不会当场中断，后面的产物收集和
+          # 截图上传照常跑完。
+          pwsh -NoProfile -File tools\selftest.ps1 -OutDir selftest
+
+      # ----------------------------------------------------------------------
+      # 3. 收集产物到 output\<编译完成时间>\
       #    时间在这一步才取 —— 构建已经成功之后，所以它就是"编译完成时间"。
       # ----------------------------------------------------------------------
       - name: 收集产物到 output\
@@ -139,6 +176,22 @@ jobs:
 
           Set-Content -LiteralPath (Join-Path $dir 'build-info.txt') -Value $info -Encoding utf8
 
+          # 自测报告跟着产物一起归档（纯文本，几十 KB）。
+          # 截图默认不进仓库 —— 那是每次运行几 MB 的 PNG，会加快仓库膨胀；
+          # 它们照常挂在这条 run 的 Artifacts 里。要连截图一起提交，手动运行
+          # 时把 commit_screenshots 填 1。
+          if (Test-Path -LiteralPath 'selftest\selftest-report.md') {
+            Copy-Item -LiteralPath 'selftest\selftest-report.md' `
+                      -Destination (Join-Path $dir 'selftest-report.md') -Force
+            Write-Host '  已附上 selftest-report.md'
+          } else {
+            Write-Host '::warning title=缺少自测报告::没找到 selftest\selftest-report.md'
+          }
+          if ($env:COMMIT_SCREENSHOTS -eq '1' -and (Test-Path -LiteralPath 'selftest')) {
+            Copy-Item -LiteralPath 'selftest' -Destination (Join-Path $dir 'selftest') -Recurse -Force
+            Write-Host '  已附上完整自测目录（含截图）'
+          }
+
           # 可选的清理：只留最近 N 份（默认 0 = 一份都不删）
           $keep = 0
           if ($env:KEEP_LAST -and $env:KEEP_LAST -match '^\d+$') { $keep = [int]$env:KEEP_LAST }
@@ -155,7 +208,7 @@ jobs:
           Add-Content -Path $env:GITHUB_OUTPUT -Value "dir=$dir"
 
       # ----------------------------------------------------------------------
-      # 3. 提交并推回仓库
+      # 4. 提交并推回仓库
       #    只 git add output —— 构建过程会重写 Ransom_dev\assets_gen.rc / .txt
       #    （gen_assets.ps1 按内容比对，checkout 出的 LF 和它写的 CRLF 不同），
       #    那些是构建副产物，不该混进产物提交里。
@@ -189,9 +242,37 @@ jobs:
 
       # 附带的便利：产物同时挂到这次 run 的 Artifacts 里，不用 clone 就能下载。
       # 放在提交之后 —— 万一这步挂了，产物也已经进仓库了。
-      - name: 上传为运行产物（可下载）
+      # if: always() —— 自测失败也要传，否则证据全丢。dir 为空说明没走到收集那步。
+      - name: 上传产物为运行产物（可下载）
+        if: always() && steps.package.outputs.dir != ''
         uses: actions/upload-artifact@v7
         with:
           name: Ransom_dev_${{ steps.package.outputs.stamp }}
           path: ${{ steps.package.outputs.dir }}
           retention-days: 30
+
+      # 自测证据单独传一份。独立成一条 Artifact 的好处：在 Actions 页面直接下载
+      # 就能看到全部 PNG，不用为了几张图去 clone 整个 output\。
+      - name: 上传自测截图与报告
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: selftest_${{ steps.package.outputs.stamp || github.run_number }}
+          path: selftest/
+          if-no-files-found: warn
+          retention-days: 30
+
+      # ----------------------------------------------------------------------
+      # 最后一步才让 job 变红
+      #    刻意放在这里，而不是让"自测"那一步直接红：一红就停，runner 马上
+      #    销毁，第 3 步收集的产物和第 7、8 步上传的截图就全都拿不到了。
+      #    先让证据全部传完，最后再判定成败。
+      #    continue-on-error 的步骤 outcome='failure'、conclusion='success'，
+      #    所以这里按 outcome 判。
+      # ----------------------------------------------------------------------
+      - name: 自测失败则判定整个 job 失败
+        if: always() && steps.selftest.outcome == 'failure'
+        shell: pwsh
+        run: |
+          Write-Host '::error title=自测未通过::详见本页 job 摘要，或 selftest_* 这条 Artifact 里的 selftest-report.md'
+          exit 1
