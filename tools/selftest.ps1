@@ -538,6 +538,58 @@ $totalStopwatch.Stop()
 Stop-AllRansom | Out-Null
 
 # ---------------------------------------------------------------------------
+# 5.5 整理截图目录
+#     布局：screenshots\<类别>\<架构>\<用例>\...
+#       类别 = 报告里的 kind，也就是用例矩阵的两类：headless / interactive
+#     只搬 PNG：
+#       - interactive 用例的 desktop-1200ms.png 等连拍帧（这才是"桌面截图"）
+#       - headless 用例自己导出的图（--ui-preview / --setup-ui / --fx-dump /
+#         --face-dump 的 faces\*.png ...）—— 同样是这套参数画出来的画面
+#     wav / log / rc 留在 selftest\ 里，由 workflow 决定带不带走。
+#     相对子目录要保留（face-dump 的 PNG 在 faces\ 下面）。
+# ---------------------------------------------------------------------------
+$shotsRoot = Join-Path $OutDir 'screenshots'
+Remove-Item -LiteralPath $shotsRoot -Recurse -Force -ErrorAction SilentlyContinue
+
+$shotDirs  = 0
+$shotFiles = 0
+$shotBytes = 0
+
+foreach ($r in $results) {
+    $src = if ($r.kind -eq 'interactive') {
+        Join-Path (Join-Path $OutDir $r.arch) "screen-$($r.name)"
+    } else {
+        Join-Path (Join-Path $OutDir $r.arch) $r.name
+    }
+    if (-not (Test-Path -LiteralPath $src)) { continue }
+
+    $pngs = @(Get-ChildItem -LiteralPath $src -Filter '*.png' -File -Recurse -ErrorAction SilentlyContinue)
+    if ($pngs.Count -eq 0) { continue }
+
+    $dst = Join-Path (Join-Path $shotsRoot $r.kind) (Join-Path $r.arch $r.name)
+    New-Item -ItemType Directory -Force -Path $dst | Out-Null
+
+    foreach ($p in $pngs) {
+        $rel    = $p.FullName.Substring($src.Length).TrimStart([char]'\', [char]'/')
+        $target = Join-Path $dst $rel
+        $parent = Split-Path -Parent $target
+        if ($parent -and -not (Test-Path -LiteralPath $parent)) {
+            New-Item -ItemType Directory -Force -Path $parent | Out-Null
+        }
+        Copy-Item -LiteralPath $p.FullName -Destination $target -Force
+    }
+
+    $shotDirs++
+    $shotFiles += $pngs.Count
+    $shotBytes += ($pngs | Measure-Object -Property Length -Sum).Sum
+}
+
+$shotMB = [math]::Round($shotBytes / 1MB, 2)
+Write-Host ''
+Write-Host ("截图整理: {0} 个用例目录 / {1} 张 PNG / {2:N0} bytes ({3} MB)" -f $shotDirs, $shotFiles, $shotBytes, $shotMB)
+Write-Host '          ->  screenshots\<类别>\<架构>\<用例>\'
+
+# ---------------------------------------------------------------------------
 # 6. 报告
 # ---------------------------------------------------------------------------
 $passCount = @($results | Where-Object { $_.verdict -eq 'PASS' }).Count
@@ -554,6 +606,7 @@ $md.Add("- 工作流运行: #$env:GITHUB_RUN_NUMBER (id $env:GITHUB_RUN_ID)")
 $md.Add("- 用例总数: **$($results.Count)** ｜ PASS: **$passCount** ｜ FAIL: **$failCount** ｜ SKIP: **$skipCount**")
 $md.Add("- 音频设备: **$(if ($hasAudio) { '有' } else { '无' })**（--audio-dump 期望退出码 $audioExpected）")
 $md.Add("- 桌面截屏: **$shotCount** 帧（每个 interactive 用例连拍 $($ShotMs.Count) 帧：$($ShotMs -join ' / ') ms）")
+$md.Add("- 截图目录: ``screenshots\<类别>\<架构>\<用例>\`` —— $shotDirs 个用例目录 / $shotFiles 张 PNG / $('{0:N0}' -f $shotBytes) B")
 $md.Add("- 总耗时: $([math]::Round($totalStopwatch.Elapsed.TotalSeconds,1)) 秒")
 $md.Add('')
 $md.Add('> 判定说明：[A] headless 类用例断言退出码等于期望值；')

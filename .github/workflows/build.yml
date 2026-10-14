@@ -8,7 +8,10 @@
 #    3. 把两个产物重命名后放进 output\<编译完成时间>\
 #         Ransom_dev_x32.exe   <- build\Win32\Release\Ransom_dev.exe
 #         Ransom_dev_x64.exe   <- build\x64\Release\Ransom_dev.exe
-#       同时写一份 build-info.txt（时间、提交、哈希）
+#       同时写一份 build-info.txt（时间、提交、哈希）、一份 selftest-report.md，
+#       外加一整个截图大文件夹：
+#         output\<时间戳>\screenshots\<类别>\<架构>\<用例>\*.png
+#           类别 = headless（自己导完就退）/ interactive（开窗挂着，连拍桌面）
 #    4. 把 output\ 提交并推回本仓库
 #
 #  步骤顺序是刻意的：自测放在"收集产物"之前，产物收集放在"提交"之前，
@@ -39,7 +42,7 @@ on:
         required: false
         default: '0'
       commit_screenshots:
-        description: '把自测截图也提交进仓库（1 = 是；0 = 只放 Artifacts，报告仍进仓库）'
+        description: '连诊断日志(diag.log)一起提交（1 = 是；截图和报告本来就默认进仓库）'
         required: false
         default: '0'
   push:
@@ -177,9 +180,6 @@ jobs:
           Set-Content -LiteralPath (Join-Path $dir 'build-info.txt') -Value $info -Encoding utf8
 
           # 自测报告跟着产物一起归档（纯文本，几十 KB）。
-          # 截图默认不进仓库 —— 那是每次运行几 MB 的 PNG，会加快仓库膨胀；
-          # 它们照常挂在这条 run 的 Artifacts 里。要连截图一起提交，手动运行
-          # 时把 commit_screenshots 填 1。
           if (Test-Path -LiteralPath 'selftest\selftest-report.md') {
             Copy-Item -LiteralPath 'selftest\selftest-report.md' `
                       -Destination (Join-Path $dir 'selftest-report.md') -Force
@@ -187,9 +187,27 @@ jobs:
           } else {
             Write-Host '::warning title=缺少自测报告::没找到 selftest\selftest-report.md'
           }
+
+          # 截图也进仓库：一整个大文件夹，按 <类别>\<架构>\<用例> 分好类。
+          #   output\<时间戳>\screenshots\
+          #     headless\<x32|x64>\<用例>\*.png     自测用例自己导出的画面
+          #     interactive\<x32|x64>\<用例>\*.png  桌面连拍帧
+          # 这是有意默认进仓库的 —— 产物旁边就该能看到它长什么样。
+          # 每次运行约 25 MB，嫌胖就用 keep_last 只留最近几份。
+          if (Test-Path -LiteralPath 'selftest\screenshots') {
+            $shotsDir = Join-Path $dir 'screenshots'
+            Copy-Item -LiteralPath 'selftest\screenshots' -Destination $shotsDir -Recurse -Force
+            $png  = @(Get-ChildItem -LiteralPath $shotsDir -Filter '*.png' -File -Recurse)
+            $size = ($png | Measure-Object -Property Length -Sum).Sum
+            Write-Host ("  已附上截图：{0} 张 / {1:N0} bytes" -f $png.Count, $size)
+          } else {
+            Write-Host '::warning title=缺少截图目录::没找到 selftest\screenshots'
+          }
+
+          # commit_screenshots=1 时连 diag.log 一起带（默认不带，那些只对排障有用）
           if ($env:COMMIT_SCREENSHOTS -eq '1' -and (Test-Path -LiteralPath 'selftest')) {
             Copy-Item -LiteralPath 'selftest' -Destination (Join-Path $dir 'selftest') -Recurse -Force
-            Write-Host '  已附上完整自测目录（含截图）'
+            Write-Host '  已附上完整自测目录（含 diag.log）'
           }
 
           # 可选的清理：只留最近 N 份（默认 0 = 一份都不删）
