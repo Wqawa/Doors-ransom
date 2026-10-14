@@ -36,8 +36,8 @@
 param(
     # 证据输出根目录（相对仓库根）
     [string]$OutDir = 'selftest',
-    # [B] 类用例：启动后等几秒再截屏
-    [int]$SettleSec = 6,
+    # [B] 类用例：从启动算起，在这些毫秒点各截一帧（末帧之后才强杀）
+    [int[]]$ShotMs = @(1200, 2000, 3000, 5000),
     # [A] 类用例：单个用例最多跑多久（秒），超时算挂住 = FAIL
     [int]$HeadlessTimeoutSec = 90,
     # 加了它：无论有没有失败，都 exit 0（只给手工排查用；CI 不要加，
@@ -135,17 +135,35 @@ try {
     $g.CopyFromScreen($vs.X, $vs.Y, 0, 0, $bmp.Size)
     $g.Dispose()
     $bmp.Save($Path, [System.Drawing.Imaging.ImageFormat]::Png)
+
+    # 采样步长 24px，同时算两样东西：
+    #   brightness —— 全部采样点的平均亮度（无头桌面整张纯黑时会趋近 0）
+    #   sig        —— 8x8 分块的平均亮度。只看 brightness 分辨不出"两张完全
+    #                 不同的桌面恰好平均亮度相同"，分块签名可以。
+    #                 后面用它判断各帧之间到底有没有真的变化。
+    $step = 24
+    $buckets = [double[]]::new(64)
+    $counts  = [int[]]::new(64)
     $sum = 0.0; $n = 0
-    for ($y = 0; $y -lt $bmp.Height; $y += 24) {
-        for ($x = 0; $x -lt $bmp.Width; $x += 24) {
+    for ($y = 0; $y -lt $bmp.Height; $y += $step) {
+        $by = [int]($y * 8 / $bmp.Height); if ($by -gt 7) { $by = 7 }
+        for ($x = 0; $x -lt $bmp.Width; $x += $step) {
             $c = $bmp.GetPixel($x, $y)
-            $sum += ($c.R + $c.G + $c.B) / 3.0
-            $n++
+            $v = ($c.R + $c.G + $c.B) / 3.0
+            $sum += $v; $n++
+            $bx = [int]($x * 8 / $bmp.Width); if ($bx -gt 7) { $bx = 7 }
+            $i = $by * 8 + $bx
+            $buckets[$i] += $v
+            $counts[$i]++
         }
     }
     $br = [math]::Round($sum / $n, 2)
+    $sig = @()
+    for ($i = 0; $i -lt 64; $i++) {
+        if ($counts[$i] -gt 0) { $sig += [int][math]::Round($buckets[$i] / $counts[$i]) } else { $sig += 0 }
+    }
     $bmp.Dispose()
-    "OK $($vs.Width)x$($vs.Height) brightness=$br" | Set-Content -LiteralPath $Report -Encoding ascii
+    "OK $($vs.Width)x$($vs.Height) brightness=$br sig=$($sig -join ',')" | Set-Content -LiteralPath $Report -Encoding ascii
 } catch {
     "FAIL $($_.Exception.Message)" | Set-Content -LiteralPath $Report -Encoding ascii
 }
@@ -158,7 +176,7 @@ if (-not (Test-Path -LiteralPath $winPs)) { $winPs = 'powershell.exe' }
 function Save-Desktop {
     param([string]$Path)
     $report = "$Path.txt"
-    $r = [pscustomobject]@{ ok = $false; info = 'not-run'; brightness = $null; width = $null; height = $null }
+    $r = [pscustomobject]@{ ok = $false; info = 'not-run'; brightness = $null; width = $null; height = $null; sig = $null }
     try {
         & $winPs -NoProfile -ExecutionPolicy Bypass -File $captureScript -Path $Path -Report $report | Out-Null
         $line = (Get-Content -LiteralPath $report -Raw -ErrorAction Stop).Trim()
@@ -167,6 +185,9 @@ function Save-Desktop {
             $r.info = $line
             if ($line -match '(\d+)x(\d+)') { $r.width = [int]$Matches[1]; $r.height = [int]$Matches[2] }
             if ($line -match 'brightness=([\d.]+)') { $r.brightness = [double]$Matches[1] }
+            if ($line -match 'sig=([\d,]+)') {
+                $r.sig = @($Matches[1] -split ',' | ForEach-Object { [int]$_ })
+            }
         } else {
             $r.info = $line
         }
@@ -174,6 +195,17 @@ function Save-Desktop {
         $r.info = "FAIL $($_.Exception.Message)"
     }
     return $r
+}
+
+# 两帧的 8x8 分块签名之间的平均绝对差。越大 = 画面变化越大。
+function Get-SigDelta {
+    param($A, $B)
+    if ($null -eq $A -or $null -eq $B) { return $null }
+    $n = [Math]::Min($A.Count, $B.Count)
+    if ($n -eq 0) { return $null }
+    $s = 0.0
+    for ($i = 0; $i -lt $n; $i++) { $s += [Math]::Abs($A[$i] - $B[$i]) }
+    return [math]::Round($s / $n, 1)
 }
 
 # ---------------------------------------------------------------------------
@@ -244,7 +276,15 @@ $headless = @(
     @{ n = 'pay-no-entity';    a = @('--pay', '100', '--token', '1');                        e = 3 }
 )
 
-# [B] 会开窗挂着不退的模式。统一由脚本定时截屏后强杀。
+# [B] 会开窗挂着不退的模式。统一由脚本按 $ShotMs 连拍几帧后强杀。
+#     为什么必须连拍而不是"等几秒拍一张"：director.cpp 里各演出时长差得很远 ——
+#       kJumpscareMs = 1000ms   （CAUGHT / PUNISH 的静态鬼脸）
+#       kPunishMs    = 2200ms
+#       kFaceMs + kCenterMs + kStopMs = 900+200+800 = 1900ms（FACE 阶段那颗头）
+#       kPaidMs      = 4800ms
+#     而 PHASE_IDLE 是"什么都不显示"的状态（EnterPhase 里把 face/fx/overlay 全关掉）。
+#     所以固定"等 6 秒拍一张"必然拍空：快演出（FACE 1.9s / PUNISH 2.2s / CAUGHT 1.0s）
+#     早就演完了，只剩一层还在的底色。连拍 + 报告里的"最大变化帧"能把这个区分开。
 #     序号 0-7 对应 director 的潜伏/浮现/瞬移/停牌/避开/被抓/付清/惩罚。
 $interactive = @(
     @{ n = 'face-demo-idle';    a = @('--face-demo', 'idle') }
@@ -351,6 +391,9 @@ foreach ($arch in $exes.Keys) {
             bytes   = $producedBytes
             shot    = ''
             bright  = ''
+            best    = ''
+            shotFail = ''
+            frames  = 0
             note    = $note
         }
 
@@ -380,14 +423,37 @@ foreach ($arch in $exes.Keys) {
                         -WorkingDirectory $repo -PassThru -ErrorAction Stop
             $started = $true
 
-            # 让它把窗开出来、把第一帧画出来
-            Start-Sleep -Seconds $SettleSec
+            # 按 $ShotMs 连拍几帧（末帧之前不杀进程）。
+            # 快演出（FACE 1.9s / PUNISH 2.2s / CAUGHT 1.0s）只有早帧拍得到，
+            # 慢的状态（比如 IDLE 之后要等 g_idleMs 才浮现）只有晚帧拍得到。
+            $frames    = @()
+            $shotFail  = ''
+            $prevMs    = 0
+            foreach ($ms in $ShotMs) {
+                $wait = $ms - $prevMs
+                if ($wait -gt 0) { Start-Sleep -Milliseconds $wait }
+                $prevMs = $ms
+                if ($proc.HasExited) { break }
+                $p = Join-Path $dir ('desktop-{0}ms.png' -f $ms)
+                $s = Save-Desktop -Path $p
+                if (-not $s.ok) { $shotFail += ("{0}ms: {1}; " -f $ms, $s.info) }
+                $frames += [pscustomobject]@{
+                    ms = $ms; file = (Split-Path $p -Leaf); ok = $s.ok
+                    brightness = $s.brightness; sig = $s.sig; delta = $null
+                }
+            }
 
             $alive = -not $proc.HasExited
 
-            # 真实桌面截屏
-            $shotPath = Join-Path $dir 'desktop.png'
-            $shot = Save-Desktop -Path $shotPath
+            # 每帧与首帧比 8x8 分块签名：delta 大 = 这一帧确实拍到了画面变化。
+            # 报告里靠这个把"拍到了鬼脸"和"只是一张静止桌面"区分开。
+            if ($frames.Count -gt 0) {
+                $baseSig = $frames[0].sig
+                foreach ($f in $frames) { $f.delta = Get-SigDelta -A $baseSig -B $f.sig }
+            }
+            $shotOk    = @($frames | Where-Object { $_.ok }).Count
+            $bestFrame = $frames | Sort-Object -Property @{ Expression = { if ($null -eq $_.delta) { -1.0 } else { [double]$_.delta } } } -Descending |
+                         Select-Object -First 1
 
             # 可选：实体正在跑的时候点一枚金币，验证 --pay 的 IPC 通路
             # （这时应该返回 0，因为 RansomDevIpcWnd 窗口确实存在）
@@ -413,10 +479,8 @@ foreach ($arch in $exes.Keys) {
                 $note = "意外自行退出，退出码 $($proc.ExitCode)"
             }
 
-            # 判定：能开起来、撑过 settle、截到图 = PASS
-            $verdict = if (-not $alive) { 'FAIL' }
-                       elseif (-not $shot.ok) { 'PASS' }   # 截图失败不算用例失败，另记
-                       else { 'PASS' }
+            # 判定：能开起来、撑过观察期 = PASS。截图失败不算用例失败，另记。
+            $verdict = if (-not $alive) { 'FAIL' } else { 'PASS' }
 
             $results += [pscustomobject]@{
                 arch    = $arch
@@ -429,20 +493,27 @@ foreach ($arch in $exes.Keys) {
                 ms      = $sw.ElapsedMilliseconds
                 files   = (Get-FileSummary -Dir $dir).count
                 bytes   = (Get-FileSummary -Dir $dir).bytes
-                shot    = if ($shot.ok) { 'desktop.png' } else { "截图失败: $($shot.info)" }
-                bright  = if ($null -ne $shot.brightness) { $shot.brightness.ToString() } else { '' }
+                shot    = if ($shotOk -gt 0) { "$shotOk 帧" } else { '截图失败' }
+                bright  = if ($frames.Count -gt 0 -and $null -ne $frames[0].brightness) { $frames[0].brightness.ToString() } else { '' }
+                best    = if ($null -ne $bestFrame -and $null -ne $bestFrame.delta) {
+                              "$($bestFrame.ms)ms Δ$($bestFrame.delta)"
+                          } elseif ($null -ne $bestFrame) { "$($bestFrame.ms)ms" } else { '' }
+                shotFail = $shotFail.Trim()
+                frames  = $shotOk
                 note    = ($note + ' ' + $payResult).Trim()
             }
 
-            Write-Host ('[{0}] {1,-20} {2,-16} -> {3}  brightness={4}  {5}' -f `
+            Write-Host ('[{0}] {1,-20} {2,-16} -> {3}  frames={4} best={5}  {6}' -f `
                 $arch, $t.n, $(if ($alive) { 'still-running' } else { 'exited-early' }), `
-                $verdict, $shot.brightness, $note)
+                $verdict, $shotOk, $(if ($null -ne $bestFrame) { "$($bestFrame.ms)ms Δ$($bestFrame.delta)" } else { '-' }), $note)
+            if ($shotFail) { Write-Host "    截图有失败的帧：$($shotFail.Trim())" }
 
         } catch {
             $results += [pscustomobject]@{
                 arch = $arch; kind = 'interactive'; name = $t.n; args = ($argList -join ' ')
                 expect = 'timeout'; actual = 'error'; verdict = 'FAIL'
                 ms = $sw.ElapsedMilliseconds; files = 0; bytes = 0; shot = ''; bright = ''
+                best = ''; shotFail = ''; frames = 0
                 note = "启动失败：$($_.Exception.Message)"
             }
             Write-Host ('[{0}] {1,-20} -> FAIL  启动失败: {2}' -f $arch, $t.n, $_.Exception.Message)
@@ -472,7 +543,7 @@ Stop-AllRansom | Out-Null
 $passCount = @($results | Where-Object { $_.verdict -eq 'PASS' }).Count
 $failCount = @($results | Where-Object { $_.verdict -eq 'FAIL' }).Count
 $skipCount = @($results | Where-Object { $_.verdict -eq 'SKIP' }).Count
-$shotCount = @($results | Where-Object { $_.shot -eq 'desktop.png' }).Count
+$shotCount = [int](($results | Measure-Object -Property frames -Sum).Sum)
 
 $md = New-Object System.Collections.Generic.List[string]
 $md.Add('# 自测报告 —— 全部命令行参数 × 产物')
@@ -482,12 +553,15 @@ $md.Add("- 提交: ``$env:GITHUB_SHA``")
 $md.Add("- 工作流运行: #$env:GITHUB_RUN_NUMBER (id $env:GITHUB_RUN_ID)")
 $md.Add("- 用例总数: **$($results.Count)** ｜ PASS: **$passCount** ｜ FAIL: **$failCount** ｜ SKIP: **$skipCount**")
 $md.Add("- 音频设备: **$(if ($hasAudio) { '有' } else { '无' })**（--audio-dump 期望退出码 $audioExpected）")
-$md.Add("- 桌面截屏: **$shotCount** 张")
+$md.Add("- 桌面截屏: **$shotCount** 帧（每个 interactive 用例连拍 $($ShotMs.Count) 帧：$($ShotMs -join ' / ') ms）")
 $md.Add("- 总耗时: $([math]::Round($totalStopwatch.Elapsed.TotalSeconds,1)) 秒")
 $md.Add('')
 $md.Add('> 判定说明：[A] headless 类用例断言退出码等于期望值；')
-$md.Add('> [B] interactive 类用例期望"启动后一直跑不掉"，由脚本定时截屏后强杀，')
+$md.Add('> [B] interactive 类用例期望"启动后一直跑不掉"，由脚本连拍数帧后强杀，')
 $md.Add('> 能撑过观察期即 PASS。``--pay`` 在无实体运行时故意返回 3，属正常。')
+$md.Add('> **最大变化帧** = 与首帧的 8x8 分块亮度签名平均差最大的那一帧（Δ）。')
+$md.Add('> Δ 接近 0 说明这一例的桌面从头到尾没变过 —— 要么该阶段本来就不画东西')
+$md.Add('> （PHASE_IDLE 会把 face/fx/overlay 全关掉），要么演出窗口错过了连拍时段。')
 $md.Add('> **SKIP** = 该用例依赖的环境在这台机器上不存在（这里是声卡），')
 $md.Add('> 程序按设计返回了正确的非零退出码，但功能本身没被真正跑到 —— 不计入 FAIL。')
 $md.Add('')
@@ -498,8 +572,8 @@ foreach ($arch in $exes.Keys) {
     $s = @($rows | Where-Object { $_.verdict -eq 'SKIP' }).Count
     $md.Add("## $arch  ($p PASS / $s SKIP / $($rows.Count) 用例)")
     $md.Add('')
-    $md.Add('| 用例 | 类别 | 期望 | 实际 | 判定 | 耗时 | 产出文件 | 截图亮度 | 备注 |')
-    $md.Add('|---|---|---|---|---|---|---|---|---|')
+    $md.Add('| 用例 | 类别 | 期望 | 实际 | 判定 | 耗时 | 产出文件 | 首帧亮度 | 最大变化帧 | 备注 |')
+    $md.Add('|---|---|---|---|---|---|---|---|---|---|')
     foreach ($r in $rows) {
         $mark = switch ($r.verdict) {
             'PASS' { 'PASS' }
@@ -507,7 +581,8 @@ foreach ($arch in $exes.Keys) {
             default { '**FAIL**' }
         }
         $noteEsc = ($r.note -replace '\|', '\|')
-        $md.Add("| ``$($r.name)`` | $($r.kind) | $($r.expect) | $($r.actual) | $mark | $([math]::Round($r.ms/1000.0,1))s | $($r.files) ($('{0:N0}' -f $r.bytes) B) | $($r.bright) | $noteEsc |")
+        if ($r.shotFail) { $noteEsc = ($noteEsc + ' 截图失败帧: ' + ($r.shotFail -replace '\|', '\|')).Trim() }
+        $md.Add("| ``$($r.name)`` | $($r.kind) | $($r.expect) | $($r.actual) | $mark | $([math]::Round($r.ms/1000.0,1))s | $($r.files) ($('{0:N0}' -f $r.bytes) B) | $($r.bright) | $($r.best) | $noteEsc |")
     }
     $md.Add('')
     $md.Add('<details><summary>完整参数</summary>')
