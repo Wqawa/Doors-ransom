@@ -75,6 +75,32 @@ foreach ($k in $exes.Keys) {
 }
 
 # ---------------------------------------------------------------------------
+# 0.5 探测这台机器有没有音频输出设备
+#     --audio-dump 和 --theme-dump 的行为差别就在这：
+#       entity_main.cpp:381 对 --audio-dump 是
+#           if (!audio::Start()) { ...记日志...; return 1; }
+#       —— 没声卡就直接拒绝导出；而 :393 的 --theme-dump 忽略 Start() 的返回值
+#       （它只把已经解码好的 PCM 写成 WAV）。所以 --audio-dump 的期望退出码
+#       本来就随环境变：有声卡 0，没声卡 1。
+#     拿程序自己探最准 —— 走的是同一条 waveOutOpen 代码路径，不会误判。
+# ---------------------------------------------------------------------------
+$hasAudio = $false
+$probeDir = Join-Path $OutDir '_probe'
+New-Item -ItemType Directory -Force -Path $probeDir | Out-Null
+try {
+    $probeWav = Join-Path $probeDir 'probe.wav'
+    $pp = Start-Process -FilePath (Join-Path $repo $exes['x64']) `
+              -ArgumentList @('--audio-dump', $probeWav, '--diag', (Join-Path $probeDir 'probe.log')) `
+              -WorkingDirectory $repo -PassThru -ErrorAction Stop
+    if (-not $pp.WaitForExit(90000)) { try { Stop-Process -Id $pp.Id -Force } catch { } }
+    $hasAudio = ($pp.HasExited -and $pp.ExitCode -eq 0 -and (Test-Path -LiteralPath $probeWav))
+} catch { }
+
+$audioExpected = if ($hasAudio) { 0 } else { 1 }
+Write-Host ("音频设备: {0}  ->  --audio-dump 期望退出码 {1}" -f `
+    $(if ($hasAudio) { '有' } else { '无（无声卡的虚拟机）' }), $audioExpected)
+
+# ---------------------------------------------------------------------------
 # 1. Windows Defender 排除
 #    这是个"勒索软件模拟器"，产物被 Defender 当可疑样本隔离是完全可能的
 #    （尤其是 x32 那份，行为启发式对老的 32 位 PE 更敏感）。
@@ -191,13 +217,13 @@ function Get-FileSummary {
 # ---------------------------------------------------------------------------
 # 4. 用例矩阵
 # ---------------------------------------------------------------------------
-# [A] 自己退出的模式。e = 期望退出码。
+# [A] 自己退出的模式。e = 期望退出码；e = 'AUDIO' 表示随环境变，运行时按探测结果定。
 #     注意 --pay 在没有实体运行时是【故意】返回 3 的（entity_main.cpp 里
 #     SendPayment 找不到 RansomDevIpcWnd 窗口就返回 3），所以期望值写 3，
 #     不是 0 —— 这个用例是在验证"没有实体时点击金币会安全作废"。
 $headless = @(
     @{ n = 'face-dump';        a = @('--face-dump', '{d}\faces');                            e = 0 }
-    @{ n = 'audio-dump';       a = @('--audio-dump', '{d}\audio-all.wav');                   e = 0 }
+    @{ n = 'audio-dump';       a = @('--audio-dump', '{d}\audio-all.wav');                   e = 'AUDIO' }
     @{ n = 'theme-dump';       a = @('--theme-dump', '{d}\theme.wav');                       e = 0 }
     @{ n = 'ui-preview';       a = @('--ui-preview', '{d}\ui.png');                          e = 0 }
     @{ n = 'ui-preview-grid';  a = @('--ui-preview', '{d}\ui-grid.png', '--ui-grid');        e = 0 }
@@ -211,7 +237,7 @@ $headless = @(
     @{ n = 'fx-black';         a = @('--fx-demo', 'black', '--fx-dump', '{d}\fx-black.png'); e = 0 }
     @{ n = 'fx-stop';          a = @('--fx-demo', 'stop',  '--fx-dump', '{d}\fx-stop.png');  e = 0 }
     @{ n = 'image-dir';        a = @('--ui-preview', '{d}\ui-imagedir.png', '--image-dir', 'assets\image'); e = 0 }
-    @{ n = 'audio-dir';        a = @('--audio-dump', '{d}\audio-dir.wav', '--audio-dir', 'assets\audio');   e = 0 }
+    @{ n = 'audio-dir';        a = @('--audio-dump', '{d}\audio-dir.wav', '--audio-dir', 'assets\audio');   e = 'AUDIO' }
     @{ n = 'tolerance';        a = @('--ui-preview', '{d}\ui-tol.png', '--tolerance', '42'); e = 0 }
     @{ n = 'clean-gold';       a = @('--clean-gold');                                        e = 0 }
     @{ n = 'restore';          a = @('--restore');                                           e = 0 }
@@ -295,20 +321,29 @@ foreach ($arch in $exes.Keys) {
         # diag.log 是脚本自己加的，不算"产出"
         $produced = @($fs.names | Where-Object { $_ -ne 'diag.log' })
         $producedBytes = $fs.bytes
-        if ($produced.Count -eq 0 -and -not $timedOut) {
-            $note = ($note + ' 没有产出任何文件').Trim()
-        }
+
+        # e = 'AUDIO' 的用例：期望退出码取决于这台机器有没有声卡
+        $isAudio    = ($t.e -eq 'AUDIO')
+        $expectCode = if ($isAudio) { $audioExpected } else { $t.e }
 
         $verdict = if ($timedOut) { 'FAIL' }
-                   elseif ($exit -eq $t.e) { 'PASS' }
+                   elseif ($exit -eq $expectCode) {
+                       # 没声卡时 --audio-dump 必然返回 1，这条其实没被真正跑到：
+                       # 记 SKIP 比记 PASS 诚实，也不让它把 job 染红。
+                       if ($isAudio -and -not $hasAudio) { 'SKIP' } else { 'PASS' }
+                   }
                    else { 'FAIL' }
+
+        if ($produced.Count -eq 0 -and -not $timedOut -and $verdict -ne 'SKIP') {
+            $note = ($note + ' 没有产出任何文件').Trim()
+        }
 
         $results += [pscustomobject]@{
             arch    = $arch
             kind    = 'headless'
             name    = $t.n
             args    = ($argList -join ' ')
-            expect  = ($t.e.ToString())
+            expect  = if ($isAudio -and -not $hasAudio) { "$expectCode (无声卡)" } else { $expectCode.ToString() }
             actual  = if ($timedOut) { 'TIMEOUT' } elseif ($null -eq $exit) { 'ERROR' } else { $exit.ToString() }
             verdict = $verdict
             ms      = $sw.ElapsedMilliseconds
@@ -319,8 +354,9 @@ foreach ($arch in $exes.Keys) {
             note    = $note
         }
 
-        Write-Host ('[{0}] {1,-20} exit={2,-8} expect={3,-3} -> {4}  {5} 个文件' -f `
-            $arch, $t.n, $(if ($timedOut) { 'TIMEOUT' } else { $exit }), $t.e, $verdict, $produced.Count)
+        Write-Host ('[{0}] {1,-20} exit={2,-8} expect={3,-4} -> {4}  {5} 个文件' -f `
+            $arch, $t.n, $(if ($timedOut) { 'TIMEOUT' } elseif ($null -eq $exit) { 'ERROR' } else { $exit }), `
+            $expectCode, $verdict, $produced.Count)
     }
 
     # ---------------- [B] interactive ----------------
@@ -435,6 +471,7 @@ Stop-AllRansom | Out-Null
 # ---------------------------------------------------------------------------
 $passCount = @($results | Where-Object { $_.verdict -eq 'PASS' }).Count
 $failCount = @($results | Where-Object { $_.verdict -eq 'FAIL' }).Count
+$skipCount = @($results | Where-Object { $_.verdict -eq 'SKIP' }).Count
 $shotCount = @($results | Where-Object { $_.shot -eq 'desktop.png' }).Count
 
 $md = New-Object System.Collections.Generic.List[string]
@@ -443,24 +480,32 @@ $md.Add('')
 $md.Add("- 生成时间 (UTC): ``$([datetime]::UtcNow.ToString('yyyy-MM-dd HH:mm:ss'))``")
 $md.Add("- 提交: ``$env:GITHUB_SHA``")
 $md.Add("- 工作流运行: #$env:GITHUB_RUN_NUMBER (id $env:GITHUB_RUN_ID)")
-$md.Add("- 用例总数: **$($results.Count)** ｜ PASS: **$passCount** ｜ FAIL: **$failCount**")
+$md.Add("- 用例总数: **$($results.Count)** ｜ PASS: **$passCount** ｜ FAIL: **$failCount** ｜ SKIP: **$skipCount**")
+$md.Add("- 音频设备: **$(if ($hasAudio) { '有' } else { '无' })**（--audio-dump 期望退出码 $audioExpected）")
 $md.Add("- 桌面截屏: **$shotCount** 张")
 $md.Add("- 总耗时: $([math]::Round($totalStopwatch.Elapsed.TotalSeconds,1)) 秒")
 $md.Add('')
 $md.Add('> 判定说明：[A] headless 类用例断言退出码等于期望值；')
 $md.Add('> [B] interactive 类用例期望"启动后一直跑不掉"，由脚本定时截屏后强杀，')
 $md.Add('> 能撑过观察期即 PASS。``--pay`` 在无实体运行时故意返回 3，属正常。')
+$md.Add('> **SKIP** = 该用例依赖的环境在这台机器上不存在（这里是声卡），')
+$md.Add('> 程序按设计返回了正确的非零退出码，但功能本身没被真正跑到 —— 不计入 FAIL。')
 $md.Add('')
 
 foreach ($arch in $exes.Keys) {
     $rows = @($results | Where-Object { $_.arch -eq $arch })
     $p = @($rows | Where-Object { $_.verdict -eq 'PASS' }).Count
-    $md.Add("## $arch  ($p/$($rows.Count) PASS)")
+    $s = @($rows | Where-Object { $_.verdict -eq 'SKIP' }).Count
+    $md.Add("## $arch  ($p PASS / $s SKIP / $($rows.Count) 用例)")
     $md.Add('')
     $md.Add('| 用例 | 类别 | 期望 | 实际 | 判定 | 耗时 | 产出文件 | 截图亮度 | 备注 |')
     $md.Add('|---|---|---|---|---|---|---|---|---|')
     foreach ($r in $rows) {
-        $mark = if ($r.verdict -eq 'PASS') { 'PASS' } else { '**FAIL**' }
+        $mark = switch ($r.verdict) {
+            'PASS' { 'PASS' }
+            'SKIP' { 'SKIP' }
+            default { '**FAIL**' }
+        }
         $noteEsc = ($r.note -replace '\|', '\|')
         $md.Add("| ``$($r.name)`` | $($r.kind) | $($r.expect) | $($r.actual) | $mark | $([math]::Round($r.ms/1000.0,1))s | $($r.files) ($('{0:N0}' -f $r.bytes) B) | $($r.bright) | $noteEsc |")
     }
@@ -489,7 +534,7 @@ if ($env:GITHUB_STEP_SUMMARY) {
 
 Write-Host ''
 Write-Host '=================================================================='
-Write-Host " 自测结束：$passCount PASS / $failCount FAIL（共 $($results.Count) 个用例，$([math]::Round($totalStopwatch.Elapsed.TotalSeconds,1)) 秒）"
+Write-Host " 自测结束：$passCount PASS / $failCount FAIL / $skipCount SKIP（共 $($results.Count) 个用例，$([math]::Round($totalStopwatch.Elapsed.TotalSeconds,1)) 秒）"
 Write-Host " 报告: $mdPath"
 Write-Host '=================================================================='
 
