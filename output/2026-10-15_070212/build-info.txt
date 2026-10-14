@@ -1,0 +1,12 @@
+编译完成时间 (北京时间 UTC+8): 2026-10-15 07:02:12
+编译完成时间 (UTC):      2026-10-14 23:02:15
+仓库:                    Wqawa/Doors-ransom
+分支:                    main
+提交:                    a11b00121e21d0e43c0490f0146efee05f7efc20
+触发者:                  Wqawa
+工作流运行:              #8 (id 38651121727)
+运行页面:                https://github.com/Wqawa/Doors-ransom/actions/runs/38651121727
+
+产物：
+  Ransom_dev_x32.exe  7,678,976 bytes  SHA256 ae414418e112018f25395ac5b694c720a5117f67d4bcb9998253cc02ed4f3b83
+  Ransom_dev_x64.exe  7,740,928 bytes  SHA256 5e0256026c6b1a63a49d3425b274a8c4872bef458beda79f3120439e4b8986c3
