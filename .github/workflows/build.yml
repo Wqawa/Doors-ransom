@@ -1,0 +1,197 @@
+# ============================================================================
+#  build.yml —— 在 GitHub 云端（Windows Server 2025 + Visual Studio 2026）编译
+#
+#  一次运行做三件事：
+#    1. 用 MSBuild 编译 Release|Win32 与 Release|x64 两个配置
+#    2. 把两个产物重命名后放进 output\<编译完成时间>\
+#         Ransom_dev_x32.exe   <- build\Win32\Release\Ransom_dev.exe
+#         Ransom_dev_x64.exe   <- build\x64\Release\Ransom_dev.exe
+#       同时写一份 build-info.txt（时间、提交、哈希）
+#    3. 把 output\ 提交并推回本仓库
+#
+#  触发方式：
+#    - 手动：仓库 Actions 页面 -> Build -> Run workflow
+#    - 推送：任何推到 main、且不只改 output\ 的提交
+#
+#  为什么不会自己套自己：产物提交只动 output\，而 push 触发器用 paths-ignore
+#  把 output\ 排除了；提交信息里再带一个 [skip ci] 兜底。
+#
+#  镜像为什么钉死在 windows-2025-vs2026：工程文件里的工具集是 v145，那是
+#  Visual Studio 2026（18.x）的；windows-latest 上只有 VS2022 的 v143，
+#  编不了 v145。这个镜像 2026-05 起已 GA，VS 2026 18.5。
+#  万一以后要用 VS2022 编，把下面 runs-on 换成 windows-latest 并给 msbuild
+#  加一个 /p:PlatformToolset=v143 即可（C++20 部分 v143 同样支持）。
+# ============================================================================
+
+name: Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      keep_last:
+        description: '只保留最近 N 份产物（0 = 全部保留，不删任何东西）'
+        required: false
+        default: '0'
+  push:
+    branches: [ main ]
+    paths-ignore:
+      - 'output/**'
+
+# 推产物回仓库需要写权限；其余权限一律不给
+permissions:
+  contents: write
+
+# 同一分支上的构建排队执行，避免两个 job 同时往 main 推产物打架
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  KEEP_LAST: ${{ github.event.inputs.keep_last || '0' }}
+
+jobs:
+  build:
+    name: Release x86 + x64
+    runs-on: windows-2025-vs2026
+
+    steps:
+      - name: 拉取仓库
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: 准备 MSBuild
+        uses: microsoft/setup-msbuild@v3
+
+      # ----------------------------------------------------------------------
+      # 1. 编译两个平台
+      #    直接编 .vcxproj 而不是 .sln：工程里 OutputLayout 是锚在
+      #    $(MSBuildThisFileDirectory) 上的，两种编法产物都落在 build\ 下。
+      # ----------------------------------------------------------------------
+      - name: 编译 Release|Win32 与 Release|x64
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          $mb = (Get-Command msbuild -ErrorAction SilentlyContinue).Source
+          if (-not $mb) { throw 'PATH 上找不到 msbuild，setup-msbuild 这步可能没生效' }
+          Write-Host "MSBuild: $mb"
+          msbuild -version
+
+          foreach ($p in 'Win32', 'x64') {
+            Write-Host "===== MSBuild Release|$p ====="
+            msbuild Ransom_dev\Ransom_dev.vcxproj /p:Configuration=Release /p:Platform=$p /m /v:minimal /nologo
+            if ($LASTEXITCODE -ne 0) { throw "MSBuild Release|$p 失败，退出码 $LASTEXITCODE" }
+          }
+
+      # ----------------------------------------------------------------------
+      # 2. 收集产物到 output\<编译完成时间>\
+      #    时间在这一步才取 —— 构建已经成功之后，所以它就是"编译完成时间"。
+      # ----------------------------------------------------------------------
+      - name: 收集产物到 output\
+        id: package
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          # 北京时间（UTC+8）。万一镜像里没有这个时区 id，退回 UTC 而不是崩。
+          try {
+            $done = [System.TimeZoneInfo]::ConvertTimeBySystemTimeZoneId([datetime]::UtcNow, 'China Standard Time')
+            $tz   = '北京时间 UTC+8'
+          } catch {
+            $done = [datetime]::UtcNow
+            $tz   = 'UTC'
+          }
+          $stamp = $done.ToString('yyyy-MM-dd_HHmmss')
+          $dir   = Join-Path 'output' $stamp
+          New-Item -ItemType Directory -Force -Path $dir | Out-Null
+
+          $map = [ordered]@{
+            'Ransom_dev_x32.exe' = 'build\Win32\Release\Ransom_dev.exe'
+            'Ransom_dev_x64.exe' = 'build\x64\Release\Ransom_dev.exe'
+          }
+
+          $rows = @()
+          foreach ($dst in $map.Keys) {
+            $src = $map[$dst]
+            if (-not (Test-Path -LiteralPath $src)) { throw "找不到产物：$src" }
+            $target = Join-Path $dir $dst
+            Copy-Item -LiteralPath $src -Destination $target -Force
+            $f   = Get-Item -LiteralPath $target
+            $sha = (Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash.ToLower()
+            $rows += ('{0}  {1:N0} bytes  SHA256 {2}' -f $dst, $f.Length, $sha)
+            Write-Host ("  {0}  {1:N0} bytes" -f $dst, $f.Length)
+          }
+
+          $url = "$env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID"
+          $info = @(
+            "编译完成时间 ($tz): $($done.ToString('yyyy-MM-dd HH:mm:ss'))"
+            "编译完成时间 (UTC):      $([datetime]::UtcNow.ToString('yyyy-MM-dd HH:mm:ss'))"
+            "仓库:                    $env:GITHUB_REPOSITORY"
+            "分支:                    $env:GITHUB_REF_NAME"
+            "提交:                    $env:GITHUB_SHA"
+            "触发者:                  $env:GITHUB_ACTOR"
+            "工作流运行:              #$env:GITHUB_RUN_NUMBER (id $env:GITHUB_RUN_ID)"
+            "运行页面:                $url"
+            ""
+            "产物："
+          ) + ($rows | ForEach-Object { "  $_" })
+
+          Set-Content -LiteralPath (Join-Path $dir 'build-info.txt') -Value $info -Encoding utf8
+
+          # 可选的清理：只留最近 N 份（默认 0 = 一份都不删）
+          $keep = 0
+          if ($env:KEEP_LAST -and $env:KEEP_LAST -match '^\d+$') { $keep = [int]$env:KEEP_LAST }
+          if ($keep -gt 0) {
+            $old = Get-ChildItem -LiteralPath 'output' -Directory |
+                   Sort-Object Name -Descending | Select-Object -Skip $keep
+            foreach ($d in $old) {
+              Write-Host "超过 keep_last=$keep，删除旧产物：$($d.Name)"
+              Remove-Item -LiteralPath $d.FullName -Recurse -Force
+            }
+          }
+
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "stamp=$stamp"
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "dir=$dir"
+
+      # ----------------------------------------------------------------------
+      # 3. 提交并推回仓库
+      #    只 git add output —— 构建过程会重写 Ransom_dev\assets_gen.rc / .txt
+      #    （gen_assets.ps1 按内容比对，checkout 出的 LF 和它写的 CRLF 不同），
+      #    那些是构建副产物，不该混进产物提交里。
+      # ----------------------------------------------------------------------
+      - name: 提交并推送产物
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          git config user.name  'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+
+          git add -- 'output'
+          $staged = git status --porcelain -- output
+          if (-not $staged) {
+            Write-Host 'output\ 没有变化，跳过提交'
+            exit 0
+          }
+
+          git commit -m "build: ${{ steps.package.outputs.stamp }} (run #${{ github.run_number }}) [skip ci]"
+
+          # 万一有人同时在往 main 推，rebase 后重试，不要直接失败
+          $pushed = $false
+          for ($i = 1; $i -le 3; $i++) {
+            git push
+            if ($LASTEXITCODE -eq 0) { $pushed = $true; break }
+            Write-Host "push 失败（第 $i 次），rebase 后重试"
+            git pull --rebase --autostash origin $env:GITHUB_REF_NAME
+          }
+          if (-not $pushed) { throw '推送产物失败：连续 3 次都没推上去' }
+
+      # 附带的便利：产物同时挂到这次 run 的 Artifacts 里，不用 clone 就能下载。
+      # 放在提交之后 —— 万一这步挂了，产物也已经进仓库了。
+      - name: 上传为运行产物（可下载）
+        uses: actions/upload-artifact@v7
+        with:
+          name: Ransom_dev_${{ steps.package.outputs.stamp }}
+          path: ${{ steps.package.outputs.dir }}
+          retention-days: 30
