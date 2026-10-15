@@ -92,7 +92,7 @@ jobs:
           Write-Host "MSBuild: $mb"
           msbuild -version
 
-          foreach ($p in 'Win32', 'x64') {
+          foreach ($p in 'x32', 'x64') {
             Write-Host "===== MSBuild Release|$p ====="
             msbuild Ransom_dev\Ransom_dev.vcxproj /p:Configuration=Release /p:Platform=$p /m /v:minimal /nologo
             if ($LASTEXITCODE -ne 0) { throw "MSBuild Release|$p 失败，退出码 $LASTEXITCODE" }
