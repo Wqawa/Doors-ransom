@@ -2,11 +2,11 @@
 #  build.yml —— 在 GitHub 云端（Windows Server 2025 + Visual Studio 2026）编译
 #
 #  一次运行做四件事：
-#    1. 用 MSBuild 编译 Release|Win32 与 Release|x64 两个配置
+#    1. 用 MSBuild 编译 Release|x32 与 Release|x64 两个配置
 #    2. 自测：把两个产物用【全部命令行参数】各跑一遍（tools\selftest.ps1），
 #       渲染出 PNG + 真实桌面截屏，并收一份 selftest-report.md
 #    3. 把两个产物重命名后放进 output\<编译完成时间>\
-#         Ransom_dev_x32.exe   <- build\Win32\Release\Ransom_dev.exe
+#         Ransom_dev_x32.exe   <- build\x32\Release\Ransom_dev.exe
 #         Ransom_dev_x64.exe   <- build\x64\Release\Ransom_dev.exe
 #       同时写一份 build-info.txt（时间、提交、哈希）、一份 selftest-report.md，
 #       外加一整个截图大文件夹：
@@ -82,7 +82,7 @@ jobs:
       #    直接编 .vcxproj 而不是 .sln：工程里 OutputLayout 是锚在
       #    $(MSBuildThisFileDirectory) 上的，两种编法产物都落在 build\ 下。
       # ----------------------------------------------------------------------
-      - name: 编译 Release|Win32 与 Release|x64
+      - name: 编译 Release|x32 与 Release|x64
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
