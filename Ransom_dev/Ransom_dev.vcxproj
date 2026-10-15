@@ -86,8 +86,19 @@
        条件判断根本不生效，锚在工程文件自己身上才跟解决方案放哪儿无关。
        ====================================================================== -->
   <PropertyGroup Label="OutputLayout">
-    <OutDir>$(MSBuildThisFileDirectory)..\build\$(Platform)\$(Configuration)\</OutDir>
-    <IntDir>$(MSBuildThisFileDirectory)..\build\obj\$(Platform)\$(Configuration)\</IntDir>
+    <!-- 目录名对外统一叫 x32 / x64，但 **平台名只能是 Win32**：
+         MSBuild 的 C++ 构建系统会按名字去
+           $(VCTargetsPath)\Platforms\$(Platform)\Platform.props
+           $(VCTargetsPath)\Platforms\$(Platform)\Platform.Default.props
+           $(VCTargetsPath)\Platforms\$(Platform)\PlatformToolsets\$(PlatformToolset)\
+         找东西，而那个目录下只有 Win32 和 x64 两个（在 VS 安装目录里，仓库改不了）。
+         把平台名改成 x32 会直接撞 error MSB8003: The PlatformToolset property
+         is not defined —— 所以平台名保持 Win32，只把**目录名**换成 x32。
+         $(Platform) 在别处照旧可用（属性组条件、宏定义都没动）。 -->
+    <ArchName Condition="'$(Platform)' == 'Win32'">x32</ArchName>
+    <ArchName Condition="'$(ArchName)' == ''">$(Platform)</ArchName>
+    <OutDir>$(MSBuildThisFileDirectory)..\build\$(ArchName)\$(Configuration)\</OutDir>
+    <IntDir>$(MSBuildThisFileDirectory)..\build\obj\$(ArchName)\$(Configuration)\</IntDir>
     <TargetName>Ransom_dev</TargetName>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">

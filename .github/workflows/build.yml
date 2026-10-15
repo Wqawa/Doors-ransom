@@ -2,7 +2,9 @@
 #  build.yml —— 在 GitHub 云端（Windows Server 2025 + Visual Studio 2026）编译
 #
 #  一次运行做四件事：
-#    1. 用 MSBuild 编译 Release|x32 与 Release|x64 两个配置
+#    1. 用 MSBuild 编译 Release|Win32 与 Release|x64 两个配置
+#       （平台名只能是 Win32 —— 见 Ransom_dev.vcxproj 里 OutputLayout 的注释；
+#        产物目录由工程算成 build\x32\ 与 build\x64\）
 #    2. 自测：把两个产物用【全部命令行参数】各跑一遍（tools\selftest.ps1），
 #       渲染出 PNG + 真实桌面截屏，并收一份 selftest-report.md
 #    3. 把两个产物重命名后放进 output\<编译完成时间>\
@@ -82,7 +84,7 @@ jobs:
       #    直接编 .vcxproj 而不是 .sln：工程里 OutputLayout 是锚在
       #    $(MSBuildThisFileDirectory) 上的，两种编法产物都落在 build\ 下。
       # ----------------------------------------------------------------------
-      - name: 编译 Release|x32 与 Release|x64
+      - name: 编译 Release|Win32 与 Release|x64
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -92,7 +94,11 @@ jobs:
           Write-Host "MSBuild: $mb"
           msbuild -version
 
-          foreach ($p in 'x32', 'x64') {
+          # 平台名必须写 MSBuild 认识的 Win32：VS 的 C++ 构建系统只认
+          # $(VCTargetsPath)\Platforms\ 下的 Win32 和 x64 两个目录，传 x32
+          # 会直接撞 error MSB8003: The PlatformToolset property is not defined。
+          # 产物目录不靠平台名 —— 由 vcxproj 的 OutputLayout 算成 build\x32\。
+          foreach ($p in 'Win32', 'x64') {
             Write-Host "===== MSBuild Release|$p ====="
             msbuild Ransom_dev\Ransom_dev.vcxproj /p:Configuration=Release /p:Platform=$p /m /v:minimal /nologo
             if ($LASTEXITCODE -ne 0) { throw "MSBuild Release|$p 失败，退出码 $LASTEXITCODE" }
@@ -147,7 +153,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path $dir | Out-Null
 
           $map = [ordered]@{
-            'Ransom_dev_x32.exe' = 'build\Win32\Release\Ransom_dev.exe'
+            'Ransom_dev_x32.exe' = 'build\x32\Release\Ransom_dev.exe'
             'Ransom_dev_x64.exe' = 'build\x64\Release\Ransom_dev.exe'
           }
 

@@ -61,7 +61,7 @@ if (-not [System.IO.Path]::IsPathRooted($OutDir)) {
 New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
 
 $exes = [ordered]@{
-    x32 = 'build\Win32\Release\Ransom_dev.exe'
+    x32 = 'build\x32\Release\Ransom_dev.exe'
     x64 = 'build\x64\Release\Ransom_dev.exe'
 }
 
