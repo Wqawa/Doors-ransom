@@ -49,12 +49,13 @@ C++20 + Win32 + GDI+ 写的，素材全部内嵌在 exe 里，产物就一个文
 
 ### Visual Studio
 
-打开 `Ransom_dev.sln`，选 `Release | x64`，生成。
+打开 `Ransom_dev.sln`，选 `Release | x64`（32 位选 `Release | x86`，它对应工程里的 `Win32` 平台），生成。
 
 ### 命令行
 
 ```powershell
 msbuild Ransom_dev.sln /p:Configuration=Release /p:Platform=x64 /m
+msbuild Ransom_dev.sln /p:Configuration=Release /p:Platform=x86 /m   # 32 位；对应工程里的 Win32
 ```
 
 ### 产物在哪
@@ -64,6 +65,8 @@ build\x64/x32\Release\Ransom_dev.exe     ← 就这一个文件，素材全在�
 build\x64/x32\Release\Ransom_dev.pdb
 build\obj\...                            ← 中间文件
 ```
+
+工程里的平台名还是 `Win32`，只是它算出来的产物目录叫 `x32`。
 
 ### 素材是怎么进去的
 
@@ -96,7 +99,7 @@ Ransom_dev.exe
 
 从上到下依次是：界面语言、光敏安全提示、背景音乐、音效、游戏模式（普通 / 硬核 / 挂机）、每次跳杀的随机间隔、赎金目标（普通和硬核各一条）、关窗惩罚时长、假金币比例、假币形态配比，最下面是硬核专属的金币生成磁盘范围（点进去是 2D 盘符页）。
 
-点「开始」之后还有一屏开演前提示（普通模式叫「应急提示」，硬核模式换成「硬核模式警告」）：把这一轮选的数值原样列出来，退出口诀 `Ctrl + Alt + Shift + Q` 摆在最显眼的地方。点「我明白，开始」才真正开演，点「返回上一级」退回设置重挑。
+点「开 始」之后还有一屏开演前提示（普通模式是「用前注意」，硬核换成「硬核模式：用前注意」）：把这一轮选的数值原样列出来，退出口诀 `Ctrl + Alt + Shift + Q` 摆在最显眼的地方。点「开 始」才真正开演，点「← 返回上一级」退回设置重挑。
 
 > 控制项变多以后一屏放不下，右侧有滚动条：滚轮压在滑条上是微调那一条，压在空白处才是滚动整屏。窗口底部那两个按钮不参与滚动，永远看得见。
 
@@ -144,7 +147,7 @@ Ransom_dev.exe
 
 启动设置里有个「硬核模式」开关，打开时窗口会抖一下。
 
-![硬核模式警告页：开演前把这一轮选定的数值逐条列出](docs/screenshots/hardcore-warning.png)
+![「硬核模式：用前注意」页：开演前把这一轮选定的数值逐条列出](docs/screenshots/hardcore-warning.png)
 
 *开了硬核，开演前那一屏会把这一轮选的数值逐条列出来——是要人读的，不是装饰。*
 
@@ -217,15 +220,18 @@ Ransom_dev.exe
 | `--diag PATH` | 把诊断日志写到文件。GUI 子系统没有控制台，排查全靠这个 |
 | `--face-demo MODE` | 只显示某一张脸：`idle` / `stop` / `attack` / `loading` |
 | `--face-dump DIR` | 把程序生成的脸导出成 PNG 后退出 |
-| `--audio-dump PATH` | 把全部音效离线渲染成 WAV 后退出（验波形用） |
-| `--theme-dump PATH` | 把处理后的主题曲导成 WAV 后退出（试听用） |
+| `--audio-dump PATH` | 把全部音效离线渲染成 WAV 后退出（验波形用）。要有能用的音频设备，没声卡会打一行原因然后返回 1 |
+| `--theme-dump PATH` | 把处理后的主题曲导成 WAV 后退出（试听用）。不需要音频设备 |
 | `--ui-preview PATH` | 把勒索主窗口的排版渲染成 PNG 后退出（调排版用，不用跑整场） |
 | `--ui-grid` | 配合 `--ui-preview`，预览图叠坐标网格 |
 | `--setup-ui PATH` | 把启动设置窗口渲染成 PNG 后退出（调排版用） |
 | `--notice-ui PATH` | 把开演前提示窗口渲染成 PNG 后退出 |
 | `--setup-grid` | 配合上面两个，预览图叠坐标网格 |
+| `--setup-scroll N` | 配合 `--setup-ui`，导出前先把设置窗口往下滚 N 像素 |
 | `--payup` | 配合 `--ui-preview`，预览付钱那一屏的排版 |
-| `--fx-demo NAME PATH` | 把特效层单独导成 PNG：`glow` / `black` / `stop` |
+| `--fx-demo NAME` | 选要导的特效层：`glow` / `black` / `stop`。单独跑不会退出，必须配 `--fx-dump` |
+| `--fx-dump PATH` | 把特效层导成 PNG 后退出 |
+| `--pay N --token T` | 拿 N 金币、令牌 T 走一次付费 IPC。要有正在跑的实体才有效，没有实体时故意返回 3 |
 | `--clean-gold` | 只扫描并删除遗留的金币快捷方式，然后退出 |
 | `--restore` | 按清单把被没收的快捷方式从回收站还原，然后退出 |
 | `--image-dir DIR` / `--audio-dir DIR` | 覆盖素材目录（默认从 exe 内嵌资源里取） |
@@ -320,7 +326,7 @@ Ransom_dev.sln
 
 ## 已知限制
 
-- 平台：只做了 x64 发布配置。Win32 配置能编译，但没测过。
+- 平台：日常只发 x64。x32（工程里的 `Win32` 平台）也能编，`.github/workflows/build.yml` 两个架构各编一份、各跑一遍全部参数的自测，产物一起进 `output/`。
 - 多显示器：按主屏尺寸算的脸部位置和弹窗分布，副屏上没有演出。
 - 任务栏：点任务栏按钮仍可能把被清场的窗口拉起来闪一下——那一下是发给 explorer 的普通鼠标消息，不在键盘钩子的管辖范围。要彻底堵死得装 `WH_SHELL` 钩子。
 - UWP 窗口：见上面「打地鼠」那条，少数 UWP 应用收不住。

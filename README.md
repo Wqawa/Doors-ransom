@@ -12,13 +12,13 @@ Written in C++20 with Win32 and GDI+. Every asset is compiled into the exe, so t
 
 *The ransom phase, captured full screen at 1920 × 1080.*
 
-> Read this first. The program really does touch your desktop — it moves icons, blocks right-clicks, minimizes windows, and on timeout drops shortcuts into the Recycle Bin. All of it is reversible; the rollback path is in [Safety valve and rollback](#safety-valve-and-rollback). Read that section before the first run.
+> Heads up: this build does modify your desktop — it moves icons, blocks right-clicks, minimizes windows, and on timeout drops shortcuts into the Recycle Bin. All of it is reversible; the rollback path is in [Safety valve and rollback](#safety-valve-and-rollback). Read that section before the first run.
 
 ---
 
 ## About the assets in this repository
 
-The images and audio in this repository are not my work:
+The images and audio in this project are partly licensed, partly downloaded from the wiki, and the icon comes from another repository:
 
 | What | Source | Notes |
 |---|---|---|
@@ -26,9 +26,9 @@ The images and audio in this repository are not my work:
 | `assets/RobotoMono-VariableFont_wght.ttf` | Google Fonts | Roboto Mono, SIL Open Font License 1.1, freely redistributable |
 | `Ransom_dev/src/third_party/` | stb_vorbis, minimp3 | Public domain / MIT / CC0 dual-licensed, see [NOTICE.md](NOTICE.md) |
 
-This is a personal, learning-oriented fan project. The code is MIT-licensed, but the assets carry no license at all, so whether to host this repository publicly is your call. If you do, either drop `assets/image/` and `assets/audio/` from the repository and keep only the code (the program can't draw a face or make a sound without them, but it compiles), or replace them with assets of your own.
+This is a personal, learning-oriented fan project. The code is MIT-licensed; the assets don't come with it. Whether to host this repository publicly is your call. If you do, either drop `assets/image/` and `assets/audio/` and keep only the code — it still compiles, it just degrades without those assets — or swap in assets of your own.
 
-If someone pointed you at this repository, be aware the asset copyright belongs to the original rights holder.
+If someone shared this repository with you, the asset copyright is still with the original rights holder.
 
 ---
 
@@ -36,50 +36,49 @@ If someone pointed you at this repository, be aware the asset copyright belongs 
 
 | Item | Requirement |
 |---|---|
-| OS | Windows 10 1809 or later (uses `SetProcessDpiAwareness`, layered windows, and low-level input hooks) |
+| OS | Windows 10 1809 or later |
 | Compiler | Visual Studio 2022 (v143 toolset). The project file names `v145`; opening it in an older VS just needs a right-click on the project → "Retarget solution" |
 | Components | The "Desktop development with C++" workload plus the Windows 10 SDK |
 | Language standard | C++20 (the project already sets `/std:c++20`, nothing to configure) |
 | Runtime | None. The CRT is statically linked (`/MT`), so the exe runs wherever you copy it |
 | Other | PowerShell (the asset packing script runs during the build) |
 
-The third-party decoders (ogg / mp3) are vendored as source in `Ransom_dev/src/third_party/`; no download and no package manager.
+The third-party decoders (ogg / mp3) are vendored as source in `Ransom_dev/src/third_party/`; nothing extra to download, no package manager to install.
 
 ## Building
 
 ### Visual Studio
 
-Open `Ransom_dev.sln`, pick `Release | x64`, build.
+Open `Ransom_dev.sln`, pick `Release | x64` (32-bit is `Release | x86`, which maps to the project's `Win32` platform), build.
 
 ### Command line
 
 ```powershell
 msbuild Ransom_dev.sln /p:Configuration=Release /p:Platform=x64 /m
+msbuild Ransom_dev.sln /p:Configuration=Release /p:Platform=x86 /m   # 32-bit; maps to the project's Win32
 ```
 
 ### Where the output goes
 
-The output directory is pinned in the project file rather than following the solution file:
-
 ```
-build\x64\Release\Ransom_dev.exe     ← the whole thing, assets inside
-build\x64\Release\Ransom_dev.pdb
-build\obj\...                        ← intermediates
+build\x64/x32\Release\Ransom_dev.exe     ← the whole thing, assets inside
+build\x64/x32\Release\Ransom_dev.pdb
+build\obj\...                            ← intermediates
 ```
 
-Only `x64|Release` is a release configuration; `Win32` and `Debug` are kept around for debugging.
+The platform is still called `Win32` in the project file, but the build directory it produces is `x32`.
 
 ### How the assets get inside
 
-At build time `tools/gen_assets.ps1` scans `assets/` and generates two files: `Ransom_dev/assets_gen.rc` (one `RCDATA` entry and numeric ID per asset) and `Ransom_dev/assets_gen.txt` (the name-to-ID list). `assets.cpp` reads the manifest under ID 1000 at startup to build its table, then pulls bytes with `FindResourceW`. So at runtime the program doesn't depend on the `assets/` directory — changing an asset means rebuilding, which is intentional; the single-file output is worth more.
+At build time `tools/gen_assets.ps1` scans `assets/` and generates two files: `Ransom_dev/assets_gen.rc` (one `RCDATA` entry and numeric ID per asset) and `Ransom_dev/assets_gen.txt` (the name-to-ID list). `assets.cpp` reads the manifest under ID 1000 at startup to build its table, then pulls bytes with `FindResourceW`. So at runtime the program doesn't depend on the `assets/` directory — changing an asset means a rebuild, and what you get in exchange is a single-file output.
 
 > The script decides whether to rewrite those two files by comparing contents, not timestamps. A new asset can easily arrive with an old timestamp (`Copy-Item` and unzip both preserve the original time), and a timestamp check would silently miss it.
 
 ## Running it
 
-Double-click `Ransom_dev.exe`. It shows the [setup window](#the-setup-window) first, then, once you confirm the parameters, lurks for a few seconds and starts the show.
+Double-click `Ransom_dev.exe`. It shows the [setup window](#the-setup-window) first, then, once you confirm the parameters, proceeds according to the settings.
 
-For a first run, this order shows you what's going to happen:
+For a first run, this order is a good way to see it once:
 
 ```powershell
 # 1. Just look at the generated face, without touching your desktop
@@ -100,7 +99,7 @@ Every run starts here; all the parameters for the show are decided on this one s
 
 Top to bottom: UI language, photosensitivity notice, background music, sound effects, game mode (normal / hardcore / idle), the random interval between jumpscares, the ransom goal (one entry for normal, one for hardcore), the window-close penalty duration, the fake coin ratio, the fake coin shape mix, and finally the hardcore-only coin drive range (which opens a 2D drive-letter page).
 
-After "Start" there's a pre-show notice screen (called "emergency notice" in normal mode and "hardcore mode warning" in hardcore): it echoes back the values you just picked and puts the exit combo `Ctrl + Alt + Shift + Q` front and center. "I understand, start" begins the show; "Back" returns to the setup.
+After "START" there's a pre-show notice screen ("Read this first" in normal mode, "Hardcore mode: read this first" in hardcore): it lists this run's values as they are and puts the exit combo `Ctrl + Alt + Shift + Q` front and centre. "START" begins the show; "← Back" returns to the setup.
 
 > There are more controls than fit on one screen, so the right side scrolls: the wheel over a slider nudges that slider, the wheel over empty space scrolls the page. The two buttons at the bottom don't scroll and are always visible.
 
@@ -110,14 +109,15 @@ Parameters live in `%LOCALAPPDATA%\Ransom_dev\settings.ini`. To skip the setup w
 
 Every string you can see lives in `assets\lang\*.lang`; not one of them is hard-coded. The "UI language" dropdown at the top of the setup window takes effect immediately and writes itself into `[ui] language=` in `settings.ini` on the spot — only that one key, without waiting for "Start", so picking a language and immediately closing the window still sticks.
 
-Language packs travel the same road as images and audio: `tools\gen_assets.ps1` compiles them into RCDATA resources in the exe, so the output stays a single file. Two ship in the repository:
+Language packs travel the same road as images and audio: `tools\gen_assets.ps1` compiles them into RCDATA resources in the exe, so the output stays a single file. Three ship in the repository:
 
 | File | Code | Shown in the dropdown |
 |---|---|---|
 | `assets/lang/zh-CN.lang` | `zh-CN` | 简体中文 (default, and the fallback for missing keys in other languages) |
 | `assets/lang/en-US.lang` | `en-US` | English |
+| `assets/lang/ja-JP.lang` | `ja-JP` | 日本語 |
 
-Adding a language is adding a file — no C++ changes at all: copy `assets/lang/zh-CN.lang`, rename it to `<code>.lang` (say `ja-JP.lang`), change `meta.name` to the language's own name (that's what the dropdown shows), translate the values on the right, leave the key names alone since the code looks them up by name, then drop it back into `assets\lang\` and rebuild. The dropdown picks it up automatically.
+Adding a language is adding a file — no C++ changes at all: copy `assets/lang/zh-CN.lang`, rename it to `<code>.lang` (say `ko-KR.lang`), change `meta.name` to the language's own name (that's what the dropdown shows), translate the values on the right, leave the key names alone since the code looks them up by name, then drop it back into `assets\lang\` and rebuild. The dropdown picks it up automatically.
 
 Format (the same notes are at the top of the file):
 
@@ -147,9 +147,9 @@ Every clean exit path (paid / timeout penalty / safety valve / closed window) re
 
 There's a hardcore toggle in the setup window (the window shakes when you flip it).
 
-![The hardcore warning screen: the values chosen for this run, listed one by one before the show](docs/screenshots/hardcore-warning.png)
+![The "Hardcore mode: read this first" screen: this run's values, listed one by one before the show](docs/screenshots/hardcore-warning.png)
 
-*With hardcore on, the pre-show screen lists the values you just picked one by one — that screen is meant to be read, not decoration.*
+*With hardcore on, the pre-show screen lists this run's values one by one — that screen is meant to be read, not decoration.*
 
 With it on, the run becomes:
 
@@ -220,15 +220,18 @@ The "moved" test is generous: mouse displacement beyond the tolerance (20px by d
 | `--diag PATH` | Write the diagnostic log to a file. A GUI-subsystem app has no console, so this is the only way to debug |
 | `--face-demo MODE` | Show one face only: `idle` / `stop` / `attack` / `loading` |
 | `--face-dump DIR` | Export the generated faces as PNGs and exit |
-| `--audio-dump PATH` | Render all sound effects offline to a WAV and exit (for checking waveforms) |
-| `--theme-dump PATH` | Export the processed theme to a WAV and exit (for listening) |
+| `--audio-dump PATH` | Render all sound effects offline to a WAV and exit (for checking waveforms). Needs a working audio device — with no sound card it prints a reason and returns 1 |
+| `--theme-dump PATH` | Export the processed theme to a WAV and exit (for listening). Doesn't need an audio device |
 | `--ui-preview PATH` | Render the ransom window layout to a PNG and exit (for layout work, without running the show) |
 | `--ui-grid` | With `--ui-preview`, overlay a coordinate grid on the preview |
 | `--setup-ui PATH` | Render the setup window to a PNG and exit (for layout work) |
 | `--notice-ui PATH` | Render the pre-show notice window to a PNG and exit |
 | `--setup-grid` | With the two above, overlay a coordinate grid on the preview |
+| `--setup-scroll N` | With `--setup-ui`, scroll the settings window down N pixels before exporting |
 | `--payup` | With `--ui-preview`, preview the pay-up screen layout |
-| `--fx-demo NAME PATH` | Export the effect layer alone as a PNG: `glow` / `black` / `stop` |
+| `--fx-demo NAME` | Which effect layer to export: `glow` / `black` / `stop`. Running it on its own never exits — it needs `--fx-dump` |
+| `--fx-dump PATH` | Export the effect layer as a PNG and exit |
+| `--pay N --token T` | Send one payment over IPC for N coins with token T. Needs a running entity to do anything; with none it deliberately returns 3 |
 | `--clean-gold` | Only scan for and delete leftover coin shortcuts, then exit |
 | `--restore` | Restore confiscated shortcuts from the Recycle Bin using the manifest, then exit |
 | `--image-dir DIR` / `--audio-dir DIR` | Override the asset directories (by default they come from the embedded resources in the exe) |
@@ -264,10 +267,10 @@ The "moved" test is generous: mouse displacement beyond the tolerance (20px by d
 
 ### A few observations
 
-- Output: native Win32, a single exe, no runtime dependency — the only one in this column. Ixars needs .NET (and carries 598MB of build output in the repository), khoichon needs Electron, and masashira and deepcool need Python plus a packer.
-- How far it goes on the desktop: only this repository and masashira0212 genuinely cover desktop icons. deepcoolforce23 goes further, moving files away and dropping an lnk into startup. The only real encryption is Kovax00, whose own author posted a destructive warning — the mirror image of this repository's red line (.lnk files only, never real encryption).
-- A way out: the set of "the safety valve stops it in one press + all four exit paths restore + `--restore` / `--clean-gold` as command-line backstops" is spelled out in public in this repository alone. khoichon also restores on every exit path, and masashira has a restore button and a watchdog.
-- Tunables and languages: this is the only one with a dozen-odd settings, a 2D drive page, and `settings.ini`, and the only one with language packs.
+- Output: native Win32, a single exe, no runtime dependency — this is the only one in that column. Ixars needs .NET (and carries 598MB of build output in the repository), khoichon needs Electron, and masashira and deepcool need Python plus a packer.
+- How far it goes on the desktop: only this repository and masashira0212 genuinely cover desktop icons. deepcoolforce23 goes further, moving files away and dropping an lnk into startup. Real encryption turns up in exactly one place, Kovax00, whose own author posted a destructive warning — the mirror image of this repository's red line (.lnk files only, never real encryption).
+- A way out: "the safety valve stops it in one press + all four exit paths restore + `--restore` / `--clean-gold` as command-line backstops", written out together in public, is this repository alone. khoichon's restore is thorough too, covering every exit path, and masashira has a restore button and a watchdog.
+- Tunables and languages: the dozen-odd settings, the 2D drive page and `settings.ini` are this repository alone, and so are the language packs.
 
 > Two still unverified: [R4NS0M SIMULATOR](https://gamejolt.com/games/r4ns0m/1098499) (NatureStudio) on itch.io / GameJolt is a game-style fangame ("collect coins, pay the ransom, get your files back") that doesn't touch the system; its stack wasn't found. The other, an Android version by robotkjgh, has no page that could be found at all.
 
@@ -311,11 +314,11 @@ Ransom_dev.sln
 
 ## A few design trade-offs
 
-Some corners were banged into along the way, and they're all noted in the code comments. A few are worth a look.
+Some corners were banged into along the way, and they're all noted in the code comments. A few:
 
 Layout isn't hard-coded. The ransom window's position, size, and colours all live in `assets/main_window.ini`, so changing the layout needs no rebuild; with `--ui-preview` you can render that layout straight to a PNG, grid overlay included, and read coordinates off it.
 
-Touching the desktop has to happen at the lowest level of the system. "Icons won't drag" and "no context menu comes up" are both done by swallowing messages with the `WH_MOUSE_LL` low-level hook. One counter-intuitive point: a drag has to be blocked on the button-down, not the button-up. The drag loop runs on this process's UI thread, and if it runs past the timeout the system gives a hook (about a second) the hook is silently unhooked — block on button-up and "drag slowly" gets around it. Low-level hooks being unhooked is nasty in itself, so the overlay's timer re-installs the hook on every tick as a backstop.
+Touching the desktop has to happen at the lowest level of the system. "Icons won't drag" and "no context menu comes up" are both done by swallowing messages with the `WH_MOUSE_LL` low-level hook. One counter-intuitive point: a drag has to be blocked on the button-down, not the button-up. The drag loop runs on this process's UI thread, and if it runs past the timeout the system gives a hook (about a second) the hook is silently unhooked — block on button-up and "drag slowly" gets around it. A hook getting unhooked is nasty in itself, so the overlay's timer re-installs the hook on every tick as a backstop.
 
 Hit-test rectangles and drawn rectangles are two different sets. The boxes the overlay draws jitter every frame (so the icons look restless), but hit testing has to use the non-jittering set; otherwise the box drifts with the icons and a click that lands on an icon misses.
 
@@ -323,7 +326,7 @@ Teardown has to guard against whack-a-mole. After minimizing every window during
 
 ## Known limitations
 
-- Platform: only the x64 release configuration is done. Win32 compiles but hasn't been tested.
+- Platform: x64 is what gets shipped. x32 (the project's `Win32` platform) builds too — `.github/workflows/build.yml` builds both, runs the full set of command-line parameters on each, and drops both into `output/`.
 - Multi-monitor: face positions and popup distribution are computed from the primary display's size; nothing happens on secondary displays.
 - Taskbar: clicking a taskbar button can still pull a swept window up for a flash — that click is an ordinary mouse message to explorer, outside the keyboard hook's reach. Closing it off completely would need a `WH_SHELL` hook.
 - UWP windows: see the whack-a-mole note above; a few UWP apps won't stay down.
