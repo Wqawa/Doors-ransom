@@ -1,402 +1,337 @@
 # Ransom_dev
 
-**中文** | [English](README.en.md)
+<p align="center"><a href="./README.md">English</a> | <a href="./README.zh-CN.md">中文</a></p>
 
-🎨 **[画廊 / Gallery](GALLERY.md)** —— 作者为这个项目画的同人画作。
+Fan art lives in [GALLERY.md](GALLERY.md).
 
-把《DOORS》里的 **Ransom（A-90）遭遇战**做成一个真的会动你桌面的 Windows 整蛊程序。
+A Windows desktop prank that turns the Ransom (A-90) encounter from DOORS into something that really moves your desktop around. The loop: a face fades in somewhere on screen and you have to hold still; the red stop sign flashes for a moment and that's when the check happens. Hold still and it leaves. Move, and the screen fills with popups, your desktop shortcuts get marked "encrypted", every open program is swept into the taskbar, and you have 90 seconds to scrape together 500 Gold to buy it all back. Miss the deadline and it ends in a jumpscare, with the locked shortcuts in the Recycle Bin.
 
-脸在你的屏幕上随机浮现 → 你必须停下不动 → 红色停牌闪现的那一瞬判定：
-没动，它退走；动了，满屏弹窗糊上来，桌面快捷方式被标记成「已加密」，
-所有开着的程序被收进任务栏，你必须在 90 秒内凑够 500 Gold 赎回，
-否则 jumpscare 收场、被锁的快捷方式进回收站。
+Written in C++20 with Win32 and GDI+. Every asset is compiled into the exe, so the build output is a single file.
 
-用 C++20 写成，Win32 + GDI+，**素材全部内嵌在 exe 里**，产物就是一个单文件。
+![The ransom phase: a screen full of popups, a main window reading YOUR ITEMS HAVE BEEN ENCRYPTED, and a countdown running](docs/screenshots/ransom-desktop.png)
 
-![勒索阶段实拍：满屏弹窗、主窗口写着 YOUR ITEMS HAVE BEEN ENCRYPTED、倒计时在走](docs/screenshots/ransom-desktop.png)
+*The ransom phase, captured full screen at 1920 × 1080.*
 
-*勒索阶段实拍（1920 × 1080 全屏）。*
-
-
-> ⚠️ **先读这个**：这个程序会真的改你的桌面 —— 移动图标、拦住右键、把窗口最小化、
-> 超时还会把快捷方式丢进回收站。所有动作都是可逆的，回滚办法见
-> [安全阀与回滚](#安全阀与回滚)。**第一次跑之前请先看那一节。**
+> Read this first. The program really does touch your desktop — it moves icons, blocks right-clicks, minimizes windows, and on timeout drops shortcuts into the Recycle Bin. All of it is reversible; the rollback path is in [Safety valve and rollback](#safety-valve-and-rollback). Read that section before the first run.
 
 ---
 
-## ⚠️ 关于仓库里的素材（重要）
+## About the assets in this repository
 
-这个仓库里的图片和音频**不是我的作品**：
+The images and audio in this repository are not my work:
 
-| 内容 | 来源 | 说明 |
+| What | Source | Notes |
 |---|---|---|
-| `assets/image/`、`assets/audio/`、`assets/ransom.ico` | 《DOORS》（Roblox 上的游戏） | A-90 的形象、停牌、主题曲、音效都是原作的版权素材 |
-| `assets/RobotoMono-VariableFont_wght.ttf` | Google Fonts | Roboto Mono，SIL Open Font License 1.1，可自由分发 |
-| `Ransom_dev/src/third_party/` | stb_vorbis、minimp3 | 公有领域 / MIT / CC0 双许可，见 [NOTICE.md](NOTICE.md) |
+| `assets/image/`, `assets/audio/`, `assets/ransom.ico` | DOORS (a game on Roblox) | A-90's appearance, the stop sign, the theme, and the sound effects are all the original rights holder's assets |
+| `assets/RobotoMono-VariableFont_wght.ttf` | Google Fonts | Roboto Mono, SIL Open Font License 1.1, freely redistributable |
+| `Ransom_dev/src/third_party/` | stb_vorbis, minimp3 | Public domain / MIT / CC0 dual-licensed, see [NOTICE.md](NOTICE.md) |
 
-**所以：这是一个个人学习性质的同人项目。** 代码部分我按 MIT 放出来，但**素材部分没有任何授权**，
-请自行判断你要不要公开托管这个仓库。如果你打算公开，建议：
+This is a personal, learning-oriented fan project. The code is MIT-licensed, but the assets carry no license at all, so whether to host this repository publicly is your call. If you do, either drop `assets/image/` and `assets/audio/` from the repository and keep only the code (the program can't draw a face or make a sound without them, but it compiles), or replace them with assets of your own.
 
-- 要么把 `assets/image/` 和 `assets/audio/` 从仓库里拿掉，只留代码（程序会因为没有素材而
-  画不出脸 / 没声音，但能编译）；
-- 要么自己替换成自制素材，再公开。
-
-**如果你是被别人分享到这个仓库的，请知悉素材版权在原作方。**
+If someone pointed you at this repository, be aware the asset copyright belongs to the original rights holder.
 
 ---
 
-## 环境要求
+## Requirements
 
-| 项目 | 要求 |
+| Item | Requirement |
 |---|---|
-| 系统 | Windows 10 1809 及以上（用到了 `SetProcessDpiAwareness`、分层窗口、低层输入钩子） |
-| 编译器 | Visual Studio 2022（v143 工具集）。工程文件里的工具集是 `v145`，用旧版 VS 打开时右键工程 →「重定解决方案目标」即可 |
-| 组件 | 「使用 C++ 的桌面开发」工作负载 + Windows 10 SDK |
-| 语言标准 | C++20（工程里已设 `/std:c++20`，不用自己配） |
-| 运行时 | 不需要。CRT 是**静态链接**（`/MT`），拷走就能跑 |
-| 其它 | PowerShell（构建时自动跑素材打包脚本） |
+| OS | Windows 10 1809 or later (uses `SetProcessDpiAwareness`, layered windows, and low-level input hooks) |
+| Compiler | Visual Studio 2022 (v143 toolset). The project file names `v145`; opening it in an older VS just needs a right-click on the project → "Retarget solution" |
+| Components | The "Desktop development with C++" workload plus the Windows 10 SDK |
+| Language standard | C++20 (the project already sets `/std:c++20`, nothing to configure) |
+| Runtime | None. The CRT is statically linked (`/MT`), so the exe runs wherever you copy it |
+| Other | PowerShell (the asset packing script runs during the build) |
 
-第三方解码器（ogg / mp3）是**源码内联**的，已经放在 `Ransom_dev/src/third_party/`，
-不需要额外下载或包管理器。
+The third-party decoders (ogg / mp3) are vendored as source in `Ransom_dev/src/third_party/`; no download and no package manager.
 
-## 构建
+## Building
 
 ### Visual Studio
 
-打开 `Ransom_dev.sln`，选 `Release | x64`，生成即可。
+Open `Ransom_dev.sln`, pick `Release | x64`, build.
 
-### 命令行
+### Command line
 
 ```powershell
 msbuild Ransom_dev.sln /p:Configuration=Release /p:Platform=x64 /m
 ```
 
-### 产物在哪
+### Where the output goes
 
-输出目录在工程文件里**显式钉死**了，不跟解决方案文件跑：
+The output directory is pinned in the project file rather than following the solution file:
 
 ```
-build\x64\Release\Ransom_dev.exe     ← 就这一个文件，素材全在里面
+build\x64\Release\Ransom_dev.exe     ← the whole thing, assets inside
 build\x64\Release\Ransom_dev.pdb
-build\obj\...                        ← 中间文件
+build\obj\...                        ← intermediates
 ```
 
-只有 `x64|Release` 是发布配置；`Win32` 和 `Debug` 配置也保留着，方便调试。
+Only `x64|Release` is a release configuration; `Win32` and `Debug` are kept around for debugging.
 
-### 素材是怎么进去的
+### How the assets get inside
 
-构建时 `tools/gen_assets.ps1` 会扫描 `assets/`，生成：
+At build time `tools/gen_assets.ps1` scans `assets/` and generates two files: `Ransom_dev/assets_gen.rc` (one `RCDATA` entry and numeric ID per asset) and `Ransom_dev/assets_gen.txt` (the name-to-ID list). `assets.cpp` reads the manifest under ID 1000 at startup to build its table, then pulls bytes with `FindResourceW`. So at runtime the program doesn't depend on the `assets/` directory — changing an asset means rebuilding, which is intentional; the single-file output is worth more.
 
-- `Ransom_dev/assets_gen.rc` —— 每个素材一条 `RCDATA`，配一个数字 ID
-- `Ransom_dev/assets_gen.txt` —— 名字 → ID 的清单
+> The script decides whether to rewrite those two files by comparing contents, not timestamps. A new asset can easily arrive with an old timestamp (`Copy-Item` and unzip both preserve the original time), and a timestamp check would silently miss it.
 
-`assets.cpp` 启动时读 ID 1000 那份清单建表，之后用 `FindResourceW` 取字节。
-所以运行时**不依赖 `assets/` 目录**，改素材要重新编译（这是有意的：单文件产物好处更大）。
+## Running it
 
-> 脚本靠**比内容**而不是比时间戳来决定要不要重写这两个文件 —— 新素材完全可能带着
-> 旧时间戳进来（`Copy-Item` 和 unzip 都会保留原时间），按时间戳判断会安静地漏掉。
+Double-click `Ransom_dev.exe`. It shows the [setup window](#the-setup-window) first, then, once you confirm the parameters, lurks for a few seconds and starts the show.
 
-## 跑起来
-
-直接双击 `Ransom_dev.exe`。它会先弹出[启动设置](#启动设置界面)，确认过参数之后潜伏几秒，再开始演出。
-
-**第一次跑建议先看看会发生什么，用这个顺序**：
+For a first run, this order shows you what's going to happen:
 
 ```powershell
-# 1. 先只看画出来的脸长什么样，不碰桌面
+# 1. Just look at the generated face, without touching your desktop
 Ransom_dev.exe --face-demo idle
 
-# 2. 看勒索主窗口的排版（渲染成 PNG 就退出）
+# 2. Look at the ransom window layout (renders to a PNG and exits)
 Ransom_dev.exe --ui-preview preview.png --ui-grid
 
-# 3. 真要跑整场了 —— 记得先读下面的「安全阀」
+# 3. Now run the whole thing — but read "Safety valve" below first
 Ransom_dev.exe
 ```
 
-## 启动设置界面
+## The setup window
 
-这一屏是每次启动的第一站 —— 全场的参数都在这里定：
+Every run starts here; all the parameters for the show are decided on this one screen:
 
-![启动设置窗口：光敏安全、背景音乐、音效、硬核模式、每次跳杀间隔、赎金目标、关窗惩罚时长、假金币比例、假币形态配比](docs/screenshots/setup.png)
+![The setup window: photosensitivity notice, background music, sound effects, hardcore mode, jumpscare interval, ransom goal, window-close penalty, fake coin ratio, fake coin shape mix](docs/screenshots/setup.png)
 
-从上到下：**界面语言** → 光敏安全提示 → 背景音乐 → 音效 → **游戏模式**（普通 / 硬核 / 挂机）→
-每次跳杀间隔（随机区间）→ 赎金目标（普通 / 硬核各一条）→ 关窗惩罚时长 → 假金币比例 →
-假币形态配比 → …… → 金币生成磁盘范围（硬核专属，点进去是 2D 盘符页）。
+Top to bottom: UI language, photosensitivity notice, background music, sound effects, game mode (normal / hardcore / idle), the random interval between jumpscares, the ransom goal (one entry for normal, one for hardcore), the window-close penalty duration, the fake coin ratio, the fake coin shape mix, and finally the hardcore-only coin drive range (which opens a 2D drive-letter page).
 
-点「开始」之后还有一屏**开演前提示**（普通模式叫「应急提示」，硬核模式换成「硬核模式警告」）：
-它把你刚选的数值回声一遍，并把退出口诀 `Ctrl + Alt + Shift + Q` 摆在最显眼的位置。
-点「我明白，开始」才真正开演，点「返回上一级」可以退回设置重挑。
+After "Start" there's a pre-show notice screen (called "emergency notice" in normal mode and "hardcore mode warning" in hardcore): it echoes back the values you just picked and puts the exit combo `Ctrl + Alt + Shift + Q` front and center. "I understand, start" begins the show; "Back" returns to the setup.
 
-> 设置窗口里的控制项变多了，一屏放不下：**右侧有滚动条**，
-> 滚轮压在滑条上就是微调那一条、压在空白处才是滚动整屏。
-> 窗口底部那两个按钮不参与滚动，永远看得见。
+> There are more controls than fit on one screen, so the right side scrolls: the wheel over a slider nudges that slider, the wheel over empty space scrolls the page. The two buttons at the bottom don't scroll and are always visible.
 
-参数存在 `%LOCALAPPDATA%\Ransom_dev\settings.ini`。想跳过设置直接用上次的值开演，用 `--no-setup`。
+Parameters live in `%LOCALAPPDATA%\Ransom_dev\settings.ini`. To skip the setup window and start with the last-used values, pass `--no-setup`.
 
-## 多语言（语言包）
+## Languages (language packs)
 
-界面上所有能看到的字都住在 **`assets\lang\*.lang`** 里，代码里一个字都不写死。
-设置界面最上面那一行「界面语言」是个下拉框，**选中立刻生效**，并且**当场就记进**
-`settings.ini` 的 `[ui] language=`（只写这一项，不用等点「开始」——不然选完直接把
-窗口关了，下次启动又会变回去）。
+Every string you can see lives in `assets\lang\*.lang`; not one of them is hard-coded. The "UI language" dropdown at the top of the setup window takes effect immediately and writes itself into `[ui] language=` in `settings.ini` on the spot — only that one key, without waiting for "Start", so picking a language and immediately closing the window still sticks.
 
-语言包跟图片、音频走同一条路：`tools\gen_assets.ps1` 把它编成 exe 的 RCDATA 资源，
-所以产物照样是单文件。仓库里自带两种：
+Language packs travel the same road as images and audio: `tools\gen_assets.ps1` compiles them into RCDATA resources in the exe, so the output stays a single file. Two ship in the repository:
 
-| 文件 | 代号 | 下拉框里显示 |
+| File | Code | Shown in the dropdown |
 |---|---|---|
-| `assets/lang/zh-CN.lang` | `zh-CN` | 简体中文（默认，也是其它语言缺词时的兜底） |
+| `assets/lang/zh-CN.lang` | `zh-CN` | 简体中文 (default, and the fallback for missing keys in other languages) |
 | `assets/lang/en-US.lang` | `en-US` | English |
 
-**加一种新语言 = 加一个文件，一行 C++ 都不用改**：
+Adding a language is adding a file — no C++ changes at all: copy `assets/lang/zh-CN.lang`, rename it to `<code>.lang` (say `ja-JP.lang`), change `meta.name` to the language's own name (that's what the dropdown shows), translate the values on the right, leave the key names alone since the code looks them up by name, then drop it back into `assets\lang\` and rebuild. The dropdown picks it up automatically.
 
-1. 拷一份 `assets/lang/zh-CN.lang`，改名成 `<代号>.lang`（比如 `ja-JP.lang`）；
-2. 把 `meta.name` 改成这门语言自己的写法（下拉框里显示的就是它），
-   再把右边的值翻译掉。键名**不要动**，那是代码按名字取的；
-3. 丢回 `assets\lang\` 重新编译一次。下拉框里就自动多出这一项。
+Format (the same notes are at the top of the file):
 
-格式（文件开头也有同样的说明）：
+* One `key = value` per line; `#` or `;` starts a comment, blank lines are ignored.
+* Values need no C++ escaping: one backslash is one backslash (`C:\ D:\`), one percent sign is one percent sign (`50%`).
+* The exception is format strings (values containing `%d` / `%.1f` / `%s` / `%c`): the number, order, and type of placeholders can't change. Reword freely, carry the placeholders over untouched. A literal percent sign is still `%%`.
+* A missed key is fine: it falls back to the `zh-CN` entry, and the UI doesn't go blank or crash.
+* If the whole pack is gone (you deleted or renamed the `.lang`, or the ini holds a misspelled code), the next launch falls back to `en-US` instead of failing to open the window or printing raw key names everywhere.
 
-* 一行一条 `键 = 值`；`#` 或 `;` 开头是注释，空行忽略；
-* **值里不用写 C++ 转义**：反斜杠写一个（`C:\ D:\`）、百分号也写一个（`50%`）；
-* 例外是**格式串**（值里带 `%d` / `%.1f` / `%s` / `%c` 的那些）：占位符的个数、
-  顺序、类型不能动 —— 词句随便改，占位符原样搬过去；真要一个百分号还是写 `%%`；
-* 某条键漏翻了不要紧：会自动退回 `zh-CN` 那一份，界面不会空白也不会崩。
-* **整个包都没了**（你把那个 `.lang` 删了、改名了，或者 ini 里存了个拼错的代号）：
-  下次启动会自动改用 `en-US` 那一份兜底，而不是**打不开界面**或者满屏显示键名。
+The Chinese strings in `elog::Write` are not in a language pack — those are diagnostic lines written to a log file, invisible to the player, and they only exist in Chinese.
 
-`elog::Write` 里的中文**不在语言包里**：那是写进日志文件的诊断信息，玩家看不到，
-只有中文一份。
+## Safety valve and rollback
 
-## 安全阀与回滚
+Every desktop modification has a way back:
 
-程序动你桌面的每一处都留了退路：
-
-| 情况 | 怎么退 |
+| Situation | How to get out |
 |---|---|
-| **任何时候想立刻停** | 按 `Ctrl + Alt + Shift + Q`（全局热键，被判定逻辑豁免，不会误伤。**硬核模式下也一样，按一次就退**） |
-| 金币快捷方式没清干净 | `Ransom_dev.exe --clean-gold` |
-| 快捷方式被丢进回收站了 | `Ransom_dev.exe --restore` |
-| 被收走的窗口没还回来 | 程序正常退出的路径**一定会还原**；被任务管理器强杀不会 —— 那种情况去任务栏点一下即可 |
-| 桌面图标被挪了 | 桌面右键 →「查看」→ 勾「自动排列图标」再取消，图标会归位 |
+| Stop immediately, any time | Press `Ctrl + Alt + Shift + Q`. It's a global hotkey, exempt from the detection logic, so it won't hurt you by accident; it works the same in hardcore mode — one press and you're out. |
+| Coin shortcuts left behind | `Ransom_dev.exe --clean-gold` |
+| Shortcuts went to the Recycle Bin | `Ransom_dev.exe --restore` |
+| Swept windows didn't come back | Every clean exit path restores them; a Task Manager kill does not — in that case click the taskbar buttons. |
+| Desktop icons moved | Right-click the desktop → View → toggle "Auto arrange icons" on and off; the icons snap back. |
 
-正常退出的路径（付清 / 超时受罚 / 按安全阀 / 关闭窗口）都会：还原窗口、
-删掉全部生成的金币快捷方式、把被没收的快捷方式按清单放回原位。
+Every clean exit path (paid / timeout penalty / safety valve / closed window) restores windows, deletes every generated coin shortcut, and puts the confiscated shortcuts back from the manifest.
 
-## 硬核模式
+## Hardcore mode
 
-启动设置里有一个「硬核模式」开关（打开时窗口会抖一下）。
+There's a hardcore toggle in the setup window (the window shakes when you flip it).
 
-![硬核模式警告页：开演前把这一轮选定的数值逐条列出](docs/screenshots/hardcore-warning.png)
+![The hardcore warning screen: the values chosen for this run, listed one by one before the show](docs/screenshots/hardcore-warning.png)
 
-*开了硬核模式，开演前那一屏会把你刚选的数值逐条列出来 —— 这一屏是要人**读**的，不是装饰。*
+*With hardcore on, the pre-show screen lists the values you just picked one by one — that screen is meant to be read, not decoration.*
 
-开着它，这一轮演出会变成：
+With it on, the run becomes:
 
-| 项目 | 普通 | 硬核 |
+| | Normal | Hardcore |
 |---|---|---|
-| 勒索倒计时 | 90 秒 | **3 分钟** |
-| 赎金目标 | 可调 10 ~ 1000（默认 500） | 可调 **1000 ~ 9999**（默认 5000，超过 9999 的部分砍掉） |
-| 金币面额 | 10 ~ 500 | **50 / 75 / 100**（约 74 枚真币） |
-| 主题曲 | 原版（裁到 1:30） | **remix**（取前 3:30，快进不变调压到 3:00） |
-| 弹窗 | 同时最多 14 个 | 最多 22 个，还会**贴着鼠标生成**挡你点击 |
-| 关一个子窗口 | 可调 0 ~ 18 秒（默认 10 秒） | 可调 0 ~ 30 秒（默认 30 秒）；关 6 个就必死 |
-| 桌面锁定 | 只锁快捷方式 | 另外**随机锁 0.9~9 秒的非快捷方式项**（文件夹 / 文件），到点变绿淡出 |
-| 金币落点 | 只在桌面 | 桌面 **+ 各固定磁盘的顶层目录** |
-| 假金币 | 无 | 比例可调 **0 ~ 100%**（默认 35%），另有一条**双滑块**控制"前缀改 / 数字改 / 两个都改"的配比 |
+| Ransom countdown | 90 seconds | 3 minutes |
+| Ransom goal | Adjustable 10 ~ 1000 (default 500) | Adjustable 1000 ~ 9999 (default 5000; anything above 9999 is truncated) |
+| Coin denominations | 10 ~ 500 | 50 / 75 / 100 (about 74 real coins) |
+| Theme | Original (trimmed to 1:30) | Remix (first 3:30 taken, sped up without pitch shift to 3:00) |
+| Popups | Up to 14 at once | Up to 22, and they spawn against your mouse cursor to block clicks |
+| Closing a child window | Adjustable 0 ~ 18s (default 10s) | Adjustable 0 ~ 30s (default 30s); closing 6 is fatal |
+| Desktop locking | Shortcuts only | Also locks non-shortcut items (folders / files) at random for 0.9~9s, then they fade out green |
+| Where coins land | Desktop only | Desktop plus the top-level folder of each fixed drive |
+| Fake coins | None | Ratio adjustable 0 ~ 100% (default 35%), plus a dual-slider controlling the mix of "prefix changed / digits changed / both changed" |
 
-安全阀在硬核下**和平常一样，按一次就停** —— 这一条是刻意的，
-不留任何"要按两次"的额外门槛。
+The safety valve behaves the same in hardcore — one press stops it. That's deliberate: no "press twice" hurdle.
 
-两件要额外说清楚的事：
+Two things need saying.
 
-- **假金币。** 生成的金币里会混进一批"假币"（比例默认 35%，可在设置里从 0 拉到 100%），
-  它们只是文件名被同形字替换过（`Gold_50` → `G01d_5o`），双击**一分钱都不进账**，
-  而是按被污染的位置吃惩罚：前缀 `Gold` 被换掉 → 倒计时扣「面额 × 0.1」秒；
-  数字被换掉 → 未付的赎金 +面额；两段都换掉 → 两种同时触发。
-  "前缀改 / 数字改 / 两个都改"这三种形态的配比由**一条双滑块的轨道**控制
-  （和"每次跳杀间隔"那条一个路子）：两颗珠子把 0~100 划成三段 ——
-  **左段红＝前缀改，中段绿＝后缀改，右段红＝两个都改**。
-  第三段没有自己的珠子，它把 100 减去前两段之后的部分**全吃掉**，
-  所以三种形态不可能同时为 0（两颗珠子都推到最左边时，全部落进"两个都改"）。
-  被顶上去的赎金**不是永久的** —— 之后捡到的真金币会先拿去还这笔债，还完读数就回到正常节奏。
-- **中途不能切换。** 一轮跑到底：设置里开着什么，这一轮就是什么。
+Fake coins. SOME of the spawned coins are fakes (35% by default, adjustable from 0 to 100% in the setup window). Their filenames have homoglyph substitutions (`Gold_50` → `G01d_5o`), and double-clicking one credits nothing. Instead you eat a penalty based on what was tampered with: prefix `Gold` replaced → the countdown loses "denomination × 0.1" seconds; digits replaced → the unpaid ransom grows by the denomination; both replaced → both fire at once. The mix of the three shapes ("prefix changed / digits changed / both changed") is set by one dual-slider track (same idea as the jumpscare interval slider): two beads cut 0~100 into three segments — left segment red = prefix changed, middle green = suffix changed, right red = both changed. The third segment has no bead of its own; it takes whatever remains after subtracting the first two, so all three can never be zero at once (push both beads to the far left and everything lands in "both changed"). Ransom added this way isn't permanent — real coins you collect afterwards pay that debt down first, and once it's settled the reading returns to normal.
 
-开关存在 `%LOCALAPPDATA%\Ransom_dev\settings.ini` 的 `[game] hardcore=`。
-硬核下金币会散到 `C:\`、`D:\` 这类固定盘的顶层文件夹里，
-所以 `--clean-gold` 也会扫那些位置（判据仍是"目标指向本程序 + 参数含 `--pay`/`--token`"，
-不会碰你的东西）。
+No switching mid-run. One run goes all the way: whatever was set when the show started is what you get.
 
-## 演出流程
+The toggle lives under `[game] hardcore=` in `%LOCALAPPDATA%\Ransom_dev\settings.ini`. In hardcore, coins scatter into the top-level folders of fixed drives like `C:\` and `D:\`, so `--clean-gold` scans those too (the test is still "targets this program and has `--pay`/`--token` in its arguments", so it won't touch your files).
+
+## The show
 
 ```
-潜伏 IDLE ──> 脸在随机位置浮现 FACE ──> 瞬移到中央 CENTER（同时闪出停牌）
+IDLE (lurk) ──> FACE fades in at a random spot ──> CENTER (teleports to the middle, stop sign flashes)
                                               │
-                              停牌显示约 1 秒，这期间「不许动」
+                              stop sign shows for ~1s — "don't move"
                                               │
                               ┌───────────────┴───────────────┐
-                         没动 │                               │ 动了
+                     held still │                               │ moved
                               ▼                               ▼
-                        避开 ESCAPED                     被抓 CAUGHT
-                    头再露一下就走人                   jumpscare ──> 加载画面
+                        ESCAPED                      CAUGHT
+                    shows its face once more        jumpscare ──> loading screen
                                                               │
                                                               ▼
-                                                     勒索 RANSOM（90 秒）
-                                              · 满屏弹窗 + 桌面图标标「已加密」
-                                              · 所有开着的程序被收进任务栏
-                                              · 去点桌面上生成的金币快捷方式攒 500 Gold
+                                                     RANSOM (90 seconds)
+                                              · screen full of popups + icons marked "encrypted"
+                                              · every open program swept into the taskbar
+                                              · click the coin shortcuts on the desktop to reach 500 Gold
                                                               │
                                               ┌───────────────┴───────────────┐
-                                         付清 │                               │ 超时
+                                        paid │                               │ timeout
                                               ▼                               ▼
-                                        付清 PAID                       惩罚 PUNISH
-                                      付钱演出 + 全部还原           jumpscare + 快捷方式进回收站
+                                        PAID                            PUNISH
+                                    pay-up scene + full restore    jumpscare + shortcuts into the Recycle Bin
 ```
 
-「动了」的判定很宽：鼠标位移超过容差（默认 20px）、按了键、都会被抓。
-`--tolerance N` 可以放宽。
+The "moved" test is generous: mouse displacement beyond the tolerance (20px by default), or any keypress, gets you caught. `--tolerance N` loosens it.
 
-## 命令行开关
+## Command-line options
 
-| 开关 | 作用 |
+| Option | Effect |
 |---|---|
-| `--phase NAME\|N` | 直接跳到某个阶段并停住。名字：`潜伏 / 任意位置浮现 / 瞬移到中央 / 停牌判定 / 避开 / 被抓 / 付清 / 惩罚`，或者用序号 0-7 |
-| `--no-auto` | 不自动推进阶段（必须配 `--phase` 用，方便慢慢看某一帧） |
-| `--tolerance N` | 鼠标容差像素，默认 20 |
-| `--no-audio` | 不启动声音 |
-| `--no-overlay` | 不启动桌面覆盖层（不会画方框、不会拦点击） |
-| `--overlay-topmost` | 覆盖层置顶（默认贴桌面层，会被普通窗口盖住） |
-| `--no-block-menu` | 不拦被加密图标上的右键菜单（**排查问题时用**） |
-| `--no-lockdown` | 勒索时不最小化别的程序（**排查问题时用**） |
-| `--no-guardian` | 不启动双进程看守（调试时用；挂着调试器时也会自动跳过） |
-| `--no-setup` | 不弹启动设置和开演前提示，直接用 `settings.ini` 里的值开演 |
-| `--diag PATH` | 把诊断日志写到文件。GUI 子系统没有控制台，排查全靠这个 |
-| `--face-demo MODE` | 只显示某一张脸：`idle` / `stop` / `attack` / `loading` |
-| `--face-dump DIR` | 把程序生成的脸导出成 PNG 后退出 |
-| `--audio-dump PATH` | 把全部音效离线渲染成 WAV 后退出（验波形用） |
-| `--theme-dump PATH` | 把处理后的主题曲导成 WAV 后退出（试听用） |
-| `--ui-preview PATH` | 把勒索主窗口的排版渲染成 PNG 后退出（调排版用，不用跑整场） |
-| `--ui-grid` | 配合 `--ui-preview`，预览图叠坐标网格 |
-| `--setup-ui PATH` | 把启动设置窗口渲染成 PNG 后退出（调排版用） |
-| `--notice-ui PATH` | 把开演前提示窗口渲染成 PNG 后退出 |
-| `--setup-grid` | 配合上面两个，预览图叠坐标网格 |
-| `--payup` | 配合 `--ui-preview`，预览付钱那一屏的排版 |
-| `--fx-demo NAME PATH` | 把特效层单独导成 PNG：`glow` / `black` / `stop` |
-| `--clean-gold` | 只扫描并删除遗留的金币快捷方式，然后退出 |
-| `--restore` | 按清单把被没收的快捷方式从回收站还原，然后退出 |
-| `--image-dir DIR` / `--audio-dir DIR` | 覆盖素材目录（默认从 exe 内嵌资源里取） |
+| `--phase NAME\|N` | Jump straight to a phase and hold there. Names: `lurk / fade in at a random spot / teleport to the centre / stop-sign check / escape / caught / paid / punish`, or an index 0-7 |
+| `--no-auto` | Don't advance phases automatically (requires `--phase`; good for staring at a single frame) |
+| `--tolerance N` | Mouse tolerance in pixels, default 20 |
+| `--no-audio` | Don't start audio |
+| `--no-overlay` | Don't start the desktop overlay (no boxes drawn, no click blocking) |
+| `--overlay-topmost` | Pin the overlay on top (by default it sits at the desktop layer and normal windows cover it) |
+| `--no-block-menu` | Don't block right-click menus on the encrypted icons (for troubleshooting) |
+| `--no-lockdown` | Don't minimize other programs during the ransom (for troubleshooting) |
+| `--no-guardian` | Don't start the two-process guardian (for debugging; also skipped automatically when a debugger is attached) |
+| `--no-setup` | Skip the setup window and the pre-show notice, and use the values in `settings.ini` |
+| `--diag PATH` | Write the diagnostic log to a file. A GUI-subsystem app has no console, so this is the only way to debug |
+| `--face-demo MODE` | Show one face only: `idle` / `stop` / `attack` / `loading` |
+| `--face-dump DIR` | Export the generated faces as PNGs and exit |
+| `--audio-dump PATH` | Render all sound effects offline to a WAV and exit (for checking waveforms) |
+| `--theme-dump PATH` | Export the processed theme to a WAV and exit (for listening) |
+| `--ui-preview PATH` | Render the ransom window layout to a PNG and exit (for layout work, without running the show) |
+| `--ui-grid` | With `--ui-preview`, overlay a coordinate grid on the preview |
+| `--setup-ui PATH` | Render the setup window to a PNG and exit (for layout work) |
+| `--notice-ui PATH` | Render the pre-show notice window to a PNG and exit |
+| `--setup-grid` | With the two above, overlay a coordinate grid on the preview |
+| `--payup` | With `--ui-preview`, preview the pay-up screen layout |
+| `--fx-demo NAME PATH` | Export the effect layer alone as a PNG: `glow` / `black` / `stop` |
+| `--clean-gold` | Only scan for and delete leftover coin shortcuts, then exit |
+| `--restore` | Restore confiscated shortcuts from the Recycle Bin using the manifest, then exit |
+| `--image-dir DIR` / `--audio-dir DIR` | Override the asset directories (by default they come from the embedded resources in the exe) |
 
-## 同类项目对比
+## How it compares to similar projects
 
-> 2026-09-27 实查。数据来自各仓库的公开信息（GitHub API / 文件清单 / README / 源码关键词）。
-> **行数按 32B/行粗估**（本仓库是实测），标「未核实」的就是没找到证据，没有替人脑补。
-> 想看结论直接跳到最后一段「我们不一样在哪」。
+> Checked 2026-09-27 against public information (GitHub API / file listings / READMEs / source keywords). Line counts are estimated at 32 bytes per line except this repository, which was counted. "Not verified" means no evidence was found — nothing was filled in on anyone's behalf.
 
-### 身份与技术
+### Identity and technology
 
-| 项目 | 语言 / 技术栈 | 产物形态 | 仓库体积 | 源码量 | 更新活跃度 |
+| Project | Language / stack | Output | Repository size | Source volume | Activity |
 |---|---|---|---|---|---|
-| **本仓库** | C++20 + Win32 + GDI+ | **单文件 exe 7.7MB**，素材全内嵌、不依赖任何运行时 | 16.2MB（素材 6.8MB） | 41 个文件 / **16,133 行**（实测） | 本地在改；[公开仓库](https://github.com/Wqawa/Doors-ransom) 09-26 |
-| [Ixars/ransomdoors](https://github.com/Ixars/ransomdoors) | C# / WPF（.NET） | 要 .NET 运行时；发布产物直接躺在仓库里 | **598MB**（.dll 364MB、7 个 exe 56MB、.resources 151MB——**构建产物全提交了**） | 24 个文件 ≈3.2k 行 | 09-02 建、**09-09 起停更**；102★ / 36 fork、51 个 open issue |
-| [khoichon/rans0m-crossplatform](https://github.com/khoichon/rans0m-crossplatform) | JS / Electron（libuiohook 做全局输入钩子） | Win / macOS / Linux 三平台 | 50MB（**素材直接复用 Ixars 的**） | 23 个文件 ≈2.9k 行 | 09-19 → 09-20；3★ |
-| [masashira0212-stack](https://github.com/masashira0212-stack/Doors-Ransom-A-90-Simulation) | Python + tkinter | `ransom.exe` + `ransom_setting.exe`（PyInstaller） | 6.25MB | 19 个文件 ≈10k 行（含大量测试） | 09-04 → 09-07；14★ / 7 fork |
-| [deepcoolforce23/Ransom-Doors](https://github.com/deepcoolforce23/Ransom-Doors) | Python + Qt | 源码 | 11.8MB（音频 7MB） | 3 个文件 ≈6k 行 | 09-12 → **09-24（还在动）**；0★ |
-| [CagriLo3169/A-90-Ransom-GDI](https://github.com/CagriLo3169/A-90-Ransom-GDI) | 未核实（**源码没进仓库**） | 只有 `Source-Code.tar.gz` 6MB + `dist.zip` 20MB | 24.9MB | — | 09-07 → 09-08；3★ |
-| [Kovax00/Ransomware-POC-Doors](https://github.com/Kovax00/Ransomware-POC-Doors) ⚠️ | Python | 源码 | 18.8MB（wav 16.8MB） | 12 个文件 ≈1.6k 行 | 09-06 建、当天发；1★ |
-| [gidrobater/RansomDoorsPrank](https://github.com/gidrobater/RansomDoorsPrank) ／ [calamoy/ransom-doors](https://github.com/calamoy/ransom-doors) | — | — | **空仓库** | — | — |
+| This repository | C++20 + Win32 + GDI+ | A single 7.7MB exe, all assets embedded, no runtime dependency | 16.2MB (6.8MB of assets) | 41 files / 16,133 lines (counted) | Changing locally; [public repository](https://github.com/Wqawa/Doors-ransom) 09-26 |
+| [Ixars/ransomdoors](https://github.com/Ixars/ransomdoors) | C# / WPF (.NET) | Needs the .NET runtime; release artifacts committed straight into the repository | 598MB (.dll 364MB, 7 exes 56MB, .resources 151MB — build output fully committed) | 24 files ≈3.2k lines | Created 09-02, dead since 09-09; 102★ / 36 forks, 51 open issues |
+| [khoichon/rans0m-crossplatform](https://github.com/khoichon/rans0m-crossplatform) | JS / Electron (libuiohook for the global input hook) | Windows / macOS / Linux | 50MB (reuses Ixars' assets directly) | 23 files ≈2.9k lines | 09-19 → 09-20; 3★ |
+| [masashira0212-stack](https://github.com/masashira0212-stack/Doors-Ransom-A-90-Simulation) | Python + tkinter | `ransom.exe` + `ransom_setting.exe` (PyInstaller) | 6.25MB | 19 files ≈10k lines (lots of tests) | 09-04 → 09-07; 14★ / 7 forks |
+| [deepcoolforce23/Ransom-Doors](https://github.com/deepcoolforce23/Ransom-Doors) | Python + Qt | Source | 11.8MB (7MB of audio) | 3 files ≈6k lines | 09-12 → 09-24 (still moving); 0★ |
+| [CagriLo3169/A-90-Ransom-GDI](https://github.com/CagriLo3169/A-90-Ransom-GDI) | Not verified (source is not in the repository) | Only `Source-Code.tar.gz` 6MB + `dist.zip` 20MB | 24.9MB | — | 09-07 → 09-08; 3★ |
+| [Kovax00/Ransomware-POC-Doors](https://github.com/Kovax00/Ransomware-POC-Doors) | Python | Source | 18.8MB (16.8MB of wav) | 12 files ≈1.6k lines | Created 09-06, shipped the same day; 1★ |
+| [gidrobater/RansomDoorsPrank](https://github.com/gidrobater/RansomDoorsPrank) ／ [calamoy/ransom-doors](https://github.com/calamoy/ransom-doors) | — | — | Empty repositories | — | — |
 
-### 行为与自由度
+### Behaviour and how much you can tune
 
-| 项目 | 还原程度 | 自由度 | 对桌面的修改 | 退出 / 还原 |
+| Project | Fidelity | Tunability | Desktop changes | Exit / restore |
 |---|---|---|---|---|
-| **本仓库** | 脸浮现 → 停牌判定 → 跳杀 → 加载条 → 金币赎金，全套；原版素材，缺素材时程序生成回退 | 设置界面（三态模式、十几项滑条、2D 盘符页）+ `settings.ini` + 一堆命令行开关 + **语言包** | **只写 `.lnk`**、桌面覆盖层锁图标、快捷方式进回收站；**永不真加密**；撒金币可限定盘符 | 安全阀 `Ctrl+Alt+Shift+Q` 一次即停；退出四条路径全还原；`--restore` / `--clean-gold` |
-| Ixars | 全套 + 彩蛋 `.crucifix`（找到直接清账）；金币是 `.gold1`~`.gold6` **文件**撒在用户目录；改光标、**壁纸变暗红** | 配置窗口；**opt-in** 可开「崩溃」（真跑 `shutdown /s /t 0`）或「执行任意命令」 | 往用户文件夹撒文件、改壁纸、改光标 | 默认只是重置；关机/执行命令是可选开关，关掉就没事 |
-| khoichon | 照抄 Ixars（自述 line-by-line），`config.json` 与原版**互通** | Electron 配置；金币可撒 Desktop/Downloads，也可以改撒进一个临时「抽屉」目录 | 撒金币文件 + 改壁纸 | 壁纸有专门的安全规则（自述"以前会把壁纸卡在暗红"），**每条退出路径都 restore** |
-| masashira0212 | 警告 / STOP / LOADING / 成功·失败演出 + 桌面覆盖层（日文项目，带日文 PC 指南） | **独立设置窗口**（计时秒数、弹窗缩放、热键可改）+ 一堆测试脚本 + 杀软误报复盘 | **覆盖桌面图标格（含非 `.lnk` 的 Shell 项）**、改壁纸、注册全局热键 | 有「Restore desktop」按钮和热键；另有 `recovery_watchdog.py` 看门狗 |
-| deepcoolforce23 | 走恐怖路线：玩法改成在乱弹的窗口里开下拉菜单找金币，有 corrupted entry 直接判负、glitch 窗口乱飞 | 未核实 | 把文件**移进 `%APPDATA%\RansomIconData`** 并留一个带停牌图标的快捷方式冒充「已加密」、改壁纸、**往启动项塞 `WindowsSecurityHealth.lnk`** | 赢了文件回来；有 `icon_backup.json` 和 `restore_desktop_icons()` |
-| CagriLo3169 | 自称无害视觉模拟，README 列了 25 个 Win32 GDI 屏幕特效 | 未核实 | 未核实（源码在压缩包里） | 未核实 |
-| Kovax00 ⚠️ | **真加密**：ChaCha20-Poly1305 + RSA-OAEP；24 小时不付**直接关机**；带 `decrypt_tool.py` | 未核实 | 真改文件（加密） | 只能靠私钥 + 5 枚金币解密；作者自己标了「不是模拟、不可逆」 |
+| This repository | Face fade-in → stop-sign check → jumpscare → loading bar → coin ransom, the whole chain; original assets, with procedural fallbacks when they're missing | Setup window (three modes, a dozen-odd sliders, 2D drive page) + `settings.ini` + a pile of command-line options + language packs | Writes `.lnk` files only, blocks icons with a desktop overlay, sends shortcuts to the Recycle Bin; never real encryption; coin scattering can be limited to certain drives | Safety valve `Ctrl+Alt+Shift+Q`, one press; all four exit paths restore; `--restore` / `--clean-gold` |
+| Ixars | The whole chain plus a `.crucifix` easter egg (finding it settles the debt); coins are `.gold1`~`.gold6` files scattered through the user folder; changes the cursor and dims the wallpaper red | Config window; opt-in "crash" (actually runs `shutdown /s /t 0`) or "run arbitrary command" | Drops files into user folders, changes wallpaper and cursor | Reset by default; shutdown / command execution are optional switches, off by default |
+| khoichon | Copies Ixars (self-described line-by-line), `config.json` interoperable with the original | Electron config; coins can go to Desktop/Downloads, or into a temporary "drawer" directory | Drops coin files + changes wallpaper | Wallpaper has dedicated safety rules (self-described "used to get the wallpaper stuck red"), and every exit path restores |
+| masashira0212 | Warning / STOP / LOADING / success-failure scenes + desktop overlay (a Japanese project, ships a Japanese PC guide) | A separate settings window (timers, popup scale, rebindable hotkeys) + a pile of test scripts + an antivirus false-positive writeup | Covers desktop icon cells (including non-`.lnk` shell items), changes wallpaper, registers a global hotkey | Has a "Restore desktop" button and hotkey; also a `recovery_watchdog.py` watchdog |
+| deepcoolforce23 | Goes horror: the game becomes hunting for coins in dropdowns on windows that fling themselves around, with corrupted entries as instant losses and glitch windows flying about | Not verified | Moves files into `%APPDATA%\RansomIconData` and leaves a shortcut with the stop-sign icon posing as "encrypted", changes wallpaper, drops `WindowsSecurityHealth.lnk` into startup | Win and the files come back; ships `icon_backup.json` and `restore_desktop_icons()` |
+| CagriLo3169 | Claims to be a harmless visual simulator; the README lists 25 Win32 GDI screen effects | Not verified | Not verified (source is inside the archives) | Not verified |
+| Kovax00 | Real encryption: ChaCha20-Poly1305 + RSA-OAEP; shuts the machine down after 24 hours unpaid; ships `decrypt_tool.py` | Not verified | Really modifies files (encrypts them) | Only the private key plus 5 coins decrypt; the author labels it "not a simulation, irreversible" |
 
-### 我们不一样在哪
+### A few observations
 
-- **产物**：同行里唯一**原生 Win32、单文件 exe、不依赖任何运行时**的。Ixars 要 .NET（而且仓库里塞了 598MB 构建产物），khoichon 要 Electron，masashira 和 deepcool 要 Python + 打包器。
-- **对桌面下手的程度**：真覆盖桌面图标的只有本仓库和 masashira0212；deepcoolforce23 更进一步，会把文件挪走并**往启动项里塞一个 lnk**；**真加密的只有 Kovax00**（作者自己都写了破坏性警告）——正好是本仓库那条红线（只写 `.lnk`、绝不真加密）的反面教材。
-- **退路**：把「安全阀一次即停 + 退出四条路径必还原 + `--restore` / `--clean-gold` 命令行兜底」成套写清楚的，公开说明里只有这一份。khoichon 也认真做了 restore（退出路径全覆盖），masashira 有恢复按钮和看门狗。
-- **可调项与语言**：设置界面里能调十几项、还带 2D 盘符页和 `settings.ini` 的只有这一份；**多语言包也只有这一份**。
+- Output: native Win32, a single exe, no runtime dependency — the only one in this column. Ixars needs .NET (and carries 598MB of build output in the repository), khoichon needs Electron, and masashira and deepcool need Python plus a packer.
+- How far it goes on the desktop: only this repository and masashira0212 genuinely cover desktop icons. deepcoolforce23 goes further, moving files away and dropping an lnk into startup. The only real encryption is Kovax00, whose own author posted a destructive warning — the mirror image of this repository's red line (.lnk files only, never real encryption).
+- A way out: the set of "the safety valve stops it in one press + all four exit paths restore + `--restore` / `--clean-gold` as command-line backstops" is spelled out in public in this repository alone. khoichon also restores on every exit path, and masashira has a restore button and a watchdog.
+- Tunables and languages: this is the only one with a dozen-odd settings, a 2D drive page, and `settings.ini`, and the only one with language packs.
 
-> 还没核实的两项：itch.io / GameJolt 上的 [R4NS0M SIMULATOR](https://gamejolt.com/games/r4ns0m/1098499)（NatureStudio）是个**游戏型 fangame**（"收集金币、付赎金、拿回文件"），不碰系统，技术栈没查到；另一个 Android 版（作者 robotkjgh）完全没查到页面。
+> Two still unverified: [R4NS0M SIMULATOR](https://gamejolt.com/games/r4ns0m/1098499) (NatureStudio) on itch.io / GameJolt is a game-style fangame ("collect coins, pay the ransom, get your files back") that doesn't touch the system; its stack wasn't found. The other, an Android version by robotkjgh, has no page that could be found at all.
 
-## 项目结构
+## Project layout
 
 ```
 Ransom_dev.sln
-├─ Ransom_dev/                  工程文件
-│  ├─ Ransom_dev.vcxproj        输出目录、工具集、素材打包目标都在这
-│  ├─ Ransom_dev.rc             应用图标 + #include 素材清单
-│  ├─ assets_gen.rc / .txt      ← 自动生成，别手改
+├─ Ransom_dev/                  project files
+│  ├─ Ransom_dev.vcxproj        output directories, toolset, and the asset packing target
+│  ├─ Ransom_dev.rc             app icon + #include of the asset manifest
+│  ├─ assets_gen.rc / .txt      ← generated, don't edit by hand
 │  └─ src/
-│     ├─ entity_main.cpp        入口：命令行、消息循环、安全阀热键
-│     ├─ director.cpp           遭遇战调度器（上面那张流程图就是它）
-│     ├─ face.cpp               A-90 的脸，程序化生成
-│     ├─ fx.cpp                 全屏特效层：四角红光、黑幕、雪花噪点
-│     ├─ popup.cpp              满屏弹窗 + 勒索主窗口
-│     ├─ aero_window.cpp        自绘标题栏的窗口封装
-│     ├─ ui_layout.cpp          勒索窗口的**数据驱动排版**
-│     ├─ desktop_overlay.cpp    桌面图标覆盖层 + 输入拦截（钩子都在这）
-│     ├─ lockdown.cpp           勒索时把别的程序收进任务栏，且不让它们回来
-│     ├─ gold.cpp               金币快捷方式（双击它 = 赎回）
-│     ├─ recycle.cpp            超时惩罚：把快捷方式丢进回收站
-│     ├─ motion.cpp             鼠标/键盘「动了没」的检测
-│     ├─ audio.cpp / audio_clip.cpp   混音、解码（ogg/mp3）
-│     ├─ assets.cpp / image_blob.cpp  内嵌素材的读取
-│     ├─ entity_log.cpp         诊断日志
-│     ├─ guardian.cpp           双进程看守：主进程正常收场会发 Disarm 事件，被强杀则由守望进程判罚
-│     ├─ settings.cpp           参数持久化（settings.ini 的读写与取值）
-│     ├─ setup_ui.cpp           启动设置界面 + 开演前提示（自绘 UI）
-│     └─ third_party/           stb_vorbis（ogg）、minimp3（mp3），源码内联
-├─ assets/                      素材（会被打包进 exe）
-│  ├─ main_window.ini           勒索主窗口的排版
-│  ├─ payup.ini                 付钱那一屏的排版
-│  ├─ image/  audio/            图片、音频
-│  ├─ ransom.ico                应用图标
-│  └─ dump/                     程序自己生成的脸（导出样本，可删）
-├─ tools/gen_assets.ps1         扫描 assets\ 生成资源清单
-└─ docs/screenshots/            README 里用的截图（不参与构建，也不会被打进 exe）
+│     ├─ entity_main.cpp        entry point: command line, message loop, safety-valve hotkey
+│     ├─ director.cpp           the encounter scheduler (that diagram above is this file)
+│     ├─ face.cpp               A-90's face, generated procedurally
+│     ├─ fx.cpp                 full-screen effect layer: corner glow, blackout, static
+│     ├─ popup.cpp              the popup flood + the ransom main window
+│     ├─ aero_window.cpp        window wrapper with a custom title bar
+│     ├─ ui_layout.cpp          data-driven layout for the ransom window
+│     ├─ desktop_overlay.cpp    desktop icon overlay + input interception (all the hooks)
+│     ├─ lockdown.cpp           sweeps other programs into the taskbar and keeps them there
+│     ├─ gold.cpp               coin shortcuts (double-clicking one = paying)
+│     ├─ recycle.cpp            timeout penalty: shortcuts into the Recycle Bin
+│     ├─ motion.cpp             the mouse/keyboard "did it move" check
+│     ├─ audio.cpp / audio_clip.cpp   mixing and decoding (ogg/mp3)
+│     ├─ assets.cpp / image_blob.cpp  reading the embedded assets
+│     ├─ entity_log.cpp         diagnostic log
+│     ├─ guardian.cpp           two-process guardian: a clean exit sends a Disarm event, a kill is punished by the watcher
+│     ├─ settings.cpp           parameter persistence (reading and writing settings.ini)
+│     ├─ setup_ui.cpp           setup window + pre-show notice (custom-drawn UI)
+│     └─ third_party/           stb_vorbis (ogg), minimp3 (mp3), vendored source
+├─ assets/                      assets (packed into the exe)
+│  ├─ main_window.ini           ransom window layout
+│  ├─ payup.ini                 pay-up screen layout
+│  ├─ image/  audio/            images and audio
+│  ├─ ransom.ico                app icon
+│  └─ dump/                     faces the program generated (export samples, deletable)
+├─ tools/gen_assets.ps1         scans assets\ and generates the resource manifest
+└─ docs/screenshots/            screenshots used by the READMEs (not built, never packed into the exe)
 ```
 
-## 几个实现上的取舍（为什么这么写）
+## A few design trade-offs
 
-写的时候踩过一些坑，都记在代码注释里了，这里挑几个值得一看的：
+Some corners were banged into along the way, and they're all noted in the code comments. A few are worth a look.
 
-**排版不写死在代码里。** 勒索主窗口的位置、尺寸、颜色全在 `assets/main_window.ini` 里，
-改排版不用重新编译；配 `--ui-preview` 能直接把排版渲染成 PNG，还能叠坐标网格读坐标。
+Layout isn't hard-coded. The ransom window's position, size, and colours all live in `assets/main_window.ini`, so changing the layout needs no rebuild; with `--ui-preview` you can render that layout straight to a PNG, grid overlay included, and read coordinates off it.
 
-**改桌面这件事必须在系统最底层做。** 「图标拖不走」「右键弹不出菜单」都是拿
-`WH_MOUSE_LL` 低层钩子吞消息实现的。有个反直觉的点：**拖动的拦截必须拦在「按下」**，
-不能拦在「抬起」—— 拖放循环是本进程的 UI 线程在跑，跑超过系统给钩子的超时（约 1 秒）
-钩子就会被**静默摘掉**，拦在抬起的话「拖慢一点」就能绕过去。低层钩子被摘掉这件事
-本身就很难缠，所以覆盖层的定时器每跳一次都会重挂一遍钩子兜底。
+Touching the desktop has to happen at the lowest level of the system. "Icons won't drag" and "no context menu comes up" are both done by swallowing messages with the `WH_MOUSE_LL` low-level hook. One counter-intuitive point: a drag has to be blocked on the button-down, not the button-up. The drag loop runs on this process's UI thread, and if it runs past the timeout the system gives a hook (about a second) the hook is silently unhooked — block on button-up and "drag slowly" gets around it. Low-level hooks being unhooked is nasty in itself, so the overlay's timer re-installs the hook on every tick as a backstop.
 
-**判定用的矩形和绘制的矩形是两套。** 覆盖层画出来的方框带逐帧随机抖动
-（看起来像图标在躁动），但命中判定必须用不带抖动的那套 —— 否则图标一抖，
-判定区就跟着漂走，明明点在图标上却漏判。
+Hit-test rectangles and drawn rectangles are two different sets. The boxes the overlay draws jitter every frame (so the icons look restless), but hit testing has to use the non-jittering set; otherwise the box drifts with the icons and a click that lands on an icon misses.
 
-**清场要防「打地鼠」。** 勒索时最小化所有窗口之后，有几个 UWP 窗口会自己弹回来。
-如果守望无脑压回去，就会变成每 150ms 一次的徒劳死循环（实测一场戏累计 1159 次）。
-所以加了「认输」逻辑：同一个窗口试 6 次还收不住就放弃它，并把名字写进日志。
+Teardown has to guard against whack-a-mole. After minimizing every window during the ransom, a few UWP windows pop themselves back. If the watcher just shoves them down again, that becomes a futile loop every 150ms (1159 times over a single run, measured). So it concedes: after 6 tries on the same window it gives up and writes the name to the log.
 
-## 已知限制
+## Known limitations
 
-- **平台**：只做了 x64 发布配置。Win32 配置能编译，但没测过。
-- **多显示器**：按主屏尺寸算的脸部位置和弹窗分布，副屏上没有演出。
-- **任务栏**：点任务栏按钮仍可能把被清场的窗口拉起来**闪一下** —— 那一下是发给
-  explorer 的普通鼠标消息，不在键盘钩子的管辖范围。要彻底堵死得装 `WH_SHELL` 钩子。
-- **UWP 窗口**：见上面「打地鼠」那条，少数 UWP 应用收不住。
-- **强杀不还原**：任务管理器强杀进程的话，被收走的窗口和金币快捷方式会留下，
-  用 `--clean-gold` 清理。
-- **explorer 重启**：覆盖层会重新找桌面窗口，但桌面图标的位置信息会丢一帧。
+- Platform: only the x64 release configuration is done. Win32 compiles but hasn't been tested.
+- Multi-monitor: face positions and popup distribution are computed from the primary display's size; nothing happens on secondary displays.
+- Taskbar: clicking a taskbar button can still pull a swept window up for a flash — that click is an ordinary mouse message to explorer, outside the keyboard hook's reach. Closing it off completely would need a `WH_SHELL` hook.
+- UWP windows: see the whack-a-mole note above; a few UWP apps won't stay down.
+- Kill leaves traces: killing the process from Task Manager leaves swept windows and coin shortcuts behind; clean up with `--clean-gold`.
+- explorer restarts: the overlay finds the desktop window again, but icon positions are lost for one frame.
 
-## 许可
+## License
 
-代码：MIT，见 [LICENSE](LICENSE)。
-第三方与素材：见 [NOTICE.md](NOTICE.md) —— **游戏素材不在 MIT 覆盖范围内**。
+Code: MIT, see [LICENSE](LICENSE).
+
+Third-party and assets: see [NOTICE.md](NOTICE.md). The game assets are not covered by the MIT license.
