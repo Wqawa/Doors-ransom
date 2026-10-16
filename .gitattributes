@@ -42,6 +42,12 @@
 *.pdb   binary
 *.lnk   binary
 
+# ---- 压缩包：云端自测产物打的 7z / zip ----
+# 这两行多了不亏：虽然 `text=auto` 一般能靠 NUL 字节认出是二进制，
+# 但万一判成文本，eol=lf 会把压缩流里的 CRLF 改掉 —— 包直接打不开。
+*.7z    binary
+*.zip   binary
+
 # ---- 让 GitHub 别把这些算进语言统计 ----
 assets/**  linguist-vendored
 Ransom_dev/src/third_party/**  linguist-vendored

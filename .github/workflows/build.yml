@@ -1,20 +1,30 @@
 # ============================================================================
 #  build.yml —— 在 GitHub 云端（Windows Server 2025 + Visual Studio 2026）编译
 #
-#  一次运行做四件事：
+#  一次运行做五件事，产物分两趟进仓库：
 #    1. 用 MSBuild 编译 Release|Win32 与 Release|x64 两个配置
 #       （平台名只能是 Win32 —— 见 Ransom_dev.vcxproj 里 OutputLayout 的注释；
 #        产物目录由工程算成 build\x32\ 与 build\x64\）
 #    2. 自测：把两个产物用【全部命令行参数】各跑一遍（tools\selftest.ps1），
 #       渲染出 PNG + 真实桌面截屏，并收一份 selftest-report.md
-#    3. 把两个产物重命名后放进 output\<编译完成时间>\
+#    3. 【第一趟，先】把两个产物重命名后放进 output\<编译完成时间>\ 并立刻提交。
+#       刻意排在打包之前：万一后面打包出岔子，exe 已经安全落地了。
 #         Ransom_dev_x32.exe   <- build\x32\Release\Ransom_dev.exe
 #         Ransom_dev_x64.exe   <- build\x64\Release\Ransom_dev.exe
-#       同时写一份 build-info.txt（时间、提交、哈希）、一份 selftest-report.md，
-#       外加一整个截图大文件夹：
-#         output\<时间戳>\screenshots\<类别>\<架构>\<用例>\*.png
-#           类别 = headless（自己导完就退）/ interactive（开窗挂着，连拍桌面）
-#    4. 把 output\ 提交并推回本仓库
+#       同时写一份 build-info.txt（时间、提交、哈希）和一份 selftest-report.md。
+#    4. 【第二趟，后】把测试产物打成高压缩比的包，放进同一个
+#       output\<编译完成时间>\ 里，再提交一次：
+#         output\<时间戳>\selftest-screenshots.7z   截图树
+#         output\<时间戳>\selftest-logs.7z          诊断日志
+#       包内路径和 selftest\ 下的相对路径逐字一致，解出来就是原样的一棵树：
+#         screenshots\interactive\x64\<用例>\desktop-1200ms.png
+#         x64\screen-<用例>\diag.log
+#    5. 两个 exe 和两个压缩包都挂一份到这次 run 的 Artifacts 上，不用 clone 就能下。
+#
+#  为什么默认 7z 而不是 zip（拿本仓库的真实截图量过）：122 张 PNG 共 27.8 MB，
+#  「7z -mx=9」压到 17.3 MB（62.2%），「zip -mx=9」只能到 27.1 MB（97.4%）。
+#  deflate 不跨文件找冗余，而连拍的相邻帧几乎一样，7z 的固实压缩吃得到这份红利。
+#  要 zip 就手动跑 workflow 时把 archive_format 填 zip。
 #
 #  步骤顺序是刻意的：自测放在"收集产物"之前，产物收集放在"提交"之前，
 #  而"让 job 变红"放在最后 —— 这样即使自测挂了，产物和截图也一定能上传出去，
@@ -43,10 +53,18 @@ on:
         description: '只保留最近 N 份产物（0 = 全部保留，不删任何东西）'
         required: false
         default: '0'
-      commit_screenshots:
-        description: '连诊断日志(diag.log)一起提交（1 = 是；截图和报告本来就默认进仓库）'
+      archive_format:
+        description: '测试产物的压缩格式：7z（压缩率高得多，默认）或 zip（到处都能解）'
+        required: false
+        default: '7z'
+      commit_raw_screenshots:
+        description: '除了压缩包，再提交一份解压好的截图文件夹（1 = 是；默认 0，只有压缩包进仓库）'
         required: false
         default: '0'
+      commit_logs:
+        description: '把诊断日志(diag.log)单独打成一个压缩包一起提交（1 = 是，默认 1）'
+        required: false
+        default: '1'
   push:
     branches: [ main ]
     paths-ignore:
@@ -63,7 +81,9 @@ concurrency:
 
 env:
   KEEP_LAST: ${{ github.event.inputs.keep_last || '0' }}
-  COMMIT_SCREENSHOTS: ${{ github.event.inputs.commit_screenshots || '0' }}
+  ARCHIVE_FORMAT: ${{ github.event.inputs.archive_format || '7z' }}
+  COMMIT_RAW_SCREENSHOTS: ${{ github.event.inputs.commit_raw_screenshots || '0' }}
+  COMMIT_LOGS: ${{ github.event.inputs.commit_logs || '1' }}
 
 jobs:
   build:
@@ -194,26 +214,19 @@ jobs:
             Write-Host '::warning title=缺少自测报告::没找到 selftest\selftest-report.md'
           }
 
-          # 截图也进仓库：一整个大文件夹，按 <类别>\<架构>\<用例> 分好类。
-          #   output\<时间戳>\screenshots\
-          #     headless\<x32|x64>\<用例>\*.png     自测用例自己导出的画面
-          #     interactive\<x32|x64>\<用例>\*.png  桌面连拍帧
-          # 这是有意默认进仓库的 —— 产物旁边就该能看到它长什么样。
-          # 每次运行约 25 MB，嫌胖就用 keep_last 只留最近几份。
-          if (Test-Path -LiteralPath 'selftest\screenshots') {
-            $shotsDir = Join-Path $dir 'screenshots'
-            Copy-Item -LiteralPath 'selftest\screenshots' -Destination $shotsDir -Recurse -Force
-            $png  = @(Get-ChildItem -LiteralPath $shotsDir -Filter '*.png' -File -Recurse)
-            $size = ($png | Measure-Object -Property Length -Sum).Sum
-            Write-Host ("  已附上截图：{0} 张 / {1:N0} bytes" -f $png.Count, $size)
-          } else {
-            Write-Host '::warning title=缺少截图目录::没找到 selftest\screenshots'
-          }
-
-          # commit_screenshots=1 时连 diag.log 一起带（默认不带，那些只对排障有用）
-          if ($env:COMMIT_SCREENSHOTS -eq '1' -and (Test-Path -LiteralPath 'selftest')) {
-            Copy-Item -LiteralPath 'selftest' -Destination (Join-Path $dir 'selftest') -Recurse -Force
-            Write-Host '  已附上完整自测目录（含 diag.log）'
+          # 截图默认不再以散文件进仓库 —— 下一趟会把它们整个打成 7z。
+          # 只有 commit_raw_screenshots=1 时才顺手也放一份解压好的，
+          # 方便直接在 GitHub 网页上逐张翻（代价是仓库里多 26 MB 散文件）。
+          if ($env:COMMIT_RAW_SCREENSHOTS -eq '1') {
+            if (Test-Path -LiteralPath 'selftest\screenshots') {
+              $shotsDir = Join-Path $dir 'screenshots'
+              Copy-Item -LiteralPath 'selftest\screenshots' -Destination $shotsDir -Recurse -Force
+              $png  = @(Get-ChildItem -LiteralPath $shotsDir -Filter '*.png' -File -Recurse)
+              $size = ($png | Measure-Object -Property Length -Sum).Sum
+              Write-Host ("  已附上解压好的截图：{0} 张 / {1:N0} bytes" -f $png.Count, $size)
+            } else {
+              Write-Host '::warning title=缺少截图目录::没找到 selftest\screenshots'
+            }
           }
 
           # 可选的清理：只留最近 N 份（默认 0 = 一份都不删）
@@ -232,7 +245,7 @@ jobs:
           Add-Content -Path $env:GITHUB_OUTPUT -Value "dir=$dir"
 
       # ----------------------------------------------------------------------
-      # 4. 提交并推回仓库
+      # 4. 第一趟提交：两个 exe + build-info.txt + selftest-report.md
       #    只 git add output —— 构建过程会重写 Ransom_dev\assets_gen.rc / .txt
       #    （gen_assets.ps1 按内容比对，checkout 出的 LF 和它写的 CRLF 不同），
       #    那些是构建副产物，不该混进产物提交里。
@@ -264,8 +277,160 @@ jobs:
           }
           if (-not $pushed) { throw '推送产物失败：连续 3 次都没推上去' }
 
+      # ----------------------------------------------------------------------
+      # 5. 打包测试产物（第二趟的开始）
+      #    打包就地在 selftest\ 里做（Push-Location），所以包内路径和 selftest\
+      #    下的相对路径逐字一致，解出来就是原样的一棵树。
+      #    日志那份要先收拢：diag.log 散在各用例目录里，按原相对路径复制到
+      #    暂存目录再打包，包内才看得出哪条日志属于哪个用例。
+      #    continue-on-error：打包挂了也要让后面的 Artifact 上传跑到，
+      #    变红放在最后一步统一判。
+      # ----------------------------------------------------------------------
+      - name: 打包测试产物（截图 + 诊断日志）
+        id: pack
+        if: always() && steps.package.outputs.dir != ''
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $dirAbs = (Resolve-Path -LiteralPath '${{ steps.package.outputs.dir }}').Path
+
+          # 找 7z。GitHub 的 Windows 镜像预装了 7-Zip，但 PATH 上不一定有，
+          # 所以按「PATH -> Program Files -> Program Files (x86) -> chocolatey」挨个找。
+          $sevenZip = $null
+          $onPath = Get-Command 7z -ErrorAction SilentlyContinue
+          if ($onPath) { $sevenZip = $onPath.Source }
+          if (-not $sevenZip) {
+            $candidates = @()
+            if ($env:ProgramFiles)        { $candidates += (Join-Path $env:ProgramFiles '7-Zip\7z.exe') }
+            if (${env:ProgramFiles(x86)}) { $candidates += (Join-Path ${env:ProgramFiles(x86)} '7-Zip\7z.exe') }
+            $candidates += 'C:\ProgramData\chocolatey\bin\7z.exe'
+            foreach ($c in $candidates) {
+              if (Test-Path -LiteralPath $c) { $sevenZip = $c; break }
+            }
+          }
+
+          $fmt = if ($env:ARCHIVE_FORMAT -eq 'zip') { 'zip' } else { '7z' }
+          if ($fmt -eq '7z' -and -not $sevenZip) {
+            Write-Host '::warning title=找不到 7z::退回 zip —— PNG 用 deflate 几乎压不动（实测只省 2.6%）'
+            $fmt = 'zip'
+          }
+          Write-Host "压缩格式: $fmt"
+          if ($sevenZip) { Write-Host "7-Zip:    $sevenZip" }
+
+          function New-Pack {
+            param([string]$Work, [string[]]$Items, [string]$Name)
+            $out = Join-Path $dirAbs "$Name.$fmt"
+            if (Test-Path -LiteralPath $out) { Remove-Item -LiteralPath $out -Force }
+            Push-Location -LiteralPath $Work
+            try {
+              if ($fmt -eq '7z') {
+                # -mx=9 最高压缩；-mmt=on 多线程；-bso0 -bsp0 关掉 7z 自己的输出
+                & $sevenZip a -t7z -mx=9 -mmt=on -bso0 -bsp0 $out @Items
+                if ($LASTEXITCODE -ne 0) { throw "7z 打包 $Name 失败，退出码 $LASTEXITCODE" }
+              } else {
+                Compress-Archive -Path $Items -DestinationPath $out -CompressionLevel Optimal -Force
+              }
+            } finally {
+              Pop-Location
+            }
+            if (-not (Test-Path -LiteralPath $out)) { throw "打包 $Name 之后找不到 $out" }
+            return $out
+          }
+
+          function Show-Pack {
+            param([string]$Label, [string]$Out, [int]$RawCount, [long]$RawBytes)
+            $f   = Get-Item -LiteralPath $Out
+            $pct = if ($RawBytes -gt 0) { $f.Length * 100.0 / $RawBytes } else { 0 }
+            Write-Host ("  {0,-20} {1,4} 个文件 {2,12:N0} bytes  ->  {3,12:N0} bytes  ({4:N1}%)" -f `
+                        $Label, $RawCount, $RawBytes, $f.Length, $pct)
+          }
+
+          $made = 0
+
+          # --- 测试产物：截图树（screenshots\<类别>\<架构>\<用例>\*.png）---
+          if (Test-Path -LiteralPath 'selftest\screenshots') {
+            $raw = Get-ChildItem -LiteralPath 'selftest\screenshots' -File -Recurse |
+                   Measure-Object -Property Length -Sum
+            $out = New-Pack -Work 'selftest' -Items @('screenshots') -Name 'selftest-screenshots'
+            Show-Pack -Label 'selftest-screenshots' -Out $out -RawCount $raw.Count -RawBytes $raw.Sum
+            $made++
+          } else {
+            Write-Host '::warning title=缺少截图目录::没找到 selftest\screenshots，跳过截图打包'
+          }
+
+          # --- 诊断日志：先按原相对路径收拢，再打包 ---
+          if ($env:COMMIT_LOGS -ne '1') {
+            Write-Host 'commit_logs != 1，跳过诊断日志打包'
+          } elseif (-not (Test-Path -LiteralPath 'selftest')) {
+            Write-Host '::warning title=缺少自测目录::没找到 selftest\，跳过日志打包'
+          } else {
+            $root  = (Resolve-Path -LiteralPath 'selftest').Path
+            $stage = Join-Path $env:RUNNER_TEMP 'selftest-logs'
+            Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction SilentlyContinue
+            New-Item -ItemType Directory -Force -Path $stage | Out-Null
+
+            $n = 0
+            foreach ($log in Get-ChildItem -LiteralPath 'selftest' -Filter 'diag.log' -File -Recurse) {
+              # 相对 selftest\ 的原路径，例如 x64\screen-phase-1-face\diag.log
+              $rel = $log.FullName.Substring($root.Length).TrimStart('\', '/')
+              $dst = Join-Path $stage $rel
+              New-Item -ItemType Directory -Force -Path (Split-Path -Parent $dst) | Out-Null
+              Copy-Item -LiteralPath $log.FullName -Destination $dst -Force
+              $n++
+            }
+
+            if ($n -eq 0) {
+              Write-Host '::warning title=没有诊断日志::selftest\ 下一个 diag.log 都没找到'
+            } else {
+              $raw = Get-ChildItem -LiteralPath $stage -File -Recurse | Measure-Object -Property Length -Sum
+              # 在 stage 里用 '*' 打包，包内路径才等于 selftest\ 下的相对路径
+              $out = New-Pack -Work $stage -Items @('*') -Name 'selftest-logs'
+              Show-Pack -Label 'selftest-logs' -Out $out -RawCount $raw.Count -RawBytes $raw.Sum
+              $made++
+            }
+          }
+
+          if ($made -eq 0) { Write-Host '::warning title=没打包出任何东西::'; exit 0 }
+          Write-Host "打包完成：$made 个压缩包，已放进 $dirAbs"
+
+      # ----------------------------------------------------------------------
+      # 6. 第二趟提交：只推压缩包
+      #    第一趟已经把两个 exe 推上去了，这一步才是体积大的测试产物。
+      #    分成两趟是因为打包要压几十 MB，慢；exe 先落地更稳。
+      # ----------------------------------------------------------------------
+      - name: 提交并推送压缩包
+        if: always() && steps.package.outputs.dir != ''
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          git config user.name  'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+
+          git add -- 'output'
+          $staged = git status --porcelain -- output
+          if (-not $staged) {
+            Write-Host 'output\ 没有新东西，跳过第二趟提交'
+            exit 0
+          }
+          Write-Host '待提交：'
+          $staged | ForEach-Object { Write-Host "  $_" }
+
+          git commit -m "build: ${{ steps.package.outputs.stamp }} 测试产物压缩包 (run #${{ github.run_number }}) [skip ci]"
+
+          $pushed = $false
+          for ($i = 1; $i -le 3; $i++) {
+            git push
+            if ($LASTEXITCODE -eq 0) { $pushed = $true; break }
+            Write-Host "push 失败（第 $i 次），rebase 后重试"
+            git pull --rebase --autostash origin $env:GITHUB_REF_NAME
+          }
+          if (-not $pushed) { throw '推送压缩包失败：连续 3 次都没推上去' }
+
       # 附带的便利：产物同时挂到这次 run 的 Artifacts 里，不用 clone 就能下载。
-      # 放在提交之后 —— 万一这步挂了，产物也已经进仓库了。
+      # 这一条挂的是整个 output\<时间戳>\，所以两个 exe、报告、两个压缩包都在里面。
+      # 放在两趟提交之后 —— 万一这步挂了，产物也已经进仓库了。
       # if: always() —— 自测失败也要传，否则证据全丢。dir 为空说明没走到收集那步。
       - name: 上传产物为运行产物（可下载）
         if: always() && steps.package.outputs.dir != ''
@@ -275,8 +440,9 @@ jobs:
           path: ${{ steps.package.outputs.dir }}
           retention-days: 30
 
-      # 自测证据单独传一份。独立成一条 Artifact 的好处：在 Actions 页面直接下载
-      # 就能看到全部 PNG，不用为了几张图去 clone 整个 output\。
+      # 自测证据单独传一份，是解压好的原始文件（截图 + diag.log + 报告），
+      # 不用先解仓库里那个 7z。独立成一条 Artifact 的好处：在 Actions 页面直接
+      # 下载就能看到全部 PNG，不用为了几张图去 clone 整个 output\。
       - name: 上传自测截图与报告
         if: always()
         uses: actions/upload-artifact@v7
@@ -289,14 +455,14 @@ jobs:
       # ----------------------------------------------------------------------
       # 最后一步才让 job 变红
       #    刻意放在这里，而不是让"自测"那一步直接红：一红就停，runner 马上
-      #    销毁，第 3 步收集的产物和第 7、8 步上传的截图就全都拿不到了。
+      #    销毁，收集的产物和上传的截图就全都拿不到了。
       #    先让证据全部传完，最后再判定成败。
       #    continue-on-error 的步骤 outcome='failure'、conclusion='success'，
       #    所以这里按 outcome 判。
       # ----------------------------------------------------------------------
-      - name: 自测失败则判定整个 job 失败
-        if: always() && steps.selftest.outcome == 'failure'
+      - name: 自测或打包失败则判定整个 job 失败
+        if: always() && (steps.selftest.outcome == 'failure' || steps.pack.outcome == 'failure')
         shell: pwsh
         run: |
-          Write-Host '::error title=自测未通过::详见本页 job 摘要，或 selftest_* 这条 Artifact 里的 selftest-report.md'
+          Write-Host '::error title=自测或打包未通过::自测详情见本页 job 摘要，或 selftest_* 这条 Artifact 里的 selftest-report.md；打包详情见上面「打包测试产物」那一步'
           exit 1
